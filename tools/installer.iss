@@ -30,7 +30,9 @@ Name: "{autoprograms}\JT - log e impostazioni"; Filename: "{localappdata}\JT"
 Name: "{autodesktop}\JT - Jflex Translator"; Filename: "{app}\JT.exe"; Tasks: desktopicon
 
 [Run]
+#ifdef WithTestDb
 Filename: "{app}\JT-TestDB.exe"; Description: "Crea un database Oracle di prova (chiede host, SID e utente)"; Flags: postinstall skipifsilent unchecked
+#endif
 Filename: "{app}\JT.exe"; Description: "Avvia JT"; Flags: nowait postinstall skipifsilent
 
 ; i log e le impostazioni stanno in %LOCALAPPDATA%\JT e restano anche dopo la disinstallazione

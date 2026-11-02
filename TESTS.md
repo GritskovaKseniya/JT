@@ -18,7 +18,7 @@ nascosta e vengono saltati se non c'e' un display. Durata: circa 40 secondi.
 ## Risultato (2026-11-02)
 
 ```
-Ran 526 tests in ~40 s
+Ran 542 tests in ~40 s
 OK
 ```
 
@@ -33,6 +33,7 @@ Eseguiti anche con i `ResourceWarning` trattati come errori.
 | `test_support.py` | 40 | Esecuzione in un thread (`BackgroundRunner`, `InlineRunner`: eventi, errori, Stop, un solo lavoro alla volta); testi (`fmt_count`, `shorten` mai oltre il limite, `reason`); informazioni sulla connessione (nome del database dichiarato dal server, password mai conservata); limite delle chiavi; timeout di Azure; cartella dei log creata e nomi unici; `JT.py` dichiara la scala dello schermo prima di aprire la finestra e chiude la connessione anche in caso di errore |
 | `test_regressions.py` | 6 | Cifre simili a numeri (`²`) rifiutate, JSON che non e' un oggetto tollerato, log con caption se manca la descrizione, testo di soli spazi non inviato ad Azure |
 | `test_ui.py` | 293 |
+| `test_release.py` | 11 | Procedura di rilascio: controllo dello .zip (file mancanti, dati personali, README/TestDB che non devono esserci, chiave Azure vera o segnaposto), cambio versione |
 | `test_testdb.py` | 13 | Database di prova: ogni tabella abilitata ha schema e righe, una riga ha tanti valori quante colonne, c'e' sempre qualcosa da tradurre (verificato con le query di JT su SQLite) e qualcosa gia' tradotto, casi particolari presenti; non tocca tabelle esistenti, `--recreate` solo su un suo database, crea `JTTEST` solo con l'amministratore, connessioni sempre chiuse, nomi non validi rifiutati | Vedi sotto |
 
 ### Cosa copre `test_ui.py`

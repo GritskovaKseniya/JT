@@ -1,0 +1,41 @@
+JT - Jflex Translator 3.0
+=========================
+
+Traduce con Azure Translator i testi di un database Jflex (Oracle).
+
+
+COSA SERVE
+----------
+- Windows 10 o 11.
+- Un client Oracle a 64 bit gia' installato sul PC (quello che usi per Jflex).
+  Senza, il pulsante "Connect" da' l'errore DPI-1047.
+- I dati del database Oracle: host, porta, SID, utente e password.
+- Una connessione a internet (la traduzione la fa Azure).
+
+
+COME INSTALLARE
+---------------
+1. Scompatta lo .zip in una cartella (per esempio Documenti\JT).
+   Non lanciare JT.exe da dentro lo zip.
+   Se lo zip e' arrivato per posta o scaricato: prima di scompattare fai clic destro
+   sullo .zip > Proprieta' > spunta "Sblocca" > OK.
+
+2. Avvia JT.exe.
+
+3. Se Windows mostra "Windows ha protetto il PC":
+   clicca "Ulteriori informazioni" e poi "Esegui comunque".
+   (Per non vedere piu' l'avviso: GUIDA_UTENTE.md, sezione 2, spiega come importare
+   il file JT-certificato.cer.)
+
+4. Nel primo passo scrivi host, porta, SID, utente e password, poi "Connect" e "Next".
+   Dalla volta dopo restano salvati.
+
+Per disinstallare basta cancellare la cartella. Log e impostazioni stanno in
+%LOCALAPPDATA%\JT (scrivilo nella barra degli indirizzi di Esplora file).
+
+
+SE QUALCOSA NON VA
+------------------
+- "Azure settings not found or not valid" o molte righe saltate: il servizio di traduzione non e'
+  configurato o la chiave non e' piu' valida. Rivolgiti a chi ti ha dato il programma.
+- Altri errori e istruzioni d'uso: GUIDA_UTENTE.md (nella stessa cartella).

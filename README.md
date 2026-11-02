@@ -8,6 +8,11 @@ Programma Windows (Tkinter) che traduce con **Azure Translator** i testi di un d
 - Com'e' fatto il codice: [ARCHITECTURE.md](ARCHITECTURE.md)
 - Test: [TESTS.md](TESTS.md) - Note di design: [UX_REVIEW.md](UX_REVIEW.md)
 
+## Per chi riceve il programma
+
+Nel pacchetto che si da' ai colleghi ci sono solo due file da leggere: `LEGGIMI.txt` (cosa serve e come installare, breve:
+il sorgente e' `tools\LEGGIMI.txt`) e [GUIDA_UTENTE.md](GUIDA_UTENTE.md) (come si usa).
+
 ## Avvio da sorgente
 
 Serve Python 3.10 con `cx_Oracle` e `requests`, e un client Oracle a 64 bit sul PC.
@@ -34,6 +39,9 @@ Solo libreria standard. Oracle e Azure sono simulati: nessuna connessione, nessu
 
 ## Creare il programma da dare agli altri
 
+**Procedura consigliata:** doppio clic su `release.bat` (test, costruzione, firma, controllo dello .zip e prova di avvio, tutto in
+un passo). Vedi [RILASCIO.md](RILASCIO.md). Quello che segue spiega i singoli strumenti.
+
 ```
 uv pip install --python .venv\Scripts\python.exe pyinstaller         (una volta sola)
 .venv\Scripts\python.exe tools\build.py
@@ -43,7 +51,7 @@ Risultato in `dist\`:
 
 | File | Cosa e' |
 |---|---|
-| `dist\JT\JT.exe` | il programma con tutto dentro (non serve Python); accanto ci sono `Data`, `Graphics`, le guide e `JT-TestDB.exe` |
+| `dist\JT\JT.exe` | il programma con tutto dentro (non serve Python); accanto ci sono `Data`, `Graphics`, `LEGGIMI.txt`, `GUIDA_UTENTE.md` (e `JT-TestDB.exe` se non si usa `--no-testdb`) |
 | `dist\JT-3.0.zip` | la cartella `JT` compressa: si scompatta e si lancia `JT.exe` |
 | `dist\JT-Setup-3.0.exe` | programma di installazione (collegamento nel menu Start, disinstallazione). Solo se e' installato [Inno Setup 6](https://jrsoftware.org/isdl.php) |
 
@@ -54,6 +62,20 @@ Opzioni:
 - `--oracle-client "C:\percorso\client\bin"` copia il client Oracle a 64 bit (cartella con `oci.dll`) in `oracle_client`:
   JT lo usa da solo e il PC non ha bisogno di Oracle. Verifica la licenza prima di ridistribuirlo.
 - `--no-installer` salta il setup anche se Inno Setup c'e'.
+- `--no-testdb` non mette nel pacchetto `JT-TestDB.exe` (lo strumento del database di prova): per i colleghi che usano solo JT.
+- `--sign` firma `JT.exe`, `JT-TestDB.exe` (se c'e') e il setup con un certificato di code signing, con marca temporale. Il certificato si
+  cerca prima nel file `.pfx` indicato da `JT_SIGN_PFX` (password in `JT_SIGN_PASSWORD`: il certificato dell'azienda), poi nel
+  Magazzino certificati dell'utente (`Cert:\CurrentUser\My`, soggetto `JT Jflex Translator`). Il pacchetto contiene anche
+  `JT-certificato.cer` (solo la parte pubblica). Un certificato **autofirmato** non e' noto agli altri PC: finche' non lo importano
+  tra gli editori attendibili Windows continua a segnalare l'editore come sconosciuto. Per un risultato pulito serve un
+  certificato dell'azienda o di un'autorita' riconosciuta.
+
+Creare un certificato autofirmato per le prove (una volta, PowerShell):
+
+```
+New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=JT Jflex Translator - Nome Cognome" -KeyUsage DigitalSignature `
+  -CertStoreLocation Cert:\CurrentUser\My -NotAfter (Get-Date).AddYears(3)
+```
 
 L'installazione e' per utente (`%LOCALAPPDATA%\Programs\JT`, senza diritti di amministratore). Come le altre applicazioni,
 JT tiene **separati il programma e i dati dell'utente**:
