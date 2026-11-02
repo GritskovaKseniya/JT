@@ -1,0 +1,14 @@
+# segreti e dati personali: non vanno mai su GitHub
+Data/azure_services.json
+Data/connection_data.json
+Data/query_data.json
+Logs/
+*.csv
+
+# ambiente e file generati
+.venv/
+__pycache__/
+*.pyc
+build/
+dist/
+*.spec

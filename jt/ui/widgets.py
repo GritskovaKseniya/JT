@@ -1,0 +1,296 @@
+"""Widget riutilizzabili: suggerimento, banner di stato, barra della connessione, pannello dei passi, testi che vanno a capo."""
+import os
+import tkinter as tk
+from tkinter import ttk
+
+from . import scale
+from .scale import px
+from .texts import shorten
+from .theme import FONT, FONT_SYMBOL, PALETTE
+
+
+class ToolTip:
+    """Suggerimento che compare passando il mouse sul widget (o su uno qualsiasi di quelli indicati: un solo riquadro).
+    content: dict (title, intro, rows, footer) oppure funzione che lo restituisce."""
+
+    def __init__(self, widget, content, *more_widgets):
+        self.widget = widget
+        self.widgets = (widget,) + more_widgets
+        self.content = content
+        self.tip = None
+        for w in self.widgets:
+            w.bind('<Enter>', self.show, add='+')
+            w.bind('<Leave>', self._leave, add='+')
+
+    def show(self, _event=None):
+        if self.tip:
+            return
+        data = self.content() if callable(self.content) else self.content
+        c = PALETTE
+        self.tip = tk.Toplevel(self.widget)
+        self.tip.wm_overrideredirect(True)
+        outer = tk.Frame(self.tip, bg=c['border'], padx=1, pady=1)
+        outer.pack()
+        body = tk.Frame(outer, bg='white', padx=px(10), pady=px(7))
+        body.pack()
+        tk.Label(body, text=data['title'], bg='white', fg=c['accent'], font=(FONT, 9, 'bold')).pack(anchor='w')
+        if data.get('intro'):
+            tk.Label(body, text=data['intro'], bg='white', fg=c['text'], font=(FONT, 9),
+                     wraplength=px(300), justify='left').pack(anchor='w', pady=(px(1), px(4)))
+        grid = tk.Frame(body, bg='white')
+        grid.pack(anchor='w', fill='x', pady=(px(2), 0))
+        for i, (name, desc) in enumerate(data.get('rows', [])):
+            tk.Label(grid, text=name, bg='white', fg=c['text'], font=(FONT, 9, 'bold'),
+                     justify='left', anchor='nw').grid(row=i, column=0, sticky='nw', padx=(0, px(12)), pady=px(1))
+            tk.Label(grid, text=desc, bg='white', fg=c['muted'], font=(FONT, 9),
+                     wraplength=px(210), justify='left', anchor='nw').grid(row=i, column=1, sticky='nw', pady=px(1))
+        if data.get('footer'):
+            tk.Frame(body, bg=c['border'], height=1).pack(fill='x', pady=(px(5), px(4)))
+            tk.Label(body, text=data['footer'], bg='white', fg=c['muted'], font=(FONT, 9),
+                     wraplength=px(300), justify='left').pack(anchor='w')
+        # posizione: sotto il widget, ma sempre dentro lo schermo
+        self.tip.update_idletasks()
+        w, h = self.tip.winfo_reqwidth(), self.tip.winfo_reqheight()
+        x = min(self.widget.winfo_rootx() + px(10), self.widget.winfo_screenwidth() - w - px(10))
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + px(6)
+        if y + h > self.widget.winfo_screenheight() - px(10):
+            y = self.widget.winfo_rooty() - h - px(6)
+        self.tip.wm_geometry(f'+{max(x, 0)}+{max(y, 0)}')
+        self.tip.lift()
+
+    def _leave(self, _event=None):
+        """Passare da un widget all'altro dello stesso suggerimento non lo chiude."""
+        try:
+            under_pointer = self.widget.winfo_containing(*self.widget.winfo_pointerxy())
+        except (tk.TclError, KeyError):
+            under_pointer = None
+        if under_pointer not in self.widgets:
+            self.hide()
+
+    def hide(self, _event=None):
+        if self.tip:
+            self.tip.destroy()
+            self.tip = None
+
+
+class StatusBar(tk.Frame):
+    """Banner di stato: barra colorata a sinistra, icona e testo su fondo tenue. L'altezza segue il testo
+    (minimo due righe). `show(stato, testo)` con stato in info/ok/error/warn; `config(text=, fg=)` come una Label.
+    `on_change` viene chiamata quando cambia il testo (la finestra puo' doversi adattare)."""
+
+    STYLES = {   # stato: (sfondo, barra, testo, icona, simbolo)
+        'info': ('#eef1f6', '#9aa7bd', PALETTE['muted'], PALETTE['muted'], 'ⓘ'),
+        'ok': ('#e8f5ec', PALETTE['ok'], '#14532d', PALETTE['ok'], '✔'),
+        'error': ('#fdeceb', PALETTE['error'], '#7f1d1d', PALETTE['error'], '✖'),
+        'warn': ('#fff4e0', PALETTE['warn'], '#7c2d12', PALETTE['warn'], '⚠'),
+    }
+    BY_COLOR = {PALETTE['ok']: 'ok', 'green': 'ok', PALETTE['error']: 'error', 'red': 'error',
+                PALETTE['warn']: 'warn', 'orange': 'warn'}
+
+    def __init__(self, parent, text, on_change=None):
+        super().__init__(parent, bd=0, highlightthickness=0)
+        self.on_change = on_change
+        self._idle_job = None
+        self.columnconfigure(2, weight=1)
+        self.rowconfigure(0, minsize=px(38))
+        self.bar = tk.Frame(self, width=px(5), bd=0)
+        self.bar.grid(row=0, column=0, sticky='ns')
+        self.icon = tk.Label(self, font=(FONT_SYMBOL, 12), padx=px(10))
+        self.icon.grid(row=0, column=1)
+        self.message = tk.Label(self, text=text, anchor='w', justify='left', font=(FONT, 9),
+                                wraplength=px(320), pady=px(6))
+        self.message.grid(row=0, column=2, sticky='ew')
+        self.state = 'info'
+        self.set_state('info')
+
+    def set_state(self, name):
+        self.state = name
+        bg, bar, fg, icon, glyph = self.STYLES[name]
+        tk.Frame.configure(self, bg=bg)
+        self.bar.configure(bg=bar)
+        self.icon.configure(bg=bg, fg=icon, text=glyph)
+        self.message.configure(bg=bg, fg=fg)
+
+    def show(self, state, text):
+        self.message.configure(text=text)
+        self.set_state(state)
+        self._notify()
+
+    def config(self, text=None, fg=None, **kw):
+        if text is not None:
+            self.message.configure(text=text)
+        if fg is not None:
+            self.set_state(self.BY_COLOR.get(fg, 'info'))
+        if kw:
+            tk.Frame.configure(self, **kw)
+        if text is not None:
+            self._notify()
+
+    configure = config
+
+    def set_wrap(self, width):
+        self.message.configure(wraplength=width)
+
+    def _notify(self):
+        if self.on_change and self._idle_job is None:
+            self._idle_job = self.after_idle(self._fire)
+
+    def _fire(self):
+        self._idle_job = None
+        if self.on_change:
+            self.on_change()
+
+    def destroy(self):
+        if self._idle_job is not None:
+            try:
+                self.after_cancel(self._idle_job)
+            except tk.TclError:
+                pass
+        super().destroy()
+
+
+class InfoBar(tk.Frame):
+    """Riga in basso, sempre visibile e a bassa enfasi: a quale database si e' collegati.
+    Mostra il nome del database dichiarato dal server (se lo da') altrimenti l'SID digitato; il dettaglio e' nel suggerimento."""
+
+    def __init__(self, parent):
+        super().__init__(parent, bg=PALETTE['bg'])
+        tk.Frame(self, height=1, bg=PALETTE['border']).pack(fill='x')
+        row = tk.Frame(self, bg=PALETTE['bg'], padx=px(20), pady=px(5))
+        row.pack(fill='x')
+        self.dot = tk.Label(row, text='●', font=(FONT_SYMBOL, 8), bg=PALETTE['bg'])
+        self.dot.pack(side='left')
+        self.label = tk.Label(row, font=(FONT, 9), fg=PALETTE['muted'], bg=PALETTE['bg'], anchor='w')
+        self.label.pack(side='left', padx=(px(6), 0))
+        self.info = None
+        ToolTip(row, self._hint, self.dot, self.label)
+        self.set_disconnected()
+
+    def set_connected(self, info):
+        self.info = info
+        name = shorten(info.get('db_name') or info.get('sid') or '?', 30)
+        self.dot.configure(fg=PALETTE['ok'])
+        self.label.configure(text=f"Connected to {name}   ·   {shorten(info.get('host', ''), 30)}   ·   "
+                                  f"user {shorten(info.get('user', ''), 24)}")
+
+    def set_disconnected(self):
+        self.info = None
+        self.dot.configure(fg='#8a94a6')
+        self.label.configure(text='Not connected')
+
+    def _hint(self):
+        if not self.info:
+            return {'title': 'Database connection', 'rows': [('Status', 'Not connected')]}
+        info = self.info
+        rows = [('Database', info.get('db_name') or '(not reported by the server)')]
+        if info.get('sid') and info['sid'].lower() != str(info.get('db_name') or '').lower():
+            rows.append(('SID', info['sid']))                 # solo se e' diverso dal nome dichiarato dal server
+        rows += [('Host', f"{info.get('host', '')}:{info.get('port', '')}"), ('User', info.get('user', ''))]
+        return {'title': 'Database connection', 'rows': rows}
+
+
+class WrapTracker:
+    """Ricalcola l'"a capo" dei testi quando cambia la larghezza della schermata."""
+
+    def __init__(self):
+        self._items = []
+
+    def add(self, widget, margin):
+        self._items.append((widget, margin))
+
+    def update(self, frame_width):
+        for widget, margin in self._items:
+            width = max(px(180), frame_width - px(margin))
+            if hasattr(widget, 'set_wrap'):
+                widget.set_wrap(width)
+            else:
+                widget.config(wraplength=width)
+
+
+def coming_soon(parent, text, wrap):
+    """Riga "COMING SOON  <testo>" per le funzioni in arrivo."""
+    row = ttk.Frame(parent)
+    tk.Label(row, text='COMING SOON', bg=PALETTE['accent_soft'], fg=PALETTE['accent'], font=(FONT, 8, 'bold'),
+             padx=px(6), pady=px(1)).pack(side='left', anchor='n', padx=(0, px(8)))
+    label = ttk.Label(row, text=text, style='Muted.TLabel', wraplength=px(262), justify='left')
+    label.pack(side='left', anchor='w')
+    wrap.add(label, 150)
+    return row
+
+
+class Stepper(tk.Frame):
+    """Pannello dei passi: (1) Connection ── (2) Translation, con il link "New connection" a destra.
+
+    I pallini sono immagini (Graphics/step_<n>_<stato>[_<px>].png, antialiasing, una per scala dello schermo).
+    Senza immagini si usa un'etichetta di testo. `states` dice lo stato di ogni passo: 'done', 'current' o 'todo'."""
+
+    NAMES = ('Connection', 'Translation')
+    STATES = ('done', 'current', 'todo')
+    IMAGES = ((1, 'current'), (1, 'done'), (2, 'todo'), (2, 'current'))   # gli unici pallini che compaiono
+
+    def __init__(self, parent, on_new_connection, graphics_dir=None):
+        super().__init__(parent, bg=PALETTE['bg'], padx=px(20), pady=px(12))
+        self.step = 1
+        self.states = ['current', 'todo']
+        self.columnconfigure(2, weight=1)
+        self._images = self._load_images(graphics_dir)
+        self._badges, self._names = [], []
+        for index, (name, column) in enumerate(zip(self.NAMES, (0, 3))):
+            badge = tk.Label(self, bg=PALETTE['bg'], font=(FONT, 9, 'bold'), width=2)
+            badge.grid(row=0, column=column)
+            label = tk.Label(self, text=name, bg=PALETTE['bg'], font=(FONT, 10))
+            label.grid(row=0, column=column + 1, padx=(px(6), 0))
+            self._badges.append(badge)
+            self._names.append(label)
+        tk.Frame(self, height=2, bg=PALETTE['border']).grid(row=0, column=2, sticky='ew', padx=px(8))
+        self.link = tk.Label(self, text='New connection', bg=PALETTE['bg'], fg=PALETTE['accent'],
+                             cursor='hand2', font=(FONT, 9, 'underline'))
+        self.link.grid(row=0, column=5, padx=(px(14), 0))
+        self.link.bind('<Button-1>', lambda _e: self._click(on_new_connection))
+        self.link_enabled = True
+        self.set_active(1)
+
+    @staticmethod
+    def _load_images(graphics_dir):
+        """Pallini della dimensione adatta alla scala dello schermo (24, 30, 36 o 48 px)."""
+        factor = scale.factor()
+        size = 24 if factor < 1.1 else 30 if factor < 1.35 else 36 if factor < 1.75 else 48
+        suffix = '' if size == 24 else f'_{size}'
+        images = {}
+        for number, state in Stepper.IMAGES:
+            try:
+                images[(number, state)] = tk.PhotoImage(
+                    file=os.path.join(graphics_dir, f'step_{number}_{state}{suffix}.png'))
+            except (tk.TclError, TypeError):
+                return {}                # anche una sola immagine mancante: tutto in modalita' testo
+        return images
+
+    def _click(self, callback):
+        if self.link_enabled:
+            callback()
+
+    def set_link_enabled(self, enabled):
+        self.link_enabled = enabled
+        self.link.configure(fg=PALETTE['accent'] if enabled else PALETTE['muted'],
+                            cursor='hand2' if enabled else 'arrow')
+
+    def _style_badge(self, badge, number, state):
+        if self._images:
+            badge.configure(image=self._images[(number, state)], width=0)
+            return
+        c = PALETTE                       # modalita' testo
+        text, bg, fg = {'done': ('✔', c['ok'], 'white'), 'current': (str(number), c['accent'], 'white'),
+                        'todo': (str(number), c['trough'], c['muted'])}[state]
+        badge.configure(text=text, bg=bg, fg=fg)
+
+    def set_active(self, step):
+        self.step = step
+        self.states = ['done' if i < step else 'current' if i == step else 'todo' for i in (1, 2)]
+        for i, (badge, label, state) in enumerate(zip(self._badges, self._names, self.states), start=1):
+            self._style_badge(badge, i, state)
+            label.configure(fg=PALETTE['text'] if state == 'current' else PALETTE['muted'],
+                            font=(FONT, 10, 'bold') if state == 'current' else (FONT, 10))
+        if step == 2:
+            self.link.grid()
+        else:
+            self.link.grid_remove()

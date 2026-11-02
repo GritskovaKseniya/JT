@@ -1,0 +1,7 @@
+{
+    "host": "nome-server",
+    "port": "1521",
+    "sid": "ORCL",
+    "username": "utente",
+    "password": ""
+}

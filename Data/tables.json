@@ -1,0 +1,47 @@
+[
+ {
+  "table": "FW_STRINGS",
+  "description": "JFX: Strings",
+  "enabled": true
+ },
+ {
+  "table": "FW_FIELD_STRINGS",
+  "description": "JFX: Triplets",
+  "enabled": true
+ },
+ {
+  "table": "FW_OPZIONI",
+  "description": "JFX: Options",
+  "enabled": true
+ },
+ {
+  "table": "FW_OPZIONI_DUE",
+  "description": "JFX: Options two",
+  "enabled": true
+ },
+ {
+  "table": "FW_OPZIONI_TRE",
+  "description": "JFX: Options three",
+  "enabled": true
+ },
+ {
+  "table": "FW_OPZIONI_INT",
+  "description": "JFX: Options int",
+  "enabled": true
+ },
+ {
+  "table": "FWK_STRINGS",
+  "description": "SFC: Strings & Triplets",
+  "enabled": false
+ },
+ {
+  "table": "FW_DOCU_NODES_T",
+  "description": "JFX: Docu nodes",
+  "enabled": true
+ },
+ {
+  "table": "FW_OBJ_DESCRS",
+  "description": "JFX: Object descriptions",
+  "enabled": true
+ }
+]
