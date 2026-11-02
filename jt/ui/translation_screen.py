@@ -274,7 +274,7 @@ class TranslationScreen(ttk.Frame):
             translator = self.app.make_translator()
         except Exception as e:
             print(e)
-            self.status.show('error', 'Azure settings not found or not valid (Data/azure_services.json).')
+            self.status.show('error', f'Azure settings not found or not valid ({self.app.paths.azure}).')
             return
         self._begin_run(selection)
         service, app = self.app.service, self.app

@@ -1,5 +1,6 @@
 """Lettura e scrittura dei file JSON di configurazione."""
 import json
+import os
 
 
 def read_json(path):
@@ -8,5 +9,6 @@ def read_json(path):
 
 
 def write_json(path, obj):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(obj, f, indent=4)

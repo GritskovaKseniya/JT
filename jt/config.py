@@ -1,5 +1,6 @@
 """Costanti e percorsi dell'applicazione."""
 import os
+import shutil
 import sys
 from dataclasses import dataclass
 
@@ -23,21 +24,47 @@ AZURE_TIMEOUT = (5, 30)     # secondi: per collegarsi, per la risposta (senza, u
 
 @dataclass(frozen=True)
 class Paths:
-    """Percorsi dei file, tutti relativi alla cartella del progetto (non alla cartella di lancio)."""
+    """Percorsi dei file, tutti relativi alla cartella del progetto (non alla cartella di lancio).
+
+    Programma installato (.exe): i file fissi (Data, Graphics) stanno accanto all'exe, in sola lettura; quello che
+    l'utente produce o modifica (log, ultima connessione, ultima scelta, chiave Azure) sta in %LOCALAPPDATA%\JT, come
+    fanno le altre applicazioni: sopravvive agli aggiornamenti e alla disinstallazione e non serve scrivere in Program Files.
+    Da sorgente `user_base` coincide con `base` e tutto resta nella cartella del progetto."""
     base: str
+    user_base: str = ''
+
+    def __post_init__(self):
+        if not self.user_base:
+            object.__setattr__(self, 'user_base', self.base)
 
     @classmethod
     def default(cls):
-        if getattr(sys, 'frozen', False):          # programma impacchettato (.exe): Data e Graphics stanno accanto all'exe
-            return cls(os.path.dirname(sys.executable))
+        if getattr(sys, 'frozen', False):          # programma impacchettato (.exe)
+            home = os.environ.get('LOCALAPPDATA') or os.path.expanduser('~')
+            return cls(os.path.dirname(sys.executable), os.path.join(home, 'JT'))
         return cls(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
     def _file(self, folder, name):
         return os.path.join(self.base, folder, name)
 
+    def _user_file(self, name):
+        """File dell'utente: in `Data` accanto al programma da sorgente, nella cartella dati dell'utente se installato."""
+        if self.user_base == self.base:
+            return self._file('Data', name)
+        return os.path.join(self.user_base, name)
+
+    def seed_user_files(self):
+        """Alla prima partenza copia nella cartella dell'utente il modello della chiave Azure fornito col programma."""
+        if self.user_base == self.base or os.path.exists(self.azure):
+            return
+        packaged = self._file('Data', 'azure_services.json')
+        if os.path.exists(packaged):
+            os.makedirs(self.user_base, exist_ok=True)
+            shutil.copy(packaged, self.azure)
+
     @property
     def azure(self):
-        return self._file('Data', 'azure_services.json')
+        return self._user_file('azure_services.json')
 
     @property
     def tables(self):
@@ -49,11 +76,11 @@ class Paths:
 
     @property
     def connection(self):
-        return self._file('Data', 'connection_data.json')
+        return self._user_file('connection_data.json')
 
     @property
     def query(self):
-        return self._file('Data', 'query_data.json')
+        return self._user_file('query_data.json')
 
     @property
     def glossary(self):
@@ -69,4 +96,4 @@ class Paths:
 
     @property
     def logs(self):
-        return os.path.join(self.base, 'Logs')
+        return os.path.join(self.user_base, 'Logs')

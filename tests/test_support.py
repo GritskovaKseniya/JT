@@ -336,3 +336,64 @@ class DataFilesTests(unittest.TestCase):
         with patch.object(sys, 'frozen', True, create=True), patch.object(sys, 'executable', r'C:\Apps\JT\JT.exe'):
             self.assertEqual(Paths.default().base, r'C:\Apps\JT')
         self.assertTrue(os.path.isdir(Paths.default().base + os.sep + 'Data'))
+
+
+class InstalledPathsTests(JtCase):
+    """Programma installato: i file fissi accanto all'exe, quelli dell'utente in %LOCALAPPDATA%\JT."""
+
+    def paths(self):
+        from jt.config import Paths
+        program, user = os.path.join(self.tmp, 'Programs', 'JT'), os.path.join(self.tmp, 'AppData', 'JT')
+        os.makedirs(os.path.join(program, 'Data'))
+        with open(os.path.join(program, 'Data', 'azure_services.json'), 'w') as f:
+            f.write('{"subscription_key": "TEMPLATE"}')
+        return Paths(program, user), program, user
+
+    def test_user_files_and_logs_live_in_the_user_folder_and_fixed_files_next_to_the_exe(self):
+        paths, program, user = self.paths()
+        for name in (paths.azure, paths.connection, paths.query, paths.logs):
+            self.assertTrue(name.startswith(user), name)
+        for name in (paths.tables, paths.languages, paths.glossary, paths.graphics, paths.icon):
+            self.assertTrue(name.startswith(program), name)
+
+    def test_from_source_everything_stays_in_the_project_as_before(self):
+        from jt.config import Paths
+        paths = Paths(self.tmp)
+        self.assertEqual(paths.user_base, self.tmp)
+        self.assertEqual(paths.connection, os.path.join(self.tmp, 'Data', 'connection_data.json'))
+        self.assertEqual(paths.logs, os.path.join(self.tmp, 'Logs'))
+
+    def test_the_azure_template_is_copied_once_and_never_overwritten(self):
+        paths, program, user = self.paths()
+        paths.seed_user_files()
+        with open(paths.azure) as f:
+            self.assertIn('TEMPLATE', f.read())
+        with open(paths.azure, 'w') as f:
+            f.write('{"subscription_key": "MINE"}')
+        paths.seed_user_files()
+        with open(paths.azure) as f:
+            self.assertIn('MINE', f.read())
+
+    def test_seeding_does_nothing_from_source(self):
+        from jt.config import Paths
+        os.makedirs(os.path.join(self.tmp, 'Data'))
+        Paths(self.tmp).seed_user_files()
+        self.assertEqual(os.listdir(os.path.join(self.tmp, 'Data')), [])
+
+    def test_settings_and_logs_are_written_into_a_user_folder_that_does_not_exist_yet(self):
+        from jt.logs import write_run_logs
+        from jt.service import RunResult
+        from jt.settings import Settings
+        paths, _, user = self.paths()
+        Settings(paths).save_last_query('Italian', 'English', 'JFX: Strings')
+        Settings(paths).save_connection('h', '1521', 'S', 'u', 'p')
+        written = write_run_logs(RunResult(successes=[{'a': 1}]), paths.logs)
+        self.assertTrue(all(p.startswith(user) for p in written + [paths.query, paths.connection]))
+        self.assertTrue(os.path.exists(paths.query) and os.path.exists(paths.connection))
+
+    def test_a_packaged_program_uses_the_local_app_data_folder(self):
+        from jt.config import Paths
+        with patch.object(sys, 'frozen', True, create=True), patch.object(sys, 'executable', r'C:\Apps\JT\JT.exe'), \
+                patch.dict(os.environ, {'LOCALAPPDATA': r'C:\Users\x\AppData\Local'}):
+            paths = Paths.default()
+        self.assertEqual((paths.base, paths.user_base), (r'C:\Apps\JT', r'C:\Users\x\AppData\Local\JT'))
