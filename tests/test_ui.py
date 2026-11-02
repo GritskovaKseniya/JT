@@ -26,6 +26,7 @@ from jt.db import Database  # noqa: E402
 from jt.glossary import Glossary  # noqa: E402
 from jt.runner import BackgroundRunner, InlineRunner  # noqa: E402
 from jt.service import Progress  # noqa: E402
+from jt.tables import get_table  # noqa: E402
 from jt.ui import scale  # noqa: E402
 from jt.ui.app import JTApp  # noqa: E402
 from jt.ui.connection_screen import ConnectionScreen  # noqa: E402
@@ -193,7 +194,7 @@ class UiCase(JtCase):
 
     def log_name(self, text):
         """Nome del file di log citato nel banner finale (dopo 'Log: Logs' e una barra rovesciata), o None."""
-        match = re.search(r'Log: Logs\\(\S+\.csv)$', text)
+        match = re.search(r'Log: Logs\\(\S+\.csv)(?:\s|$)', text)
         return match.group(1) if match else None
 
     def choose(self, screen, lan_in='Italian', lan_out='English', table='JFX: Strings', max_rows='5', keys=''):
@@ -1448,6 +1449,9 @@ class TranslateTests(UiCase):
         self.assertEqual(screen.status.state, 'warn')
         self.assertTrue(text.startswith('Done: 1 inserted. 1 errors, 0 skipped. Log: Logs\\JT_errors_log_'), text)
         self.assertEqual(self.log_name(text), os.path.basename(self.logs('errors')[0]))
+        self.assertIn('First error (code 100001): simulated write error', text)     # il motivo si vede subito, senza aprire il log
+        with open(self.logs('errors')[0], encoding='utf-8-sig') as f:
+            self.assertIn('simulated write error', f.read())
         self.assertEqual(len(self.logs('errors')), 1)
         self.assertEqual(len(self.logs('inserts')), 1)
         self.assertIn('Errors 1', screen.label_bar.cget('text'))
@@ -3211,6 +3215,38 @@ class ReviewFixesUiTests(UiCase):
         with patch.object(self.app.db, 'close', side_effect=lambda: events.append('close')):
             self.app.shutdown()
         self.assertEqual(events, ['stop', ('join', 10), 'close'])
+
+
+class LogsFolderTests(UiCase):
+    """L'utente deve poter trovare i log senza sapere dove sono."""
+
+    def test_the_link_opens_the_logs_folder_and_creates_it_when_missing(self):
+        screen = self.step2()
+        self.assertFalse(os.path.exists(self.paths.logs))
+        with patch('jt.ui.translation_screen.os.startfile', create=True) as startfile:
+            fire(screen.link_logs, '<Button-1>')
+        startfile.assert_called_once_with(self.paths.logs)
+        self.assertTrue(os.path.isdir(self.paths.logs))
+
+    def test_a_folder_that_cannot_be_opened_is_explained(self):
+        screen = self.step2()
+        with patch('jt.ui.translation_screen.os.startfile', create=True, side_effect=OSError('no explorer')):
+            screen.open_logs()
+        self.assertEqual(screen.status.state, 'error')
+        self.assertIn(self.paths.logs, screen.status.message.cget('text'))
+
+    def test_the_full_path_is_in_the_tooltip_text_of_the_link(self):
+        screen = self.step2()
+        self.assertEqual(screen.link_logs.cget('text'), 'Open the logs folder')
+
+
+class DocuNodesInsertTests(unittest.TestCase):
+    def test_the_insert_names_its_columns_so_the_table_may_have_any_number_of_them(self):
+        for columns in (['NODEID', 'LANG', 'TEXT'], ['NODEID', 'LANG', 'TEXT', 'DESCR'], ['A', 'B', 'C', 'D', 'E']):
+            bound = get_table('FW_DOCU_NODES_T').bind_columns(columns)
+            sql, binds = bound.insert((7, 'it', 'ciao'), 'es', {'text': 'hola'})
+            self.assertEqual(sql, f'INSERT INTO FW_DOCU_NODES_T ({columns[0]}, {columns[1]}, {columns[2]}) VALUES (:1, :2, :3)')
+            self.assertEqual(binds, [7, 'es', 'hola'])
 
 
 class GeometryRecorder:

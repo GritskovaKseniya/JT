@@ -28,7 +28,7 @@ SCHEMA = {
                         'description VARCHAR2(2000), tip VARCHAR2(2000), info VARCHAR2(100), usr VARCHAR2(30), dt DATE',
     'FW_OPZIONI': 'lingua VARCHAR2(5) NOT NULL, tipo VARCHAR2(60) NOT NULL, codice NUMBER(10) NOT NULL, '
                   'descrizione VARCHAR2(400), n1 VARCHAR2(30), n2 VARCHAR2(30), usr VARCHAR2(30), dt DATE',
-    'FW_DOCU_NODES_T': 'nodeid NUMBER(10) NOT NULL, lang VARCHAR2(5) NOT NULL, text VARCHAR2(4000), descr VARCHAR2(400)',
+    'FW_DOCU_NODES_T': 'nodeid NUMBER(10) NOT NULL, lang VARCHAR2(5) NOT NULL, nodetitle VARCHAR2(4000)',   # 3 colonne, come nel DB vero
     'FW_OBJ_DESCRS': 'objid NUMBER(10) NOT NULL, tablename VARCHAR2(30) NOT NULL, tablefieldname VARCHAR2(30) NOT NULL, '
                      'language VARCHAR2(5) NOT NULL, description VARCHAR2(100)',
 }
@@ -91,9 +91,9 @@ def _data():
                                                        'Difetto di materiale': 'Material defect',
                                                        'Alta': 'High'}[items[0][2]], None, None, 'SEED', None))
         data[table] = rows
-    data['FW_DOCU_NODES_T'] = [(1, 'it', 'Come si inserisce un ordine', None), (2, 'it', 'Come si stampa un\'etichetta', None),
-                               (3, 'it', 'Come si cambia la lingua', None), (4, 'it', 'Supply Chain Planning: panoramica', None),
-                               (1, 'en', 'How to enter an order', None)]
+    data['FW_DOCU_NODES_T'] = [(1, 'it', 'Come si inserisce un ordine'), (2, 'it', 'Come si stampa un\'etichetta'),
+                               (3, 'it', 'Come si cambia la lingua'), (4, 'it', 'Supply Chain Planning: panoramica'),
+                               (1, 'en', 'How to enter an order')]
     data['FW_OBJ_DESCRS'] = [(1, 'QL_CARAT', 'CARAT_DESCR', 'it', 'Colore'), (2, 'QL_CARAT', 'CARAT_DESCR', 'it', 'Spessore'),
                              (3, 'QL_CARAT', 'CARAT_DESCR', 'it', 'Materiale'),
                              (4, 'QL_CARAT', 'CARAT_DESCR', 'it', _long_text()),

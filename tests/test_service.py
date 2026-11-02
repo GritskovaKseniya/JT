@@ -32,7 +32,7 @@ FIRST_INSERT = {
                        ['fr', 'ProcessiLunghi', '0', 'T:Si', 1, 2]),
     'FW_OPZIONI_INT': ("INSERT INTO FW_OPZIONI_INT VALUES (:1, :2, :3, :4, :5, :6, 'JT', sysdate)",
                        ['fr', 'Int', '5', 'T:Cinque', 5, None]),
-    'FW_DOCU_NODES_T': ('INSERT INTO FW_DOCU_NODES_T VALUES (:1, :2, :3, NULL)', [100000, 'fr', 'T:Risorse UMV']),
+    'FW_DOCU_NODES_T': ('INSERT INTO FW_DOCU_NODES_T (NODEID, LANG, NODETITLE) VALUES (:1, :2, :3)', [100000, 'fr', 'T:Risorse UMV']),
     'FW_OBJ_DESCRS': ('INSERT INTO FW_OBJ_DESCRS VALUES (:1, :2, :3, :4, :5)',
                       [555, 'MD_ARTI', 'ARTI_DESCR1', 'fr', 'T:Vite']),
     'FWK_STRINGS': ("INSERT INTO FWK_STRINGS VALUES (:1, :2, :3, :4, :5, :6, :7, :8, 'JT', :9)",
@@ -286,7 +286,7 @@ class RunMissingModeTests(ServiceCase):
             result = self.service.run(self.missing_selection(), self.translator)
         self.assertEqual((result.inserts, result.skipped), (1, 0))
         self.assertEqual(result.errors, [{'date': 'NOW', 'code': 100000, 'lng_in': 'de', 'lng_out': 'fr',
-                                          'input': 'Ordine UMV'}])
+                                          'input': 'Ordine UMV', 'reason': 'simulated write error'}])
         self.assertEqual(self.conn.commits, 1)
         self.assertEqual([s['code'] for s in result.successes], [100001])
 
@@ -416,7 +416,7 @@ class RunKeysModeTests(ServiceCase):
         result = self.run_keys('FW_DOCU_NODES_T', '100000')
         self.assertEqual(result.updates, 1)
         self.assertEqual(self.state.updates()[0], (
-            'UPDATE FW_DOCU_NODES_T SET TEXT = :s0 WHERE LANG = :w0 AND NODEID = :w1',
+            'UPDATE FW_DOCU_NODES_T SET NODETITLE = :s0 WHERE LANG = :w0 AND NODEID = :w1',
             {'w0': 'de', 'w1': 100000, 's0': 'T:Risorse UMV'}))
 
     def test_obj_descrs_update(self):
@@ -447,7 +447,7 @@ class RunKeysModeTests(ServiceCase):
                 self.assertEqual(result.updates, 0)
                 self.assertGreaterEqual(result.inserts, 1)
                 self.assertEqual(self.state.updates(), [])
-                self.assertTrue(self.state.inserts()[0][0].startswith(f'INSERT INTO {name} VALUES'))
+                self.assertTrue(self.state.inserts()[0][0].startswith((f'INSERT INTO {name} VALUES', f'INSERT INTO {name} (')))
 
     def test_azure_failure_in_keys_mode_skips_row(self):
         self.translator = self.make_translator(FakeAzure(fail_on='Ordine'))

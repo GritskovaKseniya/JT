@@ -107,7 +107,7 @@ class Database:
         valid = []
         for entry in entries:
             try:
-                self.scalar(f"SELECT 1 FROM {entry['table']} WHERE ROWNUM = 1")
+                self.fetch_all(f"SELECT 1 FROM {entry['table']} WHERE ROWNUM = 1")      # nessuna riga = tabella vuota, ma c'e'
                 valid.append(entry)
             except Exception as e:
                 print(f"Table {entry['table']} not valid: {e}")

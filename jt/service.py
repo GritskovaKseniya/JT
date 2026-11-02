@@ -166,7 +166,7 @@ class TranslationService:
         except Exception as e:
             print(e)
             self.db.rollback()           # niente righe a meta': il commit della riga dopo non le confermi per sbaglio
-            result.errors.append({**base, 'date': now})
+            result.errors.append({**base, 'date': now, 'reason': ' '.join(str(e).split())})     # il motivo dato dal database
             return
         if action == 'update':
             result.updates += 1

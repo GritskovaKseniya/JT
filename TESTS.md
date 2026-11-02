@@ -76,7 +76,7 @@ Fare le prove su un DB di test/demo: il tool scrive con `commit` a ogni riga e o
 - [ ] **Stop e chiusura durante una traduzione su DB reale**: la riga in corso viene finita e la connessione si chiude; usare la connessione da un thread diverso da quello che l'ha aperta con `cx_Oracle` e' previsto, ma va visto dal vivo.
 - [ ] **Glossario con Azure vero**: una riga con "UMV" dentro una frase (esce "HU"?) e con "Supply Chain Planning" (resta uguale?); anche con sorgente non italiana.
 - [ ] Update per chiavi: id esistente (UPDATE, `action` = `update`), id mancante (INSERT), `ProcessiLunghi` su `FW_OPZIONI_TRE`.
-- [ ] `DESC FW_DOCU_NODES_T` e confronto con l'ordine id, lingua, testo (il tool lo assume).
+- [x] `FW_DOCU_NODES_T`: verificata sul DB vero (3 colonne `NODEID`, `LANG`, `NODETITLE`). Con l'INSERT a 4 valori fallivano tutte le righe (`ORA-00913`): ora l'INSERT nomina le colonne.
 - [ ] `FWK_STRINGS`: nomi colonna `pack`, `code`, `lang`, `value`, `short_value`, `long_value`; colonne utente/data (oggi non scritte in update).
 - [ ] `FW_OBJ_DESCRS`: traduzione piu' lunga di 100 caratteri e lingue con codice di 2 lettere.
 - [ ] `ROWNUM` con `NOT EXISTS`: "Max rows" rispettato davvero e stima dei caratteri.

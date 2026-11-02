@@ -65,7 +65,7 @@ COLUMNS = {
     'FW_OPZIONI_DUE': ['LINGUA', 'TIPO', 'CODICE', 'DESCRIZIONE', 'N1', 'N2', 'USR', 'DT'],
     'FW_OPZIONI_TRE': ['LINGUA', 'TIPO', 'CODICE', 'DESCRIZIONE', 'N1', 'N2', 'USR', 'DT'],
     'FW_OPZIONI_INT': ['LINGUA', 'TIPO', 'CODICE', 'DESCRIZIONE', 'N1', 'N2', 'USR', 'DT'],
-    'FW_DOCU_NODES_T': ['NODEID', 'LANG', 'TEXT', 'DESCR'],
+    'FW_DOCU_NODES_T': ['NODEID', 'LANG', 'NODETITLE'],
     'FW_OBJ_DESCRS': ['OBJID', 'TABLENAME', 'TABLEFIELDNAME', 'LANGUAGE', 'DESCRIPTION'],
     'FWK_STRINGS': ['ID', 'CODE', 'PACK', 'LONG_VALUE', 'SHORT_VALUE', 'X', 'LANG', 'Y', 'USR', 'VALUE'],
 }
@@ -102,6 +102,7 @@ class FakeDB:
         self.close_error = False      # conn.close() solleva
         self.commit_error = False     # conn.commit() solleva
         self.fail_sql = []            # frammenti di SQL per cui execute solleva
+        self.empty_tables = set()     # tabelle esistenti ma senza righe: "SELECT 1 ... ROWNUM" non torna niente
         self.invalid_tables = set()   # tabelle per cui "SELECT 1 ... ROWNUM" solleva
         self.fail_write = None        # callable(sql, binds) -> True se la scrittura deve fallire
         self.fail_connect = False
@@ -156,7 +157,7 @@ class FakeCursor:
             table = re.search(r'from (\w+) where', s, re.I).group(1)
             if table in self.db.invalid_tables:
                 raise RuntimeError('ORA-00942: table or view does not exist')
-            self.res = [(1,)]
+            self.res = [] if table in self.db.empty_tables else [(1,)]
         elif low.startswith('select count(*) from') and ':li' in low:           # righe mancanti
             table = re.search(r'FROM (\w+) X', s).group(1)
             self.res = [(self.db.missing.get(table, 0),)]

@@ -33,10 +33,23 @@ def run(*args):
     subprocess.run(args, cwd=ROOT, check=True)
 
 
+def check_not_running():
+    """Se JT.exe e' aperto Windows non lo lascia sostituire: meglio fermarsi subito che lasciare dist a meta'."""
+    for name in ('JT.exe', 'JT-TestDB.exe'):
+        path = os.path.join(OUT, name)
+        if os.path.exists(path):
+            try:
+                open(path, 'r+b').close()           # un exe in esecuzione non si apre in scrittura
+            except OSError:
+                sys.exit(f"{path} e' in uso: chiudi JT e rilancia la creazione. Non e' stato cancellato nulla.")
+
+
 def build_exe():
+    check_not_running()
     step('PyInstaller')
     for folder in (BUILD, DIST):
-        shutil.rmtree(folder, ignore_errors=True)
+        if os.path.exists(folder):
+            shutil.rmtree(folder)
     icon = os.path.join(ROOT, 'Graphics', 'icons', f'{ICON_NAME}.ico')
     run(sys.executable, '-m', 'PyInstaller', '--noconfirm', '--clean', '--noupx', '--windowed', '--name', 'JT',
         '--icon', icon, '--hidden-import', 'cx_Oracle', '--distpath', DIST, '--workpath', BUILD, '--specpath', BUILD,

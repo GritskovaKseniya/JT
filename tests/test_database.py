@@ -154,6 +154,12 @@ class ExistingTablesTests(DatabaseCase):
         self.assertEqual(self.db.existing_tables(self.ENTRIES), [{'table': 'FW_STRINGS'}, {'table': 'FW_OPZIONI'}])
         self.assertEqual(self.state.log[0][0], 'SELECT 1 FROM FW_STRINGS WHERE ROWNUM = 1')
 
+    def test_an_empty_table_still_exists(self):
+        self.connect()
+        self.state.empty_tables = {'FW_OPZIONI', 'FW_STRINGS'}
+        self.state.invalid_tables = {'BAD'}
+        self.assertEqual(self.db.existing_tables(self.ENTRIES), [{'table': 'FW_STRINGS'}, {'table': 'FW_OPZIONI'}])
+
     def test_all_valid(self):
         self.connect()
         self.assertEqual(self.db.existing_tables(self.ENTRIES), self.ENTRIES)

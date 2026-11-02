@@ -218,7 +218,10 @@ class DocuNodesTable(TableSpec):
         return row[0], row[2]
 
     def insert(self, row, lan_out, values):
-        return self._insert_sql(':1, :2, :3, NULL'), [row[0], lan_out, values['text']]
+        """Con i nomi delle colonne: le altre (se ci sono) restano vuote. Senza, il numero di valori deve combaciare
+        con le colonne della tabella (ORA-00913 'troppi valori' se ne ha meno)."""
+        sql = f'INSERT INTO {self.name} ({self.key_cols[0]}, {self.lang_col}, {self.text_col}) VALUES (:1, :2, :3)'
+        return sql, [row[0], lan_out, values['text']]
 
     def update_target(self, row, lan_out, values, columns):
         key, lang, text = columns[:3]

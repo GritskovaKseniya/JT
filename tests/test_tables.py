@@ -186,7 +186,7 @@ EXPECTED = {
                            chars='LENGTH(descrizione)'),
     'FW_OPZIONI_INT': dict(lang='lingua', keys=('tipo', 'codice'), select='tipo', numeric=False,
                            chars='LENGTH(descrizione)'),
-    'FW_DOCU_NODES_T': dict(lang='LANG', keys=('NODEID',), select='NODEID', numeric=True, chars='LENGTH(TEXT)'),
+    'FW_DOCU_NODES_T': dict(lang='LANG', keys=('NODEID',), select='NODEID', numeric=True, chars='LENGTH(NODETITLE)'),
     'FW_OBJ_DESCRS': dict(lang='language', keys=('objid', 'tablename', 'tablefieldname'), select='objid',
                           numeric=True, chars='LENGTH(description)'),
     'FWK_STRINGS': dict(lang='lang', keys=('pack', 'code'), select='code', numeric=False,
@@ -421,7 +421,7 @@ class RowWritingTests(unittest.TestCase):
         translated = spec.translate_row(row, fake_tr)
         self.assertEqual(translated, Translated({'text': "T:Risorse 'UMV' & 5%"}, "T:Risorse 'UMV' & 5%"))
         sql, binds = spec.insert(row, 'fr', translated.values)
-        self.assertEqual(sql, 'INSERT INTO FW_DOCU_NODES_T VALUES (:1, :2, :3, NULL)')
+        self.assertEqual(sql, 'INSERT INTO FW_DOCU_NODES_T (NODEID, LANG, NODETITLE) VALUES (:1, :2, :3)')
         self.assertEqual(binds, [100000, 'fr', "T:Risorse 'UMV' & 5%"])
         self.assertEqual(spec.log_info(row), (100000, "Risorse 'UMV' & 5%"))
 
@@ -435,7 +435,7 @@ class RowWritingTests(unittest.TestCase):
     def test_docu_nodes_update_target(self):
         spec = resolved('FW_DOCU_NODES_T')
         self.assertEqual(spec.update_target((7, 'it', 'x', None), 'de', {'text': 'T:x'}, COLUMNS['FW_DOCU_NODES_T']),
-                         UpdateTarget({'LANG': 'de', 'NODEID': 7}, {'TEXT': 'T:x'}, []))
+                         UpdateTarget({'LANG': 'de', 'NODEID': 7}, {'NODETITLE': 'T:x'}, []))
 
     # ------------------------------------------------------------ obj descrs
 
@@ -507,7 +507,7 @@ class RowWritingTests(unittest.TestCase):
             translated = spec.translate_row(row, fake_tr)
             sql, binds = spec.insert(row, 'fr', translated.values)
             self.assertEqual(len(placeholders(sql)), len(binds), name)
-            self.assertTrue(sql.startswith(f'INSERT INTO {name} VALUES ('), name)
+            self.assertTrue(sql.startswith(f'INSERT INTO {name} VALUES (') or sql.startswith(f'INSERT INTO {name} ('), name)
             self.assertNotIn("'fr'", sql, name)
 
     def test_get_table(self):

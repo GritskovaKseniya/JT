@@ -8,7 +8,7 @@ from ..runner import DONE, ERROR, PROGRESS
 from ..tables import TooManyKeys, get_table
 from .scale import pad, px
 from .secret import open_secret_panel
-from .texts import describe_duration, fmt_count, reason, rows
+from .texts import describe_duration, fmt_count, reason, rows, shorten
 from .theme import FONT, PALETTE
 from .widgets import StatusBar, ToolTip, WrapTracker, coming_soon
 
@@ -167,6 +167,19 @@ class TranslationScreen(ttk.Frame):
         self.label_time = ttk.Label(card, text='Elapsed time: --', style='Muted.TLabel')
         self.label_time.pack(anchor='w')
         ToolTip(self.label_bar, PROGRESS_HINT)
+        self.link_logs = tk.Label(card, text='Open the logs folder', bg=PALETTE['bg'], fg=PALETTE['accent'],
+                                  cursor='hand2', font=(FONT, 9, 'underline'))
+        self.link_logs.pack(anchor='w', pady=(px(6), 0))
+        self.link_logs.bind('<Button-1>', lambda _e: self.open_logs())
+        ToolTip(self.link_logs, self.app.paths.logs)
+
+    def open_logs(self):
+        """Apre la cartella dei log in Esplora file (la crea se non c'e' ancora)."""
+        try:
+            os.makedirs(self.app.paths.logs, exist_ok=True)
+            os.startfile(self.app.paths.logs)
+        except OSError as e:
+            self.status.show('error', f'Could not open {self.app.paths.logs}: {reason(e)}')
 
     def _build_hidden_button(self):
         # pulsante nascosto (easter egg), mimetizzato con lo sfondo
@@ -366,6 +379,8 @@ class TranslationScreen(ttk.Frame):
             text += f' {len(result.errors)} errors, {result.skipped} skipped.'
         if paths:
             text += f' Log: Logs\\{os.path.basename(paths[-1])}'
+        if result.errors:
+            text += f"\nFirst error (code {result.errors[0]['code']}): {shorten(result.errors[0]['reason'], 160)}"
         self.status.show('warn' if (result.errors or result.skipped or result.stopped) else 'ok', text)
 
     def _lock(self, locked):
