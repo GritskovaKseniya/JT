@@ -577,7 +577,23 @@ def real_azure_available(credentials_path):
     return bool(key) and not key.upper().startswith('INSERISCI')
 
 
-def run_gui(sample=None, azure=False, nokey=False):
+def demo_tools():
+    """Per vedere il guscio degli strumenti prima che ci siano quelli veri: Strings + uno acceso e uno spento (finti)."""
+    import tkinter as tk
+    from tkinter import ttk
+    from jt.tools import Tool
+    from jt.ui.app import default_tools
+
+    def demo(parent, app):
+        frame = ttk.Frame(parent)
+        tk.Label(frame, text='Demo tool: the real SQL <-> TecSQL arrives with step 8.', pady=40).pack()
+        return frame
+
+    return default_tools() + [Tool('tecsql', 'SQL <> TecSQL', demo),
+                              Tool('names', 'Names', demo, requires=('FW_TABLES_MISSING',))]
+
+
+def run_gui(sample=None, azure=False, nokey=False, demo=True):
     """La finestra vera di JT, collegata al database simulato. Azure e' finto (traduzioni di prova) oppure, con `azure`,
     quello vero: il database resta simulato e i file di JT dell'utente non si toccano."""
     import tkinter as tk
@@ -599,7 +615,7 @@ def run_gui(sample=None, azure=False, nokey=False):
         simulator = Simulator(sample)
         enable_dpi_awareness()
         root = tk.Tk()
-        app = JTApp(root, paths, Database(driver=simulator))
+        app = JTApp(root, paths, Database(driver=simulator), tools=demo_tools() if demo else None)
         if azure and not real_azure_available(paths.azure):
             print('Data\\azure_services.json non ha una chiave vera: si usano le traduzioni di prova.')
             azure = False
@@ -632,11 +648,13 @@ def main(argv=None):
                         help='con il vero Azure (la chiave di Data\\azure_services.json; costa pochi caratteri; solo con --gui)')
     parser.add_argument('--nokey', action='store_true',
                         help='senza chiave Azure (il modello del pacchetto): per vedere JT come lo vede chi non la ha ricevuta; solo con --gui')
+    parser.add_argument('--one-tool', action='store_true',
+                        help='senza gli strumenti di prova: JT come e\' oggi, con il solo Strings (solo con --gui)')
     args = parser.parse_args(argv)
-    if (args.sample or args.azure or args.nokey) and not args.gui:
-        parser.error('--sample, --azure e --nokey servono solo con --gui: gli scenari contano le righe di prova e non spendono')
+    if (args.sample or args.azure or args.nokey or args.one_tool) and not args.gui:
+        parser.error('--sample, --azure, --nokey e --one-tool servono solo con --gui: gli scenari contano le righe di prova e non spendono')
     if args.gui:
-        run_gui(tool.load_sample(args.sample) if args.sample else None, args.azure, args.nokey)
+        run_gui(tool.load_sample(args.sample) if args.sample else None, args.azure, args.nokey, not args.one_tool)
         return 0
     ok, total = run_scenarios()
     print(f'\n{ok}/{total} controlli riusciti.')

@@ -1,7 +1,7 @@
 """La finestra principale: passi, dimensioni, chiusura. Qui si collegano interfaccia e logica."""
 import tkinter as tk
 
-from .. import azure_key
+from .. import azure_key, tools as tool_registry
 from ..azure import AzureTranslator
 from ..catalog import Catalog
 from ..config import APP_TITLE, VERSION, WINDOW_MIN_WIDTH, Paths
@@ -15,6 +15,7 @@ from .connection_screen import ConnectionScreen
 from .dialogs import ConfirmDialog
 from .scale import px
 from .theme import setup_style
+from .tools_screen import ToolsScreen
 from .translation_screen import TranslationScreen
 from .winicon import set_window_icons
 from .. import environments
@@ -23,8 +24,13 @@ from .widgets import InfoBar, ScrollArea, Stepper
 BOTTOM_MARGIN = 80        # spazio lasciato per la barra delle applicazioni
 
 
+def default_tools():
+    """Gli strumenti di JTools. Per ora uno solo: Strings (l'attuale JT)."""
+    return [tool_registry.Tool('strings', 'Strings', lambda parent, app: TranslationScreen(parent, app), writes=True)]
+
+
 class JTApp:
-    def __init__(self, root, paths=None, db=None, runner=None, scale_factor=None):
+    def __init__(self, root, paths=None, db=None, runner=None, scale_factor=None, tools=None):
         self.root = root
         self.paths = paths or Paths.default()
         self.catalog = Catalog(self.paths)
@@ -34,6 +40,7 @@ class JTApp:
         self.runner = runner or BackgroundRunner()      # la traduzione gira in un thread (i test usano InlineRunner)
         self.translating = False     # traduzione in corso
         self.closing = False         # chiusura richiesta durante la traduzione
+        self.tools = list(tools) if tools is not None else default_tools()
         self.screen = None
         self.last_dialog = None
         self._dialog = None
@@ -53,6 +60,8 @@ class JTApp:
         root.resizable(True, True)
         setup_style(root)
         self.stepper = Stepper(root, self.go_back, self.paths.graphics)
+        if len(self.tools) > 1:
+            self.stepper.set_name(2, 'Tools')
         self.stepper.pack(side='top', fill='x')
         self.infobar = InfoBar(root)                    # in basso: a quale database si e' collegati
         self.infobar.pack(side='bottom', fill='x')
@@ -78,7 +87,15 @@ class JTApp:
         self._show(ConnectionScreen, 1)
 
     def show_translation(self):
-        self._show(TranslationScreen, 2)
+        """Il passo 2: con piu' strumenti le schede (ToolsScreen), con uno solo la sua schermata direttamente."""
+        if len(self.tools) > 1:
+            self._show(lambda parent, app: ToolsScreen(parent, app, self.tools), 2)
+        else:
+            self._show(lambda parent, app: self.tools[0].build(parent, app), 2)
+
+    def tool_problem(self, tool):
+        """Perche' uno strumento e' spento su questo database ('' = acceso)."""
+        return tool_registry.problem(tool, self.db.table_exists, self)
 
     def go_back(self):
         """Nuova connessione: chiude quella aperta e torna al passo 1."""

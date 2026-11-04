@@ -324,6 +324,10 @@ class Stepper(tk.Frame):
         self.link_enabled = True
         self.set_active(1)
 
+    def set_name(self, step, text):
+        """Il testo del passo (il secondo diventa 'Tools' quando gli strumenti sono piu' di uno)."""
+        self._names[step - 1].config(text=text)
+
     @staticmethod
     def _load_images(graphics_dir):
         """Pallini della dimensione adatta alla scala dello schermo (24, 30, 36 o 48 px)."""

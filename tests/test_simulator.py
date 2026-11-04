@@ -198,7 +198,7 @@ class ScenarioTests(unittest.TestCase):
     def test_the_gui_only_options_need_gui(self):
         import contextlib
         import io
-        for option in ('--nokey', '--azure'):
+        for option in ('--nokey', '--azure', '--one-tool'):
             with self.subTest(option=option), contextlib.redirect_stderr(io.StringIO()):
                 with self.assertRaises(SystemExit):
                     sim.main([option])

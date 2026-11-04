@@ -100,6 +100,17 @@ class Database:
         """La tabella con i nomi colonna reali, per le tabelle che li leggono dal DB."""
         return spec.bind_columns(self.columns(spec.name)) if spec.needs_columns else spec
 
+    def table_exists(self, name):
+        """True se la tabella esiste (e si puo' leggere) su questo DB."""
+        if not self.connected:
+            return False
+        try:
+            self.fetch_all(f"SELECT 1 FROM {name} WHERE ROWNUM = 1")
+            return True
+        except Exception as e:
+            print(f"Table {name} not valid: {e}")
+            return False
+
     def existing_tables(self, entries):
         """Le voci di tables.json la cui tabella esiste (e si puo' leggere) su questo DB."""
         if not self.connected:

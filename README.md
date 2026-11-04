@@ -101,6 +101,7 @@ run_simulator.bat                    esegue gli scenari (livelli, utente, catego
 run_simulator.bat --gui              apre la finestra di JT collegata al database simulato: si prova con il mouse
 run_simulator.bat --gui --azure      come sopra, ma con il vero Azure (chiave di Data\azure_services.json: costa pochi caratteri)
 run_simulator.bat --gui --nokey      come lo vede chi non ha la chiave Azure: Load conta, ma Preview/Translate/Write sono spenti
+run_simulator.bat --gui --one-tool   senza gli strumenti di prova (con --gui di solito ci sono due strumenti finti per vedere le schede): JT come e' oggi
 ```
 
 Con `--azure` il database resta simulato: niente di reale viene scritto, ma le traduzioni sono quelle vere (utile per vedere come

@@ -45,6 +45,8 @@ from jt.ui.secret import MESSAGE, open_secret_panel  # noqa: E402
 from jt.ui.texts import fmt_count, reason, shorten  # noqa: E402
 from jt.ui.theme import FONT, PALETTE  # noqa: E402
 from jt.ui.translation_screen import KEYS_HINT, TranslationScreen  # noqa: E402
+from jt.tools import Tool  # noqa: E402
+from jt.ui.tools_screen import ToolsScreen  # noqa: E402
 from jt.ui.widgets import InfoBar, Stepper, StatusBar, ToolTip, WrapTracker  # noqa: E402
 
 SECONDARY, PRIMARY, DANGER = 'Secondary.TButton', 'Primary.TButton', 'Danger.TButton'
@@ -3285,6 +3287,201 @@ class TranslateTests(UiCase):
 
 
 # ===================================================================== chiusura
+
+class ToolsShellTests(UiCase):
+    """Il passo 2 con piu' strumenti: la griglia (che si puo' nascondere) e lo strumento scelto."""
+
+    def setUp(self):
+        super().setUp()
+        self.builds = {}
+
+    def fake_tool(self, name, title, **kw):
+        built = self.builds.setdefault(name, [])
+
+        def build(parent, app):
+            frame = ttk.Frame(parent)
+            ttk.Label(frame, text=f'{title} screen').pack()
+            built.append(frame)
+            return frame
+
+        return Tool(name, title, build, **kw)
+
+    @staticmethod
+    def strings_tool():
+        return Tool('strings', 'Strings', lambda parent, app: TranslationScreen(parent, app), writes=True)
+
+    def shell(self, *tools):
+        self.app.tools = list(tools)
+        self.app.connect(dict(FAKE_CONNECTION))
+        self.app.show_translation()
+        return self.app.screen
+
+    def press(self, widget, key):
+        """Un tasto arriva al widget col focus: si da' il focus al widget e poi si preme."""
+        self.root.deiconify()
+        widget.focus_force()
+        self.root.update()
+        widget.event_generate(key)
+
+    def test_with_one_tool_the_screen_is_the_tool_itself(self):
+        screen = self.step2()
+        self.assertIsInstance(screen, TranslationScreen)
+        self.assertEqual(self.app.stepper._names[1].cget('text'), 'Translation')
+
+    def test_with_more_tools_the_step_is_called_tools_and_the_shell_opens_the_first_one_that_is_on(self):
+        self.app.stepper.set_name(2, 'Tools')            # lo fa JTApp quando nasce con piu' strumenti
+        screen = self.shell(self.strings_tool(), self.fake_tool('names', 'Names'))
+        self.assertIsInstance(screen, ToolsScreen)
+        self.assertEqual(screen.selected, 'strings')
+        self.assertIsInstance(screen.current, TranslationScreen)
+        self.assertEqual(self.builds['names'], [])                       # gli altri non si costruiscono finche' non servono
+
+    def test_the_app_names_the_step_tools_when_it_starts_with_more_than_one_tool(self):
+        other = tk.Tk()
+        self.addCleanup(other.destroy)
+        app = JTApp(other, self.paths, self.db, runner=self.make_runner(), scale_factor=1.0,
+                    tools=[self.strings_tool(), self.fake_tool('names', 'Names')])
+        self.assertEqual(app.stepper._names[1].cget('text'), 'Tools')
+
+    def test_a_tool_without_its_tables_is_off_with_the_reason_and_the_first_on_one_opens(self):
+        self.fake_db.invalid_tables = {'FW_STRINGS_X'}
+        screen = self.shell(self.fake_tool('names', 'Names', requires=('FW_STRINGS_X',)), self.strings_tool())
+        tabs = screen.menu.tabs
+        self.assertEqual(str(tabs['names'].cget('fg')), PALETTE['muted'])        # spenta: grigia
+        self.assertEqual(screen.problems['names'], 'needs FW_STRINGS_X: not found on this database')
+        self.assertEqual(screen.selected, 'strings')                       # il primo acceso, non il primo della lista
+        screen.select('names')                                              # uno spento non si apre
+        self.assertEqual(screen.selected, 'strings')
+        tabs['names'].event_generate('<Button-1>')                          # nemmeno con un clic
+        self.assertEqual(screen.selected, 'strings')
+
+    def test_the_reason_of_an_off_tool_is_in_its_tooltip(self):
+        self.fake_db.invalid_tables = {'FW_STRINGS_X'}
+        screen = self.shell(self.fake_tool('names', 'Names', requires=('FW_STRINGS_X',)), self.strings_tool())
+        tip = screen.menu.tips[0]
+        tip.show()
+        try:
+            texts = all_texts(tip.tip)
+            self.assertIn('Not available', texts)
+            self.assertIn('needs FW_STRINGS_X: not found on this database', texts)
+        finally:
+            tip.hide()
+
+    def test_switching_keeps_each_tool_as_it_was(self):
+        screen = self.shell(self.strings_tool(), self.fake_tool('names', 'Names'))
+        first = screen.current
+        screen.select('names')
+        self.assertEqual(screen.selected, 'names')
+        self.assertEqual(first.winfo_manager(), '')                        # lo strumento di prima non si vede
+        self.assertEqual(len(self.builds['names']), 1)
+        screen.select('strings')
+        self.assertIs(screen.current, first)                               # e' lo stesso, non ricostruito
+        screen.select('names')
+        self.assertEqual(len(self.builds['names']), 1)
+
+    def test_the_selected_tool_is_highlighted(self):
+        screen = self.shell(self.strings_tool(), self.fake_tool('names', 'Names'))
+        menu = screen.menu
+
+        def look(name):
+            return str(menu.tabs[name].cget('fg')), str(menu.lines[name].cget('bg'))
+
+        self.assertEqual(look('strings'), (PALETTE['accent'], PALETTE['accent']))      # aperta: blu con la linea sotto
+        self.assertEqual(look('names'), (PALETTE['text'], PALETTE['bg']))
+        screen.select('names')
+        self.assertEqual(look('names'), (PALETTE['accent'], PALETTE['accent']))
+        self.assertEqual(look('strings'), (PALETTE['text'], PALETTE['bg']))
+
+    def test_a_click_on_a_tab_opens_that_tool(self):
+        screen = self.shell(self.strings_tool(), self.fake_tool('names', 'Names'))
+        screen.menu.tabs['names'].event_generate('<Button-1>')
+        self.assertEqual(screen.selected, 'names')
+        self.press(screen.menu.tabs['strings'], '<Return>')
+        self.assertEqual(screen.selected, 'strings')
+
+    def test_the_hover_colours_a_tab_that_is_not_open_but_never_the_open_one(self):
+        screen = self.shell(self.strings_tool(), self.fake_tool('names', 'Names'))
+        menu = screen.menu
+        menu.tabs['names'].event_generate('<Enter>')
+        self.assertEqual(str(menu.tabs['names'].cget('fg')), PALETTE['accent_dark'])
+        menu.tabs['names'].event_generate('<Leave>')
+        self.assertEqual(str(menu.tabs['names'].cget('fg')), PALETTE['text'])
+        menu.tabs['strings'].event_generate('<Enter>')
+        self.assertEqual(str(menu.tabs['strings'].cget('fg')), PALETTE['accent'])
+
+    def test_the_tool_grid_can_be_hidden_and_the_tool_stays(self):
+        screen = self.shell(self.strings_tool(), self.fake_tool('names', 'Names'))
+        menu = screen.menu
+        self.assertTrue(menu.expanded)
+        self.assertEqual(menu.strip.winfo_manager(), 'pack')
+        menu.arrow.event_generate('<Button-1>')                            # la freccia nasconde la riga
+        self.assertFalse(menu.expanded)
+        self.assertEqual(menu.strip.winfo_manager(), '')                   # le schede spariscono
+        self.assertEqual(menu.summary.cget('text'), 'Strings')             # si vede quale strumento e' aperto
+        self.assertEqual(menu.summary.winfo_manager(), 'pack')
+        self.assertEqual(screen.current.winfo_manager(), 'pack')           # lo strumento resta
+        self.press(menu.arrow, '<Return>')                                 # e la stessa freccia la riapre
+        self.assertTrue(menu.expanded)
+        self.assertEqual(menu.summary.winfo_manager(), '')
+        screen.select('names')
+        menu.collapse()
+        self.assertEqual(menu.summary.cget('text'), 'Names')
+
+    def test_hiding_the_grid_makes_the_window_adapt(self):
+        screen = self.shell(self.strings_tool(), self.fake_tool('names', 'Names'))
+        with patch.object(JTApp, 'fit_window') as fit:
+            screen.menu.collapse()
+            screen.menu.expand()
+        self.assertEqual(fit.call_count, 2)
+
+    def test_no_switching_while_something_is_running(self):
+        screen = self.shell(self.strings_tool(), self.fake_tool('names', 'Names'))
+        self.app.translating = True
+        screen.select('names')
+        self.assertEqual(screen.selected, 'strings')
+        self.app.translating = False
+        screen.select('names')
+        self.assertEqual(screen.selected, 'names')
+
+    def test_the_app_asks_the_shell_about_the_preview_of_the_current_tool(self):
+        screen = self.shell(self.strings_tool(), self.fake_tool('names', 'Names'))
+        self.assertIsNone(screen.preview)
+        self.use_azure()
+        self.fake_db.source['FW_STRINGS'] = plain_rows(2)
+        self.fake_db.missing['FW_STRINGS'] = 2
+        screen.current.load()
+        screen.current.preview_button.invoke()
+        self.assertIsNotNone(screen.preview)
+        with patch.object(JTApp, 'confirm', return_value=False) as confirm, patch.object(JTApp, 'finish_close') as finish:
+            self.app.on_closing()                                          # c'e' un'anteprima da scrivere: chiede
+        self.assertEqual(confirm.call_args.args[0], 'Discard the preview and quit?')
+        finish.assert_not_called()
+        screen.select('names')                                             # un altro strumento: nessuna anteprima da perdere
+        self.assertIsNone(screen.preview)
+
+    def test_closing_during_a_run_goes_to_the_tool_that_runs(self):
+        screen = self.shell(self.strings_tool(), self.fake_tool('names', 'Names'))
+        with patch.object(type(screen.current), 'on_close_requested') as asked:
+            screen.on_close_requested()
+        asked.assert_called_once()
+
+    def test_a_shell_with_nothing_on_shows_all_tools_off_and_no_screen(self):
+        self.fake_db.invalid_tables = {'A', 'B'}
+        screen = self.shell(self.fake_tool('a', 'Aa', requires=('A',)), self.fake_tool('b', 'Bb', requires=('B',)))
+        self.assertIsNone(screen.selected)
+        self.assertIsNone(screen.current)
+        self.assertIsNone(screen.preview)
+        self.assertEqual({str(label.cget('fg')) for label in screen.menu.tabs.values()}, {PALETTE['muted']})
+        screen.on_close_requested()                                        # senza strumento aperto non fa danni
+
+    def test_table_exists_on_the_database(self):
+        self.app.connect(dict(FAKE_CONNECTION))
+        self.fake_db.invalid_tables = {'MISSING'}
+        self.assertTrue(self.db.table_exists('FW_STRINGS'))
+        self.assertFalse(self.db.table_exists('MISSING'))
+        self.db.close()
+        self.assertFalse(self.db.table_exists('FW_STRINGS'))
+
 
 class NoKeyTests(UiCase):
     """Senza una chiave Azure valida JT legge e conta, ma non traduce e non scrive: nessun percorso porta a una scrittura."""

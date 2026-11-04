@@ -256,4 +256,10 @@ La fase A rende **piu' sicuro JT** e si usa subito; la B e' piccola; la C e' l'u
 - **Limite:** non c'e' ancora uno strumento di sola lettura da aprire al posto di Strings (arriva con JTools, fase C): per ora si
   apre la stessa schermata con i pulsanti che scrivono spenti. Il controllo guarda la forma, non se Azure accetta la chiave.
 
+### Passo 6 - Registro strumenti e guscio (fatto, parte 6a)
+
+- **Scelta di Kseniia:** gli strumenti in alto, **nascondibili** (nascosti resta solo il nome dello strumento aperto). Prima versione con pulsanti grandi: brutta (pesante come i pulsanti d'azione, titoli tagliati); scelte invece le **schede piatte con sottolineatura** (leggere, il motivo di una scheda spenta in un suggerimento). I profili di connessione sono un passo a parte (6b), dopo.
+- **Fatto:** registro (`jt/tools.py`), guscio con la griglia (`jt/ui/tools_screen.py`), strumenti spenti con il motivo (tabelle richieste mancanti), uno strumento alla volta costruito al primo uso, niente cambio durante una traduzione. Con **un solo** strumento (oggi) il guscio non compare e JT si vede come prima: si accende da solo quando arriva il secondo (SQL <-> TecSQL, passo 8). Provato con strumenti finti nei test.
+- **Ancora da fare in questo passo:** il caso 'chiave mancante' per uno strumento che scrive: oggi Strings resta aperto in sola lettura (decisione del passo 5); quando ci sara' lo strumento di sola lettura, si valutera' se spegnere Strings.
+
 (scrivi qui le altre decisioni passo per passo e cio' che si scopre)
