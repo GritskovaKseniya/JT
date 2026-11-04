@@ -6,6 +6,16 @@ from jt.undo import UndoRecord, build_script, identifier, literal, statement
 
 
 class LiteralTests(unittest.TestCase):
+    def test_a_type_that_is_not_known_raises_instead_of_becoming_text(self):
+        for value in (b'abc', object(), ['x'], {'a': 1}):
+            with self.subTest(value=value):
+                with self.assertRaises(TypeError):
+                    literal(value)
+
+    def test_decimal_is_a_number(self):
+        from decimal import Decimal
+        self.assertEqual(literal(Decimal('12.50')), '12.50')
+
     def test_simple_values(self):
         self.assertEqual(literal(None), 'NULL')
         self.assertEqual(literal(100000), '100000')

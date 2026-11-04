@@ -2292,6 +2292,29 @@ class UndoLinkTests(UiCase):
         self.assertEqual(seen['during'], ('', None))                              # durante la corsa non c'e' lo script vecchio
         self.assertEqual(screen_for_hook.link_undo.winfo_manager(), 'pack')
 
+    def test_a_preview_does_not_take_the_link_of_the_last_write_away(self):
+        self.use_azure()
+        screen = self.loaded_strings(2)
+        screen.translate_button.invoke()
+        script = screen._undo_path
+        self.assertEqual(screen.link_undo.winfo_manager(), 'pack')
+        self.reload(screen)
+        screen.preview_button.invoke()                                            # l'anteprima non scrive niente
+        self.assertEqual(screen.link_undo.winfo_manager(), 'pack')
+        self.assertEqual(screen._undo_path, script)
+
+    def test_any_error_building_the_script_unlocks_the_screen_and_says_so(self):
+        self.use_azure()
+        screen = self.loaded_strings(2)
+        with patch('jt.ui.translation_screen.write_undo_script', side_effect=ValueError('bad column name')):
+            screen.translate_button.invoke()
+        self.assertFalse(screen.running)
+        self.assertEqual(state(screen.load_button), 'normal')                     # i campi non restano bloccati
+        text = screen.status.message.cget('text')
+        self.assertIn('The undo script could not be created: bad column name', text)
+        self.assertIn('Log: Logs', text)                                          # il resto del riepilogo c'e' lo stesso
+        self.assertEqual(screen.link_undo.winfo_manager(), '')
+
     def reload(self, screen):
         """Un nuovo Load (le righe si leggono una volta sola): ritorna la stessa schermata pronta a tradurre."""
         self.fake_db.missing['FW_STRINGS'] = 2

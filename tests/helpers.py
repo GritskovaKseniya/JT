@@ -95,6 +95,7 @@ class FakeDB:
     def __init__(self):
         self.log = []                 # (sql, binds) di ogni execute
         self.existing = set()         # (tabella, ((colonna_minuscola, valore), ...)) gia' presenti in lingua di output
+        self.duplicates = set()       # stesse chiavi di existing: la SELECT per chiave torna due righe uguali
         self.old_values = {}          # stessa chiave -> {colonna_minuscola: testo di prima}; senza: 'old <colonna>'
         self.missing = {}             # tabella -> conteggio restituito dai COUNT(*) con :li
         self.source = {k: list(v) for k, v in SOURCE.items()}
@@ -173,7 +174,8 @@ class FakeCursor:
             key = (table, tuple((c.lower(), binds['w%d' % i]) for i, c in enumerate(conditions)))
             selected = [c.strip() for c in s[len('SELECT '):s.upper().index(' FROM ')].split(',')]
             known = self.db.old_values.get(key, {})
-            self.res = [tuple(known.get(c.lower(), f'old {c.lower()}') for c in selected)] if key in self.db.existing else []
+            row = tuple(known.get(c.lower(), f'old {c.lower()}') for c in selected)
+            self.res = ([row, row] if key in self.db.duplicates else [row]) if key in self.db.existing else []
         elif low.startswith('select sum('):
             self.res = [(self.db.chars,)]
         elif low.startswith('select *'):

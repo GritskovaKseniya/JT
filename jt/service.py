@@ -14,6 +14,10 @@ from .tables import EmptySourceText, SchemaError
 from .undo import UndoRecord
 
 
+class AmbiguousKey(Exception):
+    """Una riga da aggiornare ha piu' righe con la stessa chiave nel database."""
+
+
 @dataclass
 class Selection:
     spec: Any                 # TableSpec con i nomi colonna risolti
@@ -271,7 +275,10 @@ class TranslationService:
             return PreviewRow(row, base, translated, 'INSERT')
         spec = selection.spec
         target = spec.update_target(row, selection.lan_out, translated.values, selection.columns)
-        existing = self._existing(spec, target)
+        try:
+            existing = self._existing(spec, target)
+        except AmbiguousKey as e:
+            return PreviewRow(row, base, translated, 'SKIP', reason=str(e))
         if existing is None:
             return PreviewRow(row, base, translated, 'INSERT')
         return PreviewRow(row, base, translated, 'UPDATE', old=self._old_text(translated, target, existing))
@@ -283,6 +290,8 @@ class TranslationService:
         binds = {f'w{i}': value for i, value in enumerate(target.where.values())}
         columns = list(target.sets) + list(target.audit)
         found = self.db.fetch_all(f"SELECT {', '.join(columns)} FROM {spec.name} WHERE {conditions}", binds)
+        if len(found) > 1:                  # la chiave non e' unica: un UPDATE le cambierebbe tutte e l'undo non le distingue
+            raise AmbiguousKey(f'{len(found)} rows in {spec.name} have the same key ({binds}): not updated')
         return dict(zip(columns, found[0])) if found else None
 
     @staticmethod
@@ -291,7 +300,7 @@ class TranslationService:
         for column, value in target.sets.items():
             if value is not None and value == translated.primary:
                 return str(existing.get(column) or '')
-        return str(next((value for value in existing.values() if value), '') or '')
+        return str(next((existing[column] for column in target.sets if existing.get(column)), '') or '')
 
     def write(self, selection, preview, on_progress=None, should_stop=None):
         """Scrive le traduzioni di un'anteprima, senza richiamare Azure. Una riga alla volta, con commit a ogni riga;
@@ -332,7 +341,10 @@ class TranslationService:
             columns = selection.columns
             if spec.needs_columns and not columns:           # i nomi delle colonne servono a riconoscere la riga (in cache)
                 columns = self._columns(spec)
-            target = spec.update_target(row, lan_out, translated.values, columns)    # come si riconosce la riga
+            try:
+                target = spec.update_target(row, lan_out, translated.values, columns)    # come si riconosce la riga
+            except Exception as e:           # senza non c'e' modo di annullare questa riga: meglio non scriverla
+                raise RuntimeError(f'cannot identify the row for the undo script: {e}') from e
             action, existing = 'insert', None
             if selection.update_mode:
                 existing = self._existing(spec, target)       # una lettura: c'e' gia' e cosa c'era

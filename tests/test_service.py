@@ -846,6 +846,39 @@ class UndoRecordsTests(ServiceCase):
                            {'value': 'Vecchio testo', 'USR': 'ZFXCUSTOM', 'DT': '2025-03-19'}),
                           ('FW_STRINGS', 'insert', {'language': 'de', 'code': 100001}, {})])
 
+    def test_the_old_text_is_never_the_audit_user_or_date(self):
+        key = self.key('FW_FIELD_STRINGS', 10)
+        self.state.existing = {key}
+        self.state.old_values = {key: {'caption': None, 'description': None, 'tip': None, 'usr': 'JT', 'dt': '2025-03-19'}}
+        preview = self.service.preview(self.keys_selection('FW_FIELD_STRINGS', '10'), self.translator)
+        self.assertEqual((preview.rows[0].action, preview.rows[0].old), ('UPDATE', ''))
+        result = self.service.run(self.keys_selection('FW_FIELD_STRINGS', '10'), self.translator)
+        self.assertEqual(result.successes[0]['old_output'], '')
+
+    def test_several_rows_with_the_same_key_are_not_updated_and_the_reason_is_clear(self):
+        key = self.key('FW_STRINGS', 100000)
+        self.state.existing = {key}
+        self.state.duplicates = {key}
+        selection = self.keys_selection('FW_STRINGS', '100000, 100001')
+        preview = self.service.preview(selection, self.translator)
+        first = preview.rows[0]
+        self.assertEqual((first.action, first.base['code']), ('SKIP', 100000))
+        self.assertIn('2 rows in FW_STRINGS have the same key', first.reason)
+        self.assertEqual(preview.rows[1].action, 'INSERT')
+        result = self.service.run(selection, self.translator)
+        self.assertEqual((result.updates, result.inserts, len(result.errors)), (0, 1, 1))
+        self.assertIn('have the same key', result.errors[0]['reason'])
+        self.assertEqual([r for r in self.state.writes() if r[0].startswith('UPDATE')], [])    # niente UPDATE
+        self.assertEqual([rec.where['code'] for rec in result.undo], [100001])
+
+    def test_when_the_row_cannot_be_identified_the_error_says_it_is_for_the_undo_script(self):
+        spec = get_table('FW_STRINGS')
+        with patch.object(type(spec), 'update_target', side_effect=KeyError('boom')):
+            result = self.service.run(self.missing_selection(), self.translator)
+        self.assertEqual(result.inserts, 0)
+        self.assertTrue(result.errors)
+        self.assertIn('cannot identify the row for the undo script', result.errors[0]['reason'])
+
     def test_the_log_says_the_old_text_of_an_update_and_nothing_for_an_insert(self):
         key = self.key('FW_STRINGS', 100000)
         self.state.existing = {key}
@@ -946,6 +979,16 @@ class UndoScriptFileTests(JtCase):
             data = f.read()
         self.assertTrue(data.isascii())
         self.assertNotIn(b'\r', data)
+
+    def test_a_script_that_cannot_be_built_leaves_no_empty_file(self):
+        from jt.logs import write_undo_script
+        from jt.undo import UndoRecord
+        result = self.result()
+        result.undo.append(UndoRecord('FW_STRINGS', 'update', {'language': 'fr', 'code': 1}, {'value': b'bytes'}))
+        folder = os.path.join(self.tmp, 'Logs')
+        with self.assertRaises(TypeError):
+            write_undo_script(result, folder)
+        self.assertEqual(glob.glob(os.path.join(folder, '*')), [])
 
     def test_two_scripts_in_the_same_second_do_not_overwrite_each_other(self):
         from jt.logs import write_undo_script

@@ -7,6 +7,7 @@ conta) e con `SET DEFINE OFF` (altrimenti una `&` nel testo farebbe chiedere un 
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime
+from decimal import Decimal
 
 IDENTIFIER = re.compile(r'[A-Za-z][A-Za-z0-9_$#]*$')
 
@@ -50,12 +51,14 @@ def literal(value):
         return 'NULL'
     if isinstance(value, bool):
         return '1' if value else '0'
-    if isinstance(value, (int, float)):
+    if isinstance(value, (int, float, Decimal)):
         return str(value)
     if isinstance(value, (datetime, date)):
         stamp = value if isinstance(value, datetime) else datetime(value.year, value.month, value.day)
         return f"TO_DATE('{stamp:%Y-%m-%d %H:%M:%S}', 'YYYY-MM-DD HH24:MI:SS')"
-    return _text(str(value))
+    if isinstance(value, str):
+        return _text(value)
+    raise TypeError(f'cannot write a value of type {type(value).__name__} in the undo script')
 
 
 def _conditions(where):

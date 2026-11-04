@@ -70,7 +70,10 @@ finestra (`app.fit_window`); se non entra nello schermo compare la barra di `Scr
 **L'annullamento di una corsa.** `service._write` annota per ogni riga scritta un `UndoRecord` (la chiave della riga da
 `spec.update_target(...).where`; per gli UPDATE i valori di prima, letti con una sola `SELECT` che dice anche se la riga c'e' gia',
 utente e data compresi). `logs.write_undo_script` scrive `JT_undo_<data>.sql` dopo ogni corsa che ha scritto, anche se i CSV non si
-possono scrivere. Il simulatore esegue lo script (`Simulator.run_script`) e il suo scenario controlla che il database torni identico.
+possono scrivere. La chiave (`where`) di ogni tabella coincide con il suo indice univoco in Orione (`fwdb_up.ec`): strings e triplette
+(language, code), opzioni (lingua, tipo, codice), FW_DOCU_NODES_T (NODEID, LANG), FW_OBJ_DESCRS (OBJID, TABLENAME, TABLEFIELDNAME,
+LANGUAGE); la lingua e' sempre nella chiave, quindi lo script tocca solo la riga di quella lingua. Se per una chiave ci fossero
+comunque piu' righe (`AmbiguousKey`) la riga non si aggiorna. Il simulatore esegue lo script (`Simulator.run_script`) e il suo scenario controlla che il database torni identico.
 
 **Aggiungere un livello alla finestra.** I livelli sono gia' tutti in `jt/layers.py`: basta aggiungere il suo nome a `VISIBLE`.
 Per i livelli la tabella dice come filtrare (`level_condition`), di che livello e' una riga (`layer_of_row`) e con quale utente si

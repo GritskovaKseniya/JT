@@ -708,7 +708,8 @@ class TranslationScreen(ttk.Frame):
 
     def _begin_run(self, selection, job='translate', total=None):
         self._job = job
-        self._set_undo(None)                  # lo script della corsa di prima non vale per questa
+        if job != 'preview':                  # una corsa che scrive: lo script di quella di prima non vale per questa
+            self._set_undo(None)                # (l'anteprima non scrive niente: il collegamento resta)
         self._stale_message = False
         self.running = self.app.translating = True
         self._stopping = False
@@ -877,24 +878,25 @@ class TranslationScreen(ttk.Frame):
         except OSError as e:                     # cartella Logs non scrivibile / file bloccato: la fine della corsa non si ferma
             print(f'Could not write the logs: {e}')
             paths = []
-        undo_path = None
+        undo_path, undo_problem = None, ''
         try:                                     # lo script di annullamento non dipende dai log: si scrive comunque
             if result is not None:
                 info = self.app.db.info or {}
                 undo_path = write_undo_script(result, self.app.paths.logs,
                                               info.get('db_name') or info.get('sid') or '', info.get('host', ''))
-        except OSError as e:
+        except Exception as e:                   # non solo il disco: anche un valore che lo script non sa scrivere
             print(f'Could not write the undo script: {e}')
+            undo_problem = reason(e)
         self.translate_button.config(text='Translate', style='Primary.TButton', command=self.translate, state='disabled')
         if self.app.closing:
             self.app.finish_close()
             return
         self._lock(False)
         self._set_undo(undo_path)
-        self._show_summary(result, error, paths, undo_path)
+        self._show_summary(result, error, paths, undo_path, undo_problem)
         self.refresh_missing()
 
-    def _show_summary(self, result, error, paths, undo_path=None):
+    def _show_summary(self, result, error, paths, undo_path=None, undo_problem=''):
         failure = error if error is not None else (result.failure if result is not None else None)
         if failure is not None:
             text = f'The run stopped because of an error: {reason(failure)}'
@@ -905,6 +907,8 @@ class TranslationScreen(ttk.Frame):
                 text += f' Log: Logs\{os.path.basename(paths[-1])}'
             if undo_path:
                 text += f' Undo script: Logs\\{os.path.basename(undo_path)}'
+            if undo_problem:
+                text += f' The undo script could not be created: {undo_problem}'
             self.status.show('error', text)
             return
         written = f'{result.inserts} inserted' + (f', {result.updates} updated' if self._update_run else '')
@@ -915,6 +919,8 @@ class TranslationScreen(ttk.Frame):
             text += f' Log: Logs\\{os.path.basename(paths[-1])}'
         if undo_path:
             text += f' Undo script: Logs\\{os.path.basename(undo_path)}'
+        if undo_problem:
+            text += f' The undo script could not be created: {undo_problem}'
         if result.errors:
             text += f"\nFirst error (code {result.errors[0]['code']}): {shorten(result.errors[0]['reason'], 160)}"
         self.status.show('warn' if (result.errors or result.skipped or result.stopped) else 'ok', text)
