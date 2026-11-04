@@ -31,6 +31,7 @@ from jt.db import Database  # noqa: E402
 from jt.layers import BY_NAME  # noqa: E402
 from jt.service import TranslationService  # noqa: E402
 from jt.tables import get_table  # noqa: E402
+from jt.tecsql_translator import normalize_query_text  # noqa: E402
 from jt.undo import build_script  # noqa: E402
 
 LEVELS = {'All': None, 'Standard': BY_NAME['AP'], 'CW': BY_NAME['CW'], 'CT': BY_NAME['CT'],
@@ -621,7 +622,8 @@ def real_azure_available(credentials_path):
 
 
 def demo_tools():
-    """Per vedere il guscio degli strumenti prima che ci siano quelli veri: Strings + uno acceso e uno spento (finti)."""
+    """Gli strumenti veri (Strings, SQL <> TecSQL) e uno finto spento (richiede una tabella che non c'e'): per vedere come
+    appare uno strumento che non puo' funzionare su questo database."""
     import tkinter as tk
     from tkinter import ttk
     from jt.tools import Tool
@@ -629,11 +631,10 @@ def demo_tools():
 
     def demo(parent, app):
         frame = ttk.Frame(parent)
-        tk.Label(frame, text='Demo tool: the real SQL <-> TecSQL arrives with step 8.', pady=40).pack()
+        tk.Label(frame, text='Demo tool (it is always off here).', pady=40).pack()
         return frame
 
-    return default_tools() + [Tool('tecsql', 'SQL <> TecSQL', demo),
-                              Tool('names', 'Names', demo, requires=('FW_TABLES_MISSING',))]
+    return default_tools() + [Tool('names', 'Names', demo, requires=('FW_TABLES_MISSING',))]
 
 
 def run_gui(sample=None, azure=False, nokey=False, demo=True):
@@ -691,17 +692,90 @@ def main(argv=None):
                         help='con il vero Azure (la chiave di Data\\azure_services.json; costa pochi caratteri; solo con --gui)')
     parser.add_argument('--nokey', action='store_true',
                         help='senza chiave Azure (il modello del pacchetto): per vedere JT come lo vede chi non la ha ricevuta; solo con --gui')
+    parser.add_argument('--fw', action='store_true',
+                        help="il dizionario dei nomi COMPLETO di un database FW vero (da tools\\fw_dictionary.json, vedi tools\\fw_dictionary.py): "
+                             "per provare SQL <> TecSQL con i dati veri")
+    parser.add_argument('--fw-connect', metavar='HOST:PORT/SID',
+                        help='con --fw: legge il dizionario da questo database FW (solo SELECT) e lo salva; la password si chiede')
+    parser.add_argument('--fw-user', help='con --fw-connect: l\'utente del database FW')
+    parser.add_argument('--translate', metavar='QUERY',
+                        help='senza finestra: traduce questa query (con $ e\' TecSQL, senza e\' SQL) e la stampa; usa --fw per il dizionario vero')
+    parser.add_argument('--descriptor', help='con --translate: il descrittore da usare se la tabella ne ha piu\' di uno (es. $Articolo)')
     parser.add_argument('--one-tool', action='store_true',
                         help='senza gli strumenti di prova: JT come e\' oggi, con il solo Strings (solo con --gui)')
     args = parser.parse_args(argv)
-    if (args.sample or args.azure or args.nokey or args.one_tool) and not args.gui:
+    gui_only = (args.sample or args.azure or args.nokey or args.one_tool)
+    if gui_only and not args.gui:
         parser.error('--sample, --azure, --nokey e --one-tool servono solo con --gui: gli scenari contano le righe di prova e non spendono')
+    if (args.fw_connect or args.fw_user) and not args.fw:
+        parser.error('--fw-connect e --fw-user servono con --fw')
+    if args.descriptor and not args.translate:
+        parser.error('--descriptor serve con --translate')
+    sample = tool.load_sample(args.sample) if args.sample else None
+    if args.fw:
+        sample = _with_fw_dictionary(parser, args, sample)
+    if args.translate:
+        return translate_command(args.translate, args.descriptor, sample)
     if args.gui:
-        run_gui(tool.load_sample(args.sample) if args.sample else None, args.azure, args.nokey, not args.one_tool)
+        run_gui(sample, args.azure, args.nokey, not args.one_tool)
         return 0
+    if args.fw:
+        parser.error('--fw serve con --gui o con --translate')
     ok, total = run_scenarios()
     print(f'\n{ok}/{total} controlli riusciti.')
     return 0 if ok == total else 1
+
+
+def _with_fw_dictionary(parser, args, sample):
+    """Il campione piu' il dizionario completo di un database FW vero: letto ora (--fw-connect) o dal file salvato."""
+    import fw_dictionary
+    try:
+        if args.fw_connect:
+            if not args.fw_user:
+                parser.error('--fw-connect vuole anche --fw-user')
+            print(f'Reading the dictionary from {args.fw_connect} (SELECT only)...')
+            connection = fw_dictionary.connect(args.fw_connect, args.fw_user)
+            try:
+                data = fw_dictionary.fetch(connection)
+            finally:
+                connection.close()
+            print('Saved', fw_dictionary.save(data, args.fw_connect), '(not for GitHub: it is in .gitignore)')
+        else:
+            data = fw_dictionary.load()
+    except (FileNotFoundError, ValueError) as e:
+        parser.error(str(e))
+    return fw_dictionary.merge(sample, data)
+
+
+def translate_command(query, descriptor, sample):
+    """Senza finestra: traduce una query con il dizionario del simulatore (quello di prova o, con --fw, quello vero)."""
+    from jt import dictionary
+    simulator = Simulator(sample)
+    db = Database(driver=simulator)
+    db.connect('sim', '1521', 'SIM', 'simulator', 'x')
+    dictionary.forget()
+    d = dictionary.load(db)
+    print(f'Dictionary: {len(d.rows):,} fields in {len(d.table_map):,} tables', file=sys.stderr)
+    text = normalize_query_text(query)
+    if '$' in text:
+        try:
+            print(d.to_sql(text))
+            return 0
+        except ValueError as e:
+            print(f'ERROR: {e}', file=sys.stderr)
+            return 1
+    result = d.to_tecsql(text, descriptor)
+    if result.get('ambiguous'):
+        print(f"AMBIGUOUS: {result['table']} has several logical names: {', '.join(result['candidates'])} (use --descriptor)",
+              file=sys.stderr)
+        return 2
+    if not result.get('success'):
+        print(f"ERROR: {result.get('error')}", file=sys.stderr)
+        return 1
+    print(result['tecsql'])
+    if result.get('partial_translation'):
+        print(f"WARNING: translated in part, not found: {', '.join(result.get('untranslated_fields') or [])}", file=sys.stderr)
+    return 0
 
 
 if __name__ == '__main__':

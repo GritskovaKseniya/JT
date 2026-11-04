@@ -95,6 +95,9 @@ class FakeDB:
     def __init__(self):
         self.log = []                 # (sql, binds) di ogni execute
         self.existing = set()         # (tabella, ((colonna_minuscola, valore), ...)) gia' presenti in lingua di output
+        self.dictionary_rows = []     # righe del dizionario dei nomi (TABLEDBNAME, DBFIELDNAME, TABLENAME, TABLEFIELDNAME, ...)
+        self.dictionary_queries = []  # le SELECT del dizionario fatte finora
+        self.dictionary_error = False # la SELECT del dizionario solleva
         self.duplicates = set()       # stesse chiavi di existing: la SELECT per chiave torna due righe uguali
         self.old_values = {}          # stessa chiave -> {colonna_minuscola: testo di prima}; senza: 'old <colonna>'
         self.missing = {}             # tabella -> conteggio restituito dai COUNT(*) con :li
@@ -155,6 +158,11 @@ class FakeCursor:
             table = re.search(r'from (\w+) where', s, re.I).group(1)
             self.description = [(c,) for c in self.db.columns.get(table, [])]
             self.res = []
+        elif 'from fw_tables tab' in low:                                       # il dizionario dei nomi
+            self.db.dictionary_queries.append(s)
+            if self.db.dictionary_error:
+                raise RuntimeError('ORA-00942: table or view does not exist')
+            self.res = [tuple(row) for row in self.db.dictionary_rows]
         elif low.startswith('select 1 from') and 'rownum' in low:              # la tabella esiste?
             table = re.search(r'from (\w+) where', s, re.I).group(1)
             if table in self.db.invalid_tables:

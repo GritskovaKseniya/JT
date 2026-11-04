@@ -1,7 +1,7 @@
 """La finestra principale: passi, dimensioni, chiusura. Qui si collegano interfaccia e logica."""
 import tkinter as tk
 
-from .. import azure_key, tools as tool_registry
+from .. import azure_key, dictionary, tools as tool_registry
 from ..azure import AzureTranslator
 from ..catalog import Catalog
 from ..config import APP_TITLE, VERSION, WINDOW_MIN_WIDTH, Paths
@@ -15,6 +15,7 @@ from .connection_screen import ConnectionScreen
 from .dialogs import ConfirmDialog
 from .scale import px
 from .theme import setup_style
+from .tecsql_screen import TecsqlScreen
 from .tools_screen import ToolsScreen
 from .translation_screen import TranslationScreen
 from .winicon import set_window_icons
@@ -25,8 +26,10 @@ BOTTOM_MARGIN = 80        # spazio lasciato per la barra delle applicazioni
 
 
 def default_tools():
-    """Gli strumenti di JTools. Per ora uno solo: Strings (l'attuale JT)."""
-    return [tool_registry.Tool('strings', 'Strings', lambda parent, app: TranslationScreen(parent, app), writes=True)]
+    """Gli strumenti di JTools: Strings (l'attuale JT, scrive) e SQL <-> TecSQL (legge soltanto il dizionario dei nomi)."""
+    return [tool_registry.Tool('strings', 'Strings', lambda parent, app: TranslationScreen(parent, app), writes=True),
+            tool_registry.Tool('tecsql', 'SQL <> TecSQL', lambda parent, app: TecsqlScreen(parent, app),
+                               requires=dictionary.TABLES)]
 
 
 class JTApp:

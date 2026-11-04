@@ -141,6 +141,28 @@ senza domande (l'unica eccezione e' un'anteprima gia' pronta e non ancora scritt
 database e la riga in corso viene finita prima di uscire. Con un'anteprima pronta ma non ancora scritta chiede **Discard and quit** / **Keep the preview**: le traduzioni dell'anteprima
 sono gia' state pagate ad Azure e chiudendo si perdono (una nuova anteprima le pagherebbe di nuovo).
 
+### Lo strumento SQL <> TecSQL
+
+Con piu' di uno strumento il passo 2 si chiama **Tools** e in alto compare una riga di schede: **Strings** (la traduzione di cui sopra) e
+**SQL <> TecSQL**. Una freccia a sinistra nasconde la riga (resta il nome dello strumento aperto). Una scheda grigia non puo' funzionare su
+questo database (per esempio mancano le tabelle del dizionario): passa il mouse per vedere il motivo.
+
+**SQL <> TecSQL** traduce una query da una forma all'altra con i nomi del dizionario di Jflex (FW_TABLES e FW_TABLE_FIELDS, letti una volta
+per connessione): **non scrive niente sul database e non serve la chiave Azure**.
+
+1. Incolla la query in **Query**. Se ha un `$` e' TecSQL e diventa SQL di Oracle; se non ce l'ha e' SQL e diventa TecSQL. (Ctrl+Invio traduce.)
+2. **Translate**. Il risultato e' sotto, con la direzione (`TecSQL -> SQL` o `SQL -> TecSQL`); **Copy** lo copia, **Use result as query** lo
+   rimette in **Query** per tradurlo dall'altra parte, **Clear** svuota tutto.
+3. **Remove ?parameters** (solo TecSQL -> SQL): toglie dal WHERE/HAVING le condizioni con un `?parametro`, cosi' la query si puo' eseguire cosi' com'e'.
+4. Se in SQL -> TecSQL una tabella ha **piu' nomi logici** (per esempio `FW_STRINGS` ne ha 4), compare una domanda **"Which one?"**: scegli il nome e
+   la query si traduce.
+5. Se un campo non e' nel dizionario la traduzione e' **parziale**: l'avviso giallo dice quali campi (e le subquery che non si sono tradotte).
+6. **Reload dictionary** rilegge i nomi dal database (se sono cambiati).
+
+Cose da sapere: **solo le `SELECT`** (UPDATE, INSERT e DELETE non si traducono); `DATE('31/12/2008')` diventa `TO_DATE('2008-12-31')`;
+`LIMIT n` diventa `ROWNUM <= n` nel WHERE, quindi **il limite vale prima dell'`ORDER BY`** (le prime n righe, poi ordinate); un campo scritto
+con un alias resta scritto con l'alias.
+
 ## 5. "Update by keys": rifare traduzioni specifiche
 
 Serve quando una stringa e' cambiata e vuoi rigenerare la traduzione, oppure vuoi tradurre solo alcune voci.

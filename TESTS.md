@@ -18,7 +18,7 @@ nascosta e vengono saltati se non c'e' un display. Durata: circa 40 secondi.
 ## Risultato (2026-11-03)
 
 ```
-Ran 979 tests in ~100 s
+Ran 1013 tests in ~110 s
 OK
 ```
 
@@ -34,12 +34,13 @@ Eseguiti anche con i `ResourceWarning` trattati come errori.
 | `test_tecsql_sql_to_tecsql.py` | 24 | (portati da JCTNT) SQL -> TecSQL: campi qualificati e no, costanti del JAS senza avviso, refusi con avviso, subquery. **Subquery** (era un difetto): con uno spazio dopo la parentesi, con una funzione dentro, annidate, affiancate, in FROM, una stringa con `(SELECT`, una subquery che non si traduce o con un campo sconosciuto (`partial_translation` con il motivo), e una su una tabella con due nomi logici (si chiede quale). |
 | `test_tecsql_tecsql_to_sql.py` | 32 | (portati da JCTNT) TecSQL -> SQL: SELECT, alias, subquery, `strip_params`, ORDER BY; **alias** (il campo resta scritto con l'alias, self-join, JOIN, `*`, alias dell'esterno nelle subquery), **`DATE('gg/mm/aaaa')`** -> `TO_DATE`, **`LIMIT`** -> `ROWNUM <= n` (con WHERE, con OR tra parentesi, prima di GROUP/ORDER, con parametro, in subquery, in UNION). |
 | `test_orione_pairs.py` | 5 | Il traduttore TecSQL -> SQL contro le 79 coppie (35 combaciano) che Orione dichiara corrette (`orione_pairs.json`, dizionario `orione_dictionary.json`): ogni coppia combacia o e' una lacuna documentata con il motivo (`orione_known_gaps.json`, 44 lacune; **i file di dati sono solo in locale**, in `.gitignore`: senza, i test si saltano), e il controllo e' esatto (una lacuna corretta fa fallire il test finche' non si toglie dall'elenco). |
+| `test_fw_dictionary.py` | 15 | Il dizionario completo di un database FW per il simulatore (`tools/fw_dictionary.py`): letto con SELECT, salvato e riletto, `merge` con il campione, una connessione scritta male e' un errore prima di chiedere la password, il file e' in .gitignore; e i flag del simulatore `--fw`, `--translate`, `--descriptor` (uscite 0, 1 e 2, errori chiari). |
 | `test_azure_key.py` | 8 | Controllo della chiave Azure: file mancante, illeggibile o non un oggetto, campo mancante/vuoto/non testo, segnaposto del pacchetto, forma sbagliata (corta, spazi, trattini), endpoint non https, chiavi di 32 e 84 caratteri accettate, messaggio con motivo, referente e cartella. |
 | `test_database.py` | 27 | Connessione e chiusura (ricollegare chiude la precedente, chiusura ripetibile e tollerante agli errori); nomi colonna letti dal cursore e messi in cache; tabelle esistenti; cursori tracciati |
 | `test_service.py` | 112 | Selezione (righe mancanti e per chiavi, conteggio dei caratteri come somma, cursori vecchi chiusi); esecuzione in modalita' normale e per chiavi (INSERT oppure UPDATE), log, errore Azure = riga saltata, errore di INSERT = log errori e si prosegue, commit a ogni riga, avanzamento, arresto richiesto; log CSV; rollback dopo un errore di scrittura o di commit; righe saltate registrate in un log a parte; chiavi con zeri iniziali |
 | `test_support.py` | 40 | Esecuzione in un thread (`BackgroundRunner`, `InlineRunner`: eventi, errori, Stop, un solo lavoro alla volta); testi (`fmt_count`, `shorten` mai oltre il limite, `reason`); informazioni sulla connessione (nome del database dichiarato dal server, password mai conservata); limite delle chiavi; timeout di Azure; cartella dei log creata e nomi unici; `JT.py` dichiara la scala dello schermo prima di aprire la finestra e chiude la connessione anche in caso di errore |
 | `test_regressions.py` | 6 | Cifre simili a numeri (`²`) rifiutate, JSON che non e' un oggetto tollerato, log con caption se manca la descrizione, testo di soli spazi non inviato ad Azure |
-| `test_ui.py` | 481
+| `test_ui.py` | 500
 | `test_undo.py` | 21 | Script di annullamento: costanti SQL (apici raddoppiati, `&` lasciata stare, UNISTR per accenti/hindi/a capo/emoji, backslash protetta, date), nomi di tabella e colonna controllati (niente iniezioni), DELETE per gli INSERT e UPDATE per gli UPDATE (NULL compreso), intestazione, `SET DEFINE OFF`, `COMMIT`, ordine inverso, solo ASCII |
 | `test_environments.py` | 13 | Etichette dell'ambiente: solo dev/test/prod valide, non impostata e sconosciuta valgono prod, riconoscere un database senza badare a maiuscole e spazi, segno colorato; come si ricordano nelle impostazioni (per database, senza cancellare i dati di connessione, file rotto tollerato); utenti scritti per livello |
 | `test_layers.py` | 8 | Livelli: confini degli intervalli dei codici (2999999 Standard, 3000000 CT, 4999999 CW...), codice fuori livello = errore, nome dell'opzione dal prefisso (maiuscole contano, prefisso scritto male = nessun livello), livelli visibili |

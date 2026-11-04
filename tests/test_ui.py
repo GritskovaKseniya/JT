@@ -47,6 +47,7 @@ from jt.ui.theme import FONT, PALETTE  # noqa: E402
 from jt.ui.translation_screen import KEYS_HINT, TranslationScreen  # noqa: E402
 from jt.tools import Tool  # noqa: E402
 from jt.ui.tools_screen import ToolsScreen  # noqa: E402
+from jt.ui.app import default_tools  # noqa: E402
 from jt.ui.widgets import InfoBar, Stepper, StatusBar, ToolTip, WrapTracker  # noqa: E402
 
 SECONDARY, PRIMARY, DANGER = 'Secondary.TButton', 'Primary.TButton', 'Danger.TButton'
@@ -78,6 +79,11 @@ def fire(widget, sequence):
     for code, value in (('%W', str(widget)), ('%A', 'a'), ('%K', 'a'), ('%T', '2')):
         script = script.replace(code, value)
     widget.tk.eval(re.sub(r'%[#bfhkstwxyXYNED]', '0', script))
+
+
+def strings_only():
+    """Gli strumenti dei test dell'interfaccia di Strings: solo Strings (con piu' strumenti il passo 2 e' il guscio)."""
+    return [tool for tool in default_tools() if tool.name == 'strings']
 
 
 def state(widget):
@@ -141,7 +147,7 @@ class UiCase(JtCase):
         self.paths = helpers.make_paths(self.tmp)
         self.addCleanup(scale.set_factor, 1.0)           # la scala e' globale: ogni test la ripristina
         self.runner = self.make_runner()
-        self.app = JTApp(self.root, self.paths, self.db, runner=self.runner, scale_factor=1.0)
+        self.app = JTApp(self.root, self.paths, self.db, runner=self.runner, scale_factor=1.0, tools=strings_only())
         # la conferma prima di scrivere e' una finestra modale: nei test si risponde da sola (self.confirm_answer) e si
         # registra la richiesta; i test della finestra vera la disattivano con self.use_real_confirmation()
         self.key_reason = ''
@@ -3483,6 +3489,199 @@ class ToolsShellTests(UiCase):
         self.assertFalse(self.db.table_exists('FW_STRINGS'))
 
 
+class TecsqlScreenTests(UiCase):
+    """Lo strumento SQL <-> TecSQL: si incolla una query e si traduce; non scrive e non serve la chiave Azure."""
+
+    ROWS = [
+        ('GD_LIRIG', 'LIRIG_LICOD', 'RigaListino', 'CodListino', 'C', '10', '0'),
+        ('GD_LIRIG', 'LIRIG_CATLI', 'RigaListino', 'CatListino', 'C', '2', '0'),
+        ('GD_LIRIG', 'LIRIG_PREZO', 'RigaListino', 'Prezzo', 'N', '15', '4'),
+        ('GD_LITES', 'LITES_LICOD', 'TestataListino', 'Codice', 'C', '10', '0'),
+        ('MD_ARTI', 'ARTI_ARTCO', 'Articolo', 'Codice', 'C', '20', '0'),
+        ('MD_ARTI', 'ARTI_ARTCO', 'ArticoloEsteso', 'Codice', 'C', '20', '0'),
+    ]
+
+    def setUp(self):
+        super().setUp()
+        from jt import dictionary
+        dictionary.forget()
+        self.addCleanup(dictionary.forget)
+        self.fake_db.dictionary_rows = list(self.ROWS)
+
+    def open(self):
+        """Il passo 2 con Strings e SQL <> TecSQL, aperto sul secondo."""
+        self.app.tools = [ToolsShellTests.strings_tool(), next(t for t in default_tools() if t.name == 'tecsql')]
+        self.app.connect(dict(FAKE_CONNECTION))
+        self.app.show_translation()
+        shell = self.app.screen
+        shell.select('tecsql')
+        return shell.current
+
+    def run_translate(self, screen, text):
+        screen.input.delete('1.0', 'end')
+        screen.input.insert('1.0', text)
+        screen.translate_button.invoke()
+
+    def test_it_opens_with_the_dictionary_read_once(self):
+        screen = self.open()
+        self.assertEqual(screen.label_dictionary.cget('text'), 'Dictionary: 6 fields in 4 tables')
+        self.assertEqual(state(screen.copy_button), 'disabled')
+        self.assertEqual(state(screen.swap_button), 'disabled')
+        self.assertEqual(len(self.fake_db.dictionary_queries), 1)
+
+    def test_tecsql_to_sql(self):
+        screen = self.open()
+        self.run_translate(screen, "SELECT $RigaListino.CodListino FROM $RigaListino WHERE $RigaListino.CatListino = 'LL'")
+        self.assertEqual(screen.result_text(), "SELECT GD_LIRIG.LIRIG_LICOD FROM GD_LIRIG WHERE GD_LIRIG.LIRIG_CATLI = 'LL'")
+        self.assertEqual(screen.label_direction.cget('text'), 'TecSQL → SQL')
+        self.assertEqual(screen.direction, 'tecsql_to_sql')
+        self.assertEqual(screen.status.message.cget('text'), 'Translated to SQL.')
+        self.assertEqual((state(screen.copy_button), state(screen.swap_button)), ('normal', 'normal'))
+
+    def test_sql_to_tecsql(self):
+        screen = self.open()
+        self.run_translate(screen, 'SELECT GD_LIRIG.LIRIG_LICOD FROM GD_LIRIG')
+        self.assertEqual(screen.result_text(), 'SELECT $RigaListino.CodListino FROM $RigaListino')
+        self.assertEqual(screen.label_direction.cget('text'), 'SQL → TecSQL')
+        self.assertEqual(screen.status.message.cget('text'), 'Translated to TecSQL.')
+
+    def test_a_multiline_query_is_normalized(self):
+        screen = self.open()
+        self.run_translate(screen, 'SELECT GD_LIRIG.LIRIG_LICOD\\n   FROM   GD_LIRIG\\n WHERE GD_LIRIG.LIRIG_CATLI = 1'.replace('\\n', '\n'))
+        self.assertEqual(screen.result_text(),
+                         'SELECT $RigaListino.CodListino FROM $RigaListino WHERE $RigaListino.CatListino = 1')
+
+    def test_an_empty_query_says_what_to_do(self):
+        screen = self.open()
+        self.run_translate(screen, '   \\n  '.replace('\\n', '\n'))
+        self.assertEqual(screen.result_text(), '')
+        self.assertIn('Paste a query', screen.status.message.cget('text'))
+
+    def test_an_error_is_shown_and_the_old_result_is_cleared(self):
+        screen = self.open()
+        self.run_translate(screen, 'SELECT GD_LIRIG.LIRIG_LICOD FROM GD_LIRIG')
+        self.run_translate(screen, 'SELECT $Nope.X FROM $Nope')
+        self.assertEqual(screen.result_text(), '')
+        self.assertEqual(screen.status.message.cget('text'), 'Logical table not mapped: $Nope')
+        self.assertEqual((state(screen.copy_button), state(screen.swap_button)), ('disabled', 'disabled'))
+        self.run_translate(screen, 'SELECT X FROM NON_ESISTE')
+        self.assertEqual(screen.status.message.cget('text'), 'Table NON_ESISTE not found in the dictionary')
+
+    def test_remove_parameters_only_matters_for_tecsql(self):
+        screen = self.open()
+        query = 'SELECT $RigaListino.CodListino FROM $RigaListino WHERE $RigaListino.CatListino = ?categoria'
+        self.run_translate(screen, query)
+        self.assertIn('?categoria', screen.result_text())
+        screen.var_strip.set(True)
+        screen.translate_button.invoke()
+        self.assertNotIn('?categoria', screen.result_text())
+        self.assertNotIn('WHERE', screen.result_text())
+
+    def test_a_table_with_two_logical_names_asks_which(self):
+        screen = self.open()
+        self.run_translate(screen, 'SELECT ARTI_ARTCO FROM MD_ARTI')
+        self.assertEqual(screen.result_text(), '')
+        self.assertEqual(screen.choice_row.winfo_manager(), 'pack')
+        self.assertIn('MD_ARTI has 2 logical names', screen.choice_label.cget('text'))
+        self.assertEqual(sorted(screen.choice_box.cget('values')), ['$Articolo', '$ArticoloEsteso'])
+        self.assertIn('choose one', screen.status.message.cget('text'))
+        screen.var_choice.set('$ArticoloEsteso')                      # come sceglierlo dal menu
+        screen.choice_box.event_generate('<<ComboboxSelected>>')
+        self.assertEqual(screen.result_text(), 'SELECT $ArticoloEsteso.Codice FROM $ArticoloEsteso')
+        self.assertEqual(screen.choice_row.winfo_manager(), '')       # scelto: la domanda sparisce
+
+    def test_a_new_translation_hides_an_old_question(self):
+        screen = self.open()
+        self.run_translate(screen, 'SELECT ARTI_ARTCO FROM MD_ARTI')
+        self.assertEqual(screen.choice_row.winfo_manager(), 'pack')
+        self.run_translate(screen, 'SELECT GD_LIRIG.LIRIG_LICOD FROM GD_LIRIG')
+        self.assertEqual(screen.choice_row.winfo_manager(), '')
+
+    def test_a_partial_translation_is_a_warning_with_the_fields(self):
+        screen = self.open()
+        self.run_translate(screen, 'SELECT LIRIG_LICOD FROM GD_LIRIG WHERE LIRIG_NOPE = 1')
+        self.assertIn('$RigaListino.CodListino', screen.result_text())
+        self.assertEqual(screen.status.state, 'warn')
+        self.assertIn('LIRIG_NOPE', screen.status.message.cget('text'))
+
+    def test_use_the_result_as_query_goes_the_other_way(self):
+        screen = self.open()
+        self.run_translate(screen, 'SELECT GD_LIRIG.LIRIG_LICOD FROM GD_LIRIG')
+        screen.swap_button.invoke()
+        self.assertEqual(screen.query_text(), 'SELECT $RigaListino.CodListino FROM $RigaListino')
+        self.assertEqual(screen.result_text(), '')
+        screen.translate_button.invoke()
+        self.assertEqual(screen.result_text(), 'SELECT GD_LIRIG.LIRIG_LICOD FROM GD_LIRIG')
+
+    def test_copy_puts_the_result_on_the_clipboard(self):
+        screen = self.open()
+        self.run_translate(screen, 'SELECT GD_LIRIG.LIRIG_LICOD FROM GD_LIRIG')
+        screen.copy_button.invoke()
+        self.assertEqual(self.root.clipboard_get(), 'SELECT $RigaListino.CodListino FROM $RigaListino')
+        self.assertEqual(screen.status.message.cget('text'), 'Result copied to the clipboard.')
+
+    def test_clear_empties_everything(self):
+        screen = self.open()
+        self.run_translate(screen, 'SELECT ARTI_ARTCO FROM MD_ARTI')
+        screen.clear_button.invoke()
+        self.assertEqual((screen.query_text(), screen.result_text()), ('', ''))
+        self.assertEqual(screen.choice_row.winfo_manager(), '')
+        self.assertIn('Paste a query', screen.status.message.cget('text'))
+
+    def test_control_return_translates(self):
+        screen = self.open()
+        screen.input.insert('1.0', 'SELECT GD_LIRIG.LIRIG_LICOD FROM GD_LIRIG')
+        self.root.deiconify()
+        screen.input.focus_force()
+        self.root.update()
+        screen.input.event_generate('<Control-Return>')
+        self.assertEqual(screen.result_text(), 'SELECT $RigaListino.CodListino FROM $RigaListino')
+        self.assertNotIn('\n', screen.input.get('1.0', 'end').strip())          # il tasto non aggiunge un a capo
+
+    def test_reload_reads_the_dictionary_again(self):
+        screen = self.open()
+        self.fake_db.dictionary_rows = self.ROWS[:2]
+        screen.reload_button.invoke()
+        self.assertEqual(len(self.fake_db.dictionary_queries), 2)
+        self.assertEqual(screen.label_dictionary.cget('text'), 'Dictionary: 2 fields in 1 tables')
+        self.assertIn('Dictionary reloaded', screen.status.message.cget('text'))
+        self.run_translate(screen, 'SELECT ARTI_ARTCO FROM MD_ARTI')                 # il dizionario nuovo non ha MD_ARTI
+        self.assertEqual(screen.status.message.cget('text'), 'Table MD_ARTI not found in the dictionary')
+
+    def test_a_dictionary_that_cannot_be_read_is_said_and_retried_at_the_next_translation(self):
+        self.fake_db.dictionary_error = True
+        screen = self.open()
+        self.assertEqual(screen.label_dictionary.cget('text'), 'Dictionary not loaded')
+        self.assertIn('Could not read the dictionary of names', screen.status.message.cget('text'))
+        self.fake_db.dictionary_error = False
+        self.run_translate(screen, 'SELECT GD_LIRIG.LIRIG_LICOD FROM GD_LIRIG')
+        self.assertEqual(screen.result_text(), 'SELECT $RigaListino.CodListino FROM $RigaListino')
+        self.assertTrue(screen.label_dictionary.cget('text').startswith('Dictionary: '))
+
+    def test_it_needs_no_azure_key_and_writes_nothing(self):
+        self.key_reason = 'the key file was not found'
+        screen = self.open()
+        self.run_translate(screen, 'SELECT GD_LIRIG.LIRIG_LICOD FROM GD_LIRIG')
+        self.assertEqual(screen.result_text(), 'SELECT $RigaListino.CodListino FROM $RigaListino')
+        self.assertEqual(self.fake_db.writes(), [])
+        self.assertEqual(screen.status.state, 'ok')
+
+    def test_the_tool_is_off_without_the_dictionary_tables(self):
+        self.fake_db.invalid_tables = {'FW_TABLES'}
+        self.app.tools = [ToolsShellTests.strings_tool(), next(t for t in default_tools() if t.name == 'tecsql')]
+        self.app.connect(dict(FAKE_CONNECTION))
+        self.app.show_translation()
+        shell = self.app.screen
+        self.assertEqual(shell.problems['tecsql'], 'needs FW_TABLES: not found on this database')
+        shell.select('tecsql')
+        self.assertEqual(shell.selected, 'strings')
+
+    def test_the_real_app_offers_both_tools(self):
+        self.assertEqual([t.name for t in default_tools()], ['strings', 'tecsql'])
+        tecsql = default_tools()[1]
+        self.assertEqual((tecsql.requires, tecsql.writes), (('FW_TABLES', 'FW_TABLE_FIELDS'), False))
+
+
 class NoKeyTests(UiCase):
     """Senza una chiave Azure valida JT legge e conta, ma non traduce e non scrive: nessun percorso porta a una scrittura."""
 
@@ -4744,7 +4943,8 @@ class ScaleWindowTests(UiCase):
             return original(spec) if spec else original()
 
         root.geometry = geometry
-        app = JTApp(root, self.paths, db, runner=InlineRunner(), scale_factor=factor if scale_factor else None)
+        app = JTApp(root, self.paths, db, runner=InlineRunner(), scale_factor=factor if scale_factor else None,
+                    tools=strings_only())
         return root, app, db
 
     @staticmethod

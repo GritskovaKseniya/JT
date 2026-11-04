@@ -20,3 +20,6 @@ tools/sample_data.json
 tests/orione_pairs.json
 tests/orione_dictionary.json
 tests/orione_known_gaps.json
+
+# il dizionario dei nomi completo di un database FW vero (tools/fw_dictionary.py): dati dell'azienda, non vanno su GitHub
+tools/fw_dictionary.json
