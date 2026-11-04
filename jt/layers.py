@@ -33,7 +33,7 @@ def layer_of_code(code):
 BY_NAME = {layer.name: layer for layer in LAYERS}
 
 # livelli mostrati nella finestra (gli altri restano nel codice ma nascosti)
-VISIBLE = ('AP', 'CW', 'CT')
+VISIBLE = ('AP', 'CW', 'CT', 'CC')
 
 def layer_of_name(name):
     """Layer di un'opzione dal prefisso del nome (Fw, Cw, Ct, Ck, Cc; nessun prefisso = AP).
@@ -52,8 +52,8 @@ def layer_of_name(name):
             return None
     return BY_NAME['AP']
 
-# Le righe CT e CW si scrivono con l'utente del loro livello; tutte le altre con la sigla del tool (DB_MARKER)
-USER_FROM_LAYER = ('CT', 'CW')
+# Le righe CT, CW e CC si scrivono con l'utente del loro livello; tutte le altre con la sigla del tool (DB_MARKER)
+USER_FROM_LAYER = ('CT', 'CW', 'CC')
 
 
 def user_of_layer(layer):
@@ -75,7 +75,8 @@ def level_label(layer):
     return 'Standard' if layer.name == 'AP' else layer.name
 
 
-TITLES = {'AP': 'Standard', 'CW': 'CW - Integrations', 'CT': 'CT - Customizations'}
+TITLES = {'AP': 'Standard', 'CW': 'CW - Integrations', 'CT': 'CT - Customizations',
+          'CC': 'CC - Client Customization'}
 
 
 def level_title(layer):

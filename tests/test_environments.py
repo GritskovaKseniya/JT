@@ -89,8 +89,9 @@ class UsersWrittenTests(unittest.TestCase):
     def test_one_user_with_a_level_and_all_of_them_without(self):
         self.assertEqual(users_written(BY_NAME['CT']), ('ZFXCUSTOM',))
         self.assertEqual(users_written(BY_NAME['CW']), ('ZFXINTEGR',))
+        self.assertEqual(users_written(BY_NAME['CC']), ('ZFXCCSYS',))
         self.assertEqual(users_written(BY_NAME['AP']), ('JT',))
-        self.assertEqual(users_written(None), ('JT', 'ZFXCUSTOM', 'ZFXINTEGR'))
+        self.assertEqual(users_written(None), ('JT', 'ZFXCUSTOM', 'ZFXINTEGR', 'ZFXCCSYS'))
 
     def test_a_table_without_levels_always_writes_the_tool_marker(self):
         self.assertEqual(users_written(BY_NAME['CT'], supports_levels=False), ('JT',))

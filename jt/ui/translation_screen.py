@@ -39,7 +39,9 @@ LEVEL_HINT = {
              ('Standard', 'The standard product: strings 100000-2999999, options without a Cw/Ct/... prefix.'),
              ('CW - Integrations', 'Strings 4000000-4999999, options named Cw... Written with user ZFXINTEGR.'),
              ('CT - Customizations', 'Tecnest customizations: strings 3000000-3999999, options named Ct... '
-                                     'Written with user ZFXCUSTOM.')],
+                                     'Written with user ZFXCUSTOM.'),
+             ('CC - Client Customization', 'Customer customizations: strings from 9000000, options named Cc... '
+                                           'Written with user ZFXCCSYS.')],
     'footer': 'FW_DOCU_NODES_T and FW_OBJ_DESCRS have no levels: the field is switched off for them and they '
               'translate everything.',
 }

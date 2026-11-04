@@ -43,8 +43,9 @@ class VisibleTest(unittest.TestCase):
 class LevelTitlesTests(unittest.TestCase):
     def test_titles_are_written_out_and_short_labels_stay_short(self):
         from jt.layers import DEFAULT_LEVEL, LEVEL_ALL, LEVEL_CHOICES, level_label, level_title
-        self.assertEqual(list(LEVEL_CHOICES), ['All levels', 'Standard', 'CW - Integrations', 'CT - Customizations'])
-        self.assertEqual([LEVEL_CHOICES[t] and LEVEL_CHOICES[t].name for t in LEVEL_CHOICES], [None, 'AP', 'CW', 'CT'])
+        self.assertEqual(list(LEVEL_CHOICES), ['All levels', 'Standard', 'CW - Integrations', 'CT - Customizations',
+                                              'CC - Client Customization'])
+        self.assertEqual([LEVEL_CHOICES[t] and LEVEL_CHOICES[t].name for t in LEVEL_CHOICES], [None, 'AP', 'CW', 'CT', 'CC'])
         self.assertEqual(LEVEL_ALL, 'All levels')
         self.assertEqual(DEFAULT_LEVEL, 'Standard')
         self.assertEqual([level_label(BY_NAME[n]) for n in ('AP', 'CW', 'CT', 'CK')], ['Standard', 'CW', 'CT', 'CK'])

@@ -65,8 +65,8 @@ del mouse scorre, tranne sopra i menu a tendina.
 - **Level**: quale livello di Jflex tradurre. Passa il mouse sul campo per il dettaglio. **All levels** = tutti, senza filtro;
   **Standard** = il prodotto standard; **CW - Integrations** = integrazioni; **CT - Customizations** = personalizzazioni Tecnest.
   All'inizio e' **Standard** (e' cambiato rispetto alla versione 3.0, che traduceva tutto insieme): per tradurre anche le righe
-  CT o CW scegli quel livello oppure All levels. Il livello si riconosce dal codice della stringa (CW 4000000-4999999, CT
-  3000000-3999999) o, per le opzioni, dal prefisso del nome (`Cw...`, `Ct...`). Le tabelle dei nodi di documentazione e delle
+  CT, CW o CC scegli quel livello oppure All levels. Il livello si riconosce dal codice della stringa (CW 4000000-4999999, CT
+  3000000-3999999, CC da 9000000) o, per le opzioni, dal prefisso del nome (`Cw...`, `Ct...`, `Cc...`). Le tabelle dei nodi di documentazione e delle
   descrizioni oggetti non hanno livelli: per loro il campo e' spento (All levels) e si traduce sempre tutto. Dopo **Load** il
   messaggio ricorda il livello se non e' Standard (`3 rows to translate (CT): ...`).
 - Sotto la tabella una riga dice **quante traduzioni mancano**, per questa tabella e per tutte
@@ -114,7 +114,7 @@ in riga con il riassunto) e si riaprono quando l'anteprima finisce.
 
 Su un database **`prod` o `Not set`**, prima di **scrivere**, cioe' premendo **Translate** (traduzione diretta) o **Write** (dopo
 l'anteprima), compare una finestra di conferma con un riepilogo: quante righe e in quale tabella, il **database** (nome, host, utente), l'**ambiente**, le
-lingue, il **livello** e l'**utente che verra' scritto** (CT scrive `ZFXCUSTOM`, CW `ZFXINTEGR`, il resto `JT`), e per **Write** quante
+lingue, il **livello** e l'**utente che verra' scritto** (CT scrive `ZFXCUSTOM`, CW `ZFXINTEGR`, CC `ZFXCCSYS`, il resto `JT`), e per **Write** quante
 righe sono INSERT e quante UPDATE. **Preview** non chiede mai niente: non scrive.
 
 - Per confermare bisogna **scrivere il nome del database** (maiuscole e minuscole non contano): finche' non e' giusto il pulsante
@@ -167,7 +167,7 @@ I testi passano da un glossario: **UMV** diventa **HU** nelle lingue diverse dal
 
 | Dove | Cosa |
 |---|---|
-| Nel database | Le traduzioni. Nella colonna "utente" delle righe inserite o aggiornate scrive la sigla `JT`, ma per le righe del livello CT scrive `ZFXCUSTOM` e per quelle del livello CW `ZFXINTEGR`. La categoria (il modulo: MES, WMS...) la copia dalla riga di partenza. |
+| Nel database | Le traduzioni. Nella colonna "utente" delle righe inserite o aggiornate scrive la sigla `JT`, ma per le righe del livello CT scrive `ZFXCUSTOM` e per quelle del livello CW `ZFXINTEGR` e per quelle del livello CC `ZFXCCSYS`. La categoria (il modulo: MES, WMS...) la copia dalla riga di partenza. |
 | `%LOCALAPPDATA%\JT\Logs\JT_inserts_log_<data>.csv` | Una riga per ogni traduzione scritta (data, azione, codice, livello, utente scritto, lingue, testo, traduzione e, per gli UPDATE, `old_output`: il testo che c'era prima). Le righe CT e CW si ritrovano da qui, non dalla sigla `JT`. |
 | `...\Logs\JT_undo_<data>.sql` | Lo script che **annulla la corsa** (vedi "Annullare una corsa"). Si scrive da solo dopo ogni corsa che ha scritto qualcosa. |
 | `...\Logs\JT_errors_log_<data>.csv` | Le righe che il database ha rifiutato, con il motivo (colonna `reason`). |

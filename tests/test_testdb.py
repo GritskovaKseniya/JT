@@ -137,9 +137,9 @@ class LevelSampleDataTests(unittest.TestCase):
         counts = {name: self.missing('FW_OPZIONI', BY_NAME[name]) for name in VISIBLE}
         total = self.missing('FW_OPZIONI', None)
         self.assertTrue(all(count > 0 for count in counts.values()), counts)
-        # Standard esclude CtStatoCliente, CwStatoIntegrazione e anche ctMinuscolo (UPPER). Il LIKE di CT/CW qui non si
+        # Standard esclude CtStatoCliente, CwStatoIntegrazione, CcStatoDescrittore e anche ctMinuscolo (UPPER). Il LIKE di CT/CW qui non si
         # prova per il minuscolo: SQLite non distingue le maiuscole, Oracle si' (lo dice il test su layer_of_name).
-        self.assertEqual(counts['AP'], total - 3)
+        self.assertEqual(counts['AP'], total - 4)
 
     def test_category_samples_exist_in_the_source_rows(self):
         categories = {row[3] for row in tool.DATA['FW_STRINGS'] if row[0] == 'it'}

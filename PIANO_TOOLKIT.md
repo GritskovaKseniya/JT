@@ -231,4 +231,15 @@ La fase A rende **piu' sicuro JT** e si usa subito; la B e' piccola; la C e' l'u
   JTools (solo SQL Developer). **Idee per dopo:** un pulsante "Undo last run" dentro JTools con anteprima delle righe che cambierebbe;
   segnare nell'anteprima le righe troppo lunghe per la colonna.
 
+### Passo 4 - Livello CC (fatto)
+
+- **Regole verificate in Orione** (`LayerCC.java`, `Layer.java`): codici da 9000000 a 1999999999 (non solo fino a 9999999),
+  prefisso `Cc`, utente/gruppo `ZFXCCSYS`. Nessuna regola speciale sulla categoria. Nel codice di JT l'intervallo c'era gia'.
+- **Cosa e' cambiato:** CC scrive l'utente giusto (`USER_FROM_LAYER`), e' visibile (`VISIBLE`) e nel campo Level come
+  `CC - Client Customization` (nome scelto da Kseniia; e' il piu' lungo dei livelli, quindi la larghezza minima della finestra
+  e' passata da 460 a 500 perche' Table e Level restino su una riga). Standard esclude gia' le opzioni `Cc`.
+- **Prova:** il database di prova ha righe CC (2 stringhe, 1 tripletta, 1 opzione `CcStatoDescrittore`); il simulatore ha le
+  stesse verifiche di CT e CW (conteggi che sommano, solo le righe del livello, utente `ZFXCCSYS`, categoria copiata, Standard non
+  le tocca): 71 controlli. 839 test.
+
 (scrivi qui le altre decisioni passo per passo e cio' che si scopre)

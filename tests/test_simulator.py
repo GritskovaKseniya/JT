@@ -71,7 +71,7 @@ class OracleBehaviourTests(unittest.TestCase):
         reader.execute("SELECT code FROM FW_STRINGS WHERE language = 'it' ORDER BY code")
         first = next(iter(reader))
         connection.rollback()
-        self.assertEqual(len(reader.fetchall()), 17)          # 18 righe italiane, una gia' letta
+        self.assertEqual(len(reader.fetchall()), 19)          # 20 righe italiane, una gia' letta
         self.assertEqual(first, (100000,))
 
     def test_the_database_is_shared_between_connections(self):

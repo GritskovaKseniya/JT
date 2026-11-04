@@ -297,8 +297,8 @@ class SelectionSqlTests(unittest.TestCase):
             self.assertIsNone(spec.layer_of_row(('it', None, '0')), name)
 
     def test_user_written_follows_the_layer_of_the_row(self):
-        cases = ((100000, 'JT'), (3000001, 'ZFXCUSTOM'), (4000001, 'ZFXINTEGR'), (5000001, 'JT'), (9000001, 'JT'),
-                 (7000000, 'JT'))                        # AP, CT, CW, CK, CC e un codice fuori livello: solo CT e CW cambiano
+        cases = ((100000, 'JT'), (3000001, 'ZFXCUSTOM'), (4000001, 'ZFXINTEGR'), (5000001, 'JT'), (9000001, 'ZFXCCSYS'),
+                 (7000000, 'JT'))                        # AP, CT, CW, CK, CC e un codice fuori livello: solo CT, CW e CC cambiano
         for name in ('FW_STRINGS', 'FW_FIELD_STRINGS'):
             spec = get_table(name)
             for code, user in cases:

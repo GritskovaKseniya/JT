@@ -71,7 +71,7 @@ def _data():
             strings.append(('de', code, de, None, 'SEED', None))
         if en:
             strings.append(('en', code, en, None, 'SEED', None))
-    # Livelli (campo Level): CT = codici 3000000-3999999, CW = 4000000-4999999, il resto e' Standard.
+    # Livelli (campo Level): CT = codici 3000000-3999999, CW = 4000000-4999999, CC = da 9000000, il resto e' Standard.
     # La colonna "info" e' la categoria (il modulo): la traduzione la deve copiare dalla riga sorgente.
     strings += [('it', 100100, 'Gestione del magazzino', 'WMS', None, None),
                 ('it', 3000001, 'Etichetta personalizzata per il cliente', 'MES', None, None),
@@ -79,7 +79,9 @@ def _data():
                 ('it', 3000003, 'Campo extra del cliente', ' ', None, None),        # un blank = "nessuna categoria"
                 ('de', 3000003, 'Zusatzfeld des Kunden', ' ', 'SEED', None),
                 ('it', 4000001, "Integrazione con l'ERP del cliente", 'MCS', None, None),
-                ('it', 4000002, 'Invio degli ordini al magazzino esterno', None, None, None)]
+                ('it', 4000002, 'Invio degli ordini al magazzino esterno', None, None, None),
+                ('it', 9000001, 'Descrittore del cliente', 'MES', None, None),
+                ('it', 9000002, 'Etichetta del descrittore', None, None, None)]
     fields = [
         (200000, 'Codice articolo', 'Codice univoco dell\'articolo', 'Scrivi il codice e premi Invio'),
         (200001, 'Quantita\'', 'Quantita\' da produrre', 'Numero intero maggiore di zero'),
@@ -92,13 +94,15 @@ def _data():
         field_rows.append(('it', code, caption, description, tip, None, None, None))
     field_rows.append(('en', 200000, 'Item code', 'Unique code of the item', 'Type the code and press Enter', None, 'SEED', None))
     field_rows += [('it', 3000100, 'Campo personalizzato', 'Descrizione del campo personalizzato', None, 'MES', None, None),
-                   ('it', 4000100, 'Codice integrazione', None, "Codice usato dall'integrazione", 'MCS', None, None)]
+                   ('it', 4000100, 'Codice integrazione', None, "Codice usato dall'integrazione", 'MCS', None, None),
+                   ('it', 9000100, 'Campo del descrittore', 'Descrizione del campo del descrittore', None, 'MES', None, None)]
     options = {
         'FW_OPZIONI': [('ProcessiLunghi', 1, 'Lavorazione standard'), ('ProcessiLunghi', 2, 'Lavorazione prolungata'),
                        ('ProcessiLunghi', 3, 'Lavorazione speciale'), ('StatiOrdine', 1, 'Aperto'),
                        ('StatiOrdine', 2, 'In lavorazione'), ('StatiOrdine', 3, 'Chiuso'),
                        ('CtStatoCliente', 1, 'Stato del cliente'),               # livello CT (prefisso Ct)
                        ('CwStatoIntegrazione', 1, 'Integrato'),                  # livello CW (prefisso Cw)
+                       ('CcStatoDescrittore', 1, 'Descrittore attivo'),          # livello CC (prefisso Cc)
                        ('ctMinuscolo', 1, 'Prefisso scritto in minuscolo')],     # ne' CT ne' Standard: JT lo salta
         'FW_OPZIONI_DUE': [('TipiControllo', 1, 'Controllo visivo'), ('TipiControllo', 2, 'Controllo dimensionale')],
         'FW_OPZIONI_TRE': [('MotiviScarto', 1, 'Difetto di materiale'), ('MotiviScarto', 2, 'Errore operatore')],

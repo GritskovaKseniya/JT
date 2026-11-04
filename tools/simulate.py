@@ -33,7 +33,8 @@ from jt.service import TranslationService  # noqa: E402
 from jt.tables import get_table  # noqa: E402
 from jt.undo import build_script  # noqa: E402
 
-LEVELS = {'All': None, 'Standard': BY_NAME['AP'], 'CW': BY_NAME['CW'], 'CT': BY_NAME['CT']}      # nomi brevi, per i rapporti
+LEVELS = {'All': None, 'Standard': BY_NAME['AP'], 'CW': BY_NAME['CW'], 'CT': BY_NAME['CT'],
+          'CC': BY_NAME['CC']}      # nomi brevi, per i rapporti
 PARTS = re.compile(r',\s*(?=[a-z_0-9]+ [A-Z])')
 
 
@@ -306,8 +307,8 @@ class Scenario:
         return selection, self.service.run(selection, self.translator)
 
     def written(self, table, lang, lang_col='language'):
-        """Righe scritte da JT (utente JT, ZFXCUSTOM o ZFXINTEGR) nella lingua `lang`."""
-        return self.sim.query(f"SELECT * FROM {table} WHERE {lang_col} = ? AND usr IN ('JT', 'ZFXCUSTOM', 'ZFXINTEGR')",
+        """Righe scritte da JT (utente JT, ZFXCUSTOM, ZFXINTEGR o ZFXCCSYS) nella lingua `lang`."""
+        return self.sim.query(f"SELECT * FROM {table} WHERE {lang_col} = ? AND usr IN ('JT', 'ZFXCUSTOM', 'ZFXINTEGR', 'ZFXCCSYS')",
                               (lang,))
 
 
@@ -323,7 +324,8 @@ def scenario_counts():
                   for name, level in LEVELS.items()}
         s.check(f'{table}: ogni livello visibile ha righe da tradurre', all(counts[n] > 0 for n in counts), counts)
         if table != 'FW_OPZIONI':
-            s.check(f'{table}: Standard + CW + CT = All', counts['Standard'] + counts['CW'] + counts['CT'] == counts['All'],
+            s.check(f'{table}: Standard + CW + CT + CC = All',
+                    counts['Standard'] + counts['CW'] + counts['CT'] + counts['CC'] == counts['All'],
                     counts)
     for table in ('FW_DOCU_NODES_T', 'FW_OBJ_DESCRS'):
         counts = {name: s.service.missing_counts([get_table(table)], 'it', 'fr', level)[table]
@@ -335,7 +337,8 @@ def scenario_counts():
 def scenario_strings():
     s = Scenario('Stringhe: tradurre per livello, utente e categoria')
     source = {row[1]: row for row in s.sim.query("SELECT * FROM FW_STRINGS WHERE language = 'it'")}
-    expected = {'CT': ('ZFXCUSTOM', {3000001, 3000002, 3000003}), 'CW': ('ZFXINTEGR', {4000001, 4000002})}
+    expected = {'CT': ('ZFXCUSTOM', {3000001, 3000002, 3000003}), 'CW': ('ZFXINTEGR', {4000001, 4000002}),
+                'CC': ('ZFXCCSYS', {9000001, 9000002})}
     for name, (user, codes) in expected.items():
         level = BY_NAME[name]
         _, result = s.translate_missing('FW_STRINGS', level)
@@ -353,7 +356,7 @@ def scenario_strings():
     s.check('Standard: utente JT', {r[4] for r in rows} == {'JT'}, {r[4] for r in rows})
     s.check('Standard: il testo vuoto (100011) e\' saltato, non e\' un errore', result.skipped == 1 and not result.errors,
             (result.skipped, result.errors))
-    s.check('Standard: le righe di CT e CW non si toccano',
+    s.check('Standard: le righe di CT, CW e CC non si toccano',
             not s.sim.query("SELECT 1 FROM FW_STRINGS WHERE language = 'fr' AND code >= 3000000"))
     _, again = s.translate_missing('FW_STRINGS', BY_NAME['CT'])
     s.check('CT dopo Standard: ne restano da tradurre (sono un altro livello)', again.inserts == 3, again.inserts)
@@ -369,6 +372,7 @@ def scenario_all_levels():
     users = {row[1]: row[4] for row in s.written('FW_STRINGS', 'fr')}
     s.check('All: CT -> ZFXCUSTOM', users.get(3000001) == 'ZFXCUSTOM', users.get(3000001))
     s.check('All: CW -> ZFXINTEGR', users.get(4000001) == 'ZFXINTEGR', users.get(4000001))
+    s.check('All: CC -> ZFXCCSYS', users.get(9000001) == 'ZFXCCSYS', users.get(9000001))
     s.check('All: Standard -> JT', users.get(100000) == 'JT', users.get(100000))
     return s
 
@@ -376,7 +380,8 @@ def scenario_all_levels():
 def scenario_triplets():
     s = Scenario('Triplette: livello e categoria')
     source = {row[1]: row for row in s.sim.query("SELECT * FROM FW_FIELD_STRINGS WHERE language = 'it'")}
-    for name, code, user in (('CT', 3000100, 'ZFXCUSTOM'), ('CW', 4000100, 'ZFXINTEGR')):
+    for name, code, user in (('CT', 3000100, 'ZFXCUSTOM'), ('CW', 4000100, 'ZFXINTEGR'),
+                              ('CC', 9000100, 'ZFXCCSYS')):
         s.translate_missing('FW_FIELD_STRINGS', BY_NAME[name])
         rows = {row[1]: row for row in s.written('FW_FIELD_STRINGS', 'fr')}
         s.check(f'{name}: scritta solo la tripletta del livello', set(rows) == {code}, sorted(rows))
@@ -387,24 +392,26 @@ def scenario_triplets():
 
 
 def scenario_options():
-    s = Scenario('Opzioni: livello dal prefisso del nome (Ct, Cw), maiuscole contano')
-    for name, expected in (('CT', {'CtStatoCliente'}), ('CW', {'CwStatoIntegrazione'})):
+    s = Scenario('Opzioni: livello dal prefisso del nome (Ct, Cw, Cc), maiuscole contano')
+    for name, expected in (('CT', {'CtStatoCliente'}), ('CW', {'CwStatoIntegrazione'}),
+                           ('CC', {'CcStatoDescrittore'})):
         s.translate_missing('FW_OPZIONI', BY_NAME[name])
         types = {row[1] for row in s.written('FW_OPZIONI', 'fr', 'lingua')}
         s.check(f'{name}: solo le opzioni {name}', types == expected, types)
         s.sim.raw.execute("DELETE FROM FW_OPZIONI WHERE lingua = 'fr'")
     s.translate_missing('FW_OPZIONI', BY_NAME['AP'])
     types = {row[1] for row in s.written('FW_OPZIONI', 'fr', 'lingua')}
-    s.check('Standard: niente Ct/Cw e nemmeno ctMinuscolo',
+    s.check('Standard: niente Ct/Cw/Cc e nemmeno ctMinuscolo',
             types == {'ProcessiLunghi', 'StatiOrdine'}, types)
     s.sim.raw.execute("DELETE FROM FW_OPZIONI WHERE lingua = 'fr'")
     s.translate_missing('FW_OPZIONI', None)
     rows = {row[1]: row for row in s.written('FW_OPZIONI', 'fr', 'lingua')}
     s.check('All: ctMinuscolo si traduce (nessun filtro) con utente JT', rows.get('ctMinuscolo', [None] * 7)[6] == 'JT',
             rows.get('ctMinuscolo'))
-    s.check('All: CtStatoCliente -> ZFXCUSTOM, CwStatoIntegrazione -> ZFXINTEGR',
-            rows['CtStatoCliente'][6] == 'ZFXCUSTOM' and rows['CwStatoIntegrazione'][6] == 'ZFXINTEGR',
-            (rows['CtStatoCliente'][6], rows['CwStatoIntegrazione'][6]))
+    s.check('All: CtStatoCliente -> ZFXCUSTOM, CwStatoIntegrazione -> ZFXINTEGR, CcStatoDescrittore -> ZFXCCSYS',
+            rows['CtStatoCliente'][6] == 'ZFXCUSTOM' and rows['CwStatoIntegrazione'][6] == 'ZFXINTEGR'
+            and rows['CcStatoDescrittore'][6] == 'ZFXCCSYS',
+            (rows['CtStatoCliente'][6], rows['CwStatoIntegrazione'][6], rows['CcStatoDescrittore'][6]))
     return s
 
 
@@ -607,7 +614,7 @@ def run_gui(sample=None, azure=False):
         for table, lang, code in (('FW_STRINGS', 'language', 'code'), ('FW_FIELD_STRINGS', 'language', 'code'),
                                   ('FW_OPZIONI', 'lingua', 'tipo')):
             for row in simulator.query(f"SELECT {lang}, {code}, usr FROM {table} "
-                                       f"WHERE usr IN ('JT', 'ZFXCUSTOM', 'ZFXINTEGR') ORDER BY 3, 1, 2"):
+                                       f"WHERE usr IN ('JT', 'ZFXCUSTOM', 'ZFXINTEGR', 'ZFXCCSYS') ORDER BY 3, 1, 2"):
                 print(f'  {table}: {row}')
         print(f'(i log di questa prova erano in {paths.logs}: cancellati con la cartella temporanea)')
     finally:

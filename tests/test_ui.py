@@ -25,10 +25,10 @@ sys.path.insert(0, os.path.join(helpers.ROOT, 'tools'))
 import simulate  # noqa: E402
 from jt.layers import LEVEL_CHOICES  # noqa: E402
 
-L_ALL, L_STD, L_CW, L_CT = LEVEL_CHOICES          # i nomi del campo Level, nell'ordine
+L_ALL, L_STD, L_CW, L_CT, L_CC = LEVEL_CHOICES          # i nomi del campo Level, nell'ordine
 from helpers import FAKE_AZURE, FAKE_CONNECTION, FakeAzure, FakeDB, FakeDriver, JtCase, read_json, write_json  # noqa: E402
 from jt.azure import AzureTranslator  # noqa: E402
-from jt.config import APP_TITLE, VERSION  # noqa: E402
+from jt.config import APP_TITLE, VERSION, WINDOW_MIN_WIDTH  # noqa: E402
 from jt.db import Database  # noqa: E402
 from jt.glossary import Glossary  # noqa: E402
 from jt.runner import BackgroundRunner, InlineRunner  # noqa: E402
@@ -1021,7 +1021,7 @@ class LevelFieldTests(UiCase):
         screen = self.step2()
         self.assertEqual(screen.var_level.get(), L_STD)
         self.assertEqual(list(screen.cmb_level.cget('values')), ['All levels', 'Standard', 'CW - Integrations',
-                                                                  'CT - Customizations'])
+                                                                  'CT - Customizations', 'CC - Client Customization'])
         self.assertEqual(str(screen.cmb_level.cget('state')), 'readonly')
 
     def test_the_saved_level_is_restored_and_an_unknown_one_ignored(self):
@@ -1197,12 +1197,12 @@ class SimulatedOracleWindowTests(UiCase):
         screen = self.step2()
         self.choose(screen, lan_in='Italian', lan_out='French', table='JFX: Strings')
         counts = {}
-        for label, title in (('Standard', L_STD), ('CW', L_CW), ('CT', L_CT), ('All', L_ALL)):
+        for label, title in (('Standard', L_STD), ('CW', L_CW), ('CT', L_CT), ('CC', L_CC), ('All', L_ALL)):
             screen.var_level.set(title)
             screen.cmb_level.event_generate('<<ComboboxSelected>>')
             counts[label] = screen.counts['FW_STRINGS']
-        self.assertEqual((counts['CW'], counts['CT']), (2, 3))
-        self.assertEqual(counts['Standard'] + counts['CW'] + counts['CT'], counts['All'])
+        self.assertEqual((counts['CW'], counts['CT'], counts['CC']), (2, 3, 2))
+        self.assertEqual(counts['Standard'] + counts['CW'] + counts['CT'] + counts['CC'], counts['All'])
 
     def test_update_by_keys_skips_another_level_and_the_skipped_log_says_why(self):
         screen = self.step2()
@@ -2101,7 +2101,8 @@ class WriteConfirmationTests(UiCase):
         screen = self.loaded(2)
         for level, expected in ((L_CT, 'Level: CT  ·  written as user ZFXCUSTOM'),
                                 (L_CW, 'Level: CW  ·  written as user ZFXINTEGR'),
-                                (L_ALL, 'Level: all levels  ·  written as user JT, ZFXCUSTOM, ZFXINTEGR')):
+                                (L_CC, 'Level: CC  ·  written as user ZFXCCSYS'),
+                                (L_ALL, 'Level: all levels  ·  written as user JT, ZFXCUSTOM, ZFXINTEGR, ZFXCCSYS')):
             with self.subTest(level=level):
                 self.confirmations.clear()
                 screen.var_level.set(level)
@@ -2444,7 +2445,7 @@ class OneRowSelectionTests(UiCase):
             for _ in range(15):
                 self.root.update()
 
-        for width in (460, 700, 900):                           # 460: la larghezza della finestra al primo avvio
+        for width in (WINDOW_MIN_WIDTH, 700, 900):                           # WINDOW_MIN_WIDTH: la larghezza della finestra al primo avvio
             self.root.geometry(f'{width}x720')
             settle()
             self.assertTrue(screen._one_row, width)
@@ -3528,14 +3529,14 @@ class WindowTests(UiCase):
         return min(self.app.stepper.winfo_reqheight() + self.screen.winfo_reqheight()
                    + self.app.infobar.winfo_reqheight(), self.root.winfo_screenheight() - 100)
 
-    def test_minsize_equals_the_needed_size_and_width_is_at_least_460(self):
+    def test_minsize_equals_the_needed_size_and_width_is_at_least_the_minimum(self):
         for show in (self.app.show_connection, self.app.show_translation):
             with self.subTest(step=show.__name__):
                 show()
                 self.root.update_idletasks()
                 width, height = self.root.minsize()
-                self.assertGreaterEqual(width, 460)
-                self.assertEqual(width, max(460, self.screen.winfo_reqwidth(), self.app.stepper.winfo_reqwidth()))
+                self.assertGreaterEqual(width, WINDOW_MIN_WIDTH)
+                self.assertEqual(width, max(WINDOW_MIN_WIDTH, self.screen.winfo_reqwidth(), self.app.stepper.winfo_reqwidth()))
                 self.assertEqual(height, self.needed_height())
 
     def test_height_fits_the_content_on_both_steps(self):

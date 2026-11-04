@@ -157,7 +157,7 @@ Non puo' creare un server Oracle: serve un'istanza Oracle (anche quella di svilu
 
 - Una tabella in piu': si aggiunge una classe in `jt\tables.py` e una voce in `Data\tables.json`.
 - I livelli Jflex (FW, AP, CW, CT, CK, CC): intervalli dei codici e prefissi dei nomi sono in `jt\layers.py`; quali livelli si
-  vedono nella finestra e' `VISIBLE` (per mostrare anche CK basta aggiungerlo).
+  vedono nella finestra e' `VISIBLE` (per mostrare anche CK basta aggiungerlo; CC e' gia' visibile, con utente `ZFXCCSYS`).
 - Il logo: `ICON_NAME` in `jt\config.py` (`bubbles`, `pixel_cube`, `pixel_block`).
 - Le lingue fisse in cima ai menu: `PINNED_LANGUAGES` in `jt\config.py`.
 - La sigla scritta nel database: `DB_MARKER` in `jt\config.py` (`JT`).
