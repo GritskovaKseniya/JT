@@ -3,13 +3,12 @@ costanti passate dal JAS (nessun avviso), refusi nei nomi (avviso), subquery con
 import unittest
 
 import tecsql_fixtures as fx
-from jt.tecsql_translator import translate_sql_to_tecsql
 
 
 class SqlToTecsqlCase(fx.TecsqlCase):
     def to_tecsql(self, query, chosen_descriptor=None):
         """Traduce e controlla che sia riuscita e non ambigua."""
-        result = translate_sql_to_tecsql(query, chosen_descriptor=chosen_descriptor)
+        result = self.d.to_tecsql(query, chosen_descriptor)
         self.assertTrue(result['success'], f"Traduzione fallita: {result.get('error')}")
         self.assertFalse(result.get('ambiguous'),
                          f"Descrittore ambiguo, serve chosen_descriptor. Candidati: {result.get('candidates')}")

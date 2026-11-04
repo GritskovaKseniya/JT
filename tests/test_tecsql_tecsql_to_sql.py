@@ -3,14 +3,13 @@ subquery, parametri (`?nome`) tolti con `strip_params`, ORDER BY."""
 import unittest
 
 import tecsql_fixtures as fx
-from jt.tecsql_translator import translate_tecsql
 
 
 class TecsqlToSqlCase(fx.TecsqlCase):
     def translate(self, query, strip_params=False):
         """`translate_tecsql` ritorna l'SQL (testo) e solleva ValueError se non riesce. Nell'originale JCTNT i test si
         aspettavano un dict con 'success': era un'API piu' vecchia, 15 test su 33 fallivano gia' li'."""
-        return translate_tecsql(query, strip_params=strip_params).strip()
+        return self.d.to_sql(query, strip_params=strip_params).strip()
 
 
 class BasicSelectTests(TecsqlToSqlCase):

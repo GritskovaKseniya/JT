@@ -18,7 +18,7 @@ nascosta e vengono saltati se non c'e' un display. Durata: circa 40 secondi.
 ## Risultato (2026-11-03)
 
 ```
-Ran 935 tests (2 "expected failures", vedi test_tecsql_sql_to_tecsql) in ~95 s
+Ran 942 tests (2 "expected failures", vedi test_tecsql_sql_to_tecsql) in ~95 s
 OK
 ```
 
@@ -29,7 +29,7 @@ Eseguiti anche con i `ResourceWarning` trattati come errori.
 | `test_glossary.py` | 27 | Termini sostituiti (UMV -> HU) e non tradotti; termine da solo senza chiamare Azure; termine dentro una frase protetto e poi ripristinato (`& < >` compresi); solo parola intera; qualsiasi lingua sorgente (anche de -> es); verso l'italiano UMV resta; file mancante/rotto tollerato; regole del `glossary.json` consegnato |
 | `test_tables.py` | 72 | `Catalog` (tabelle abilitate, FWK disabilitata); chiavi di "Update by keys" per ogni tabella; per **ogni** tabella SQL di selezione/conteggio/chiavi (lingue e limiti sempre come bind variable), traduzione di una riga, INSERT e UPDATE esatti (campo vuoto = `NULL`, apici nei bind, marcatore `JT`, colonne utente/data solo se la tabella ha la forma attesa); `Settings`, `Paths` |
 | `test_tools.py` | 5 | Registro degli strumenti: senza requisiti lo strumento e' acceso, le tabelle mancanti sono nominate, il controllo proprio da' il suo motivo, le tabelle si controllano prima. |
-| `test_dictionary.py` | 7 | Dizionario dei nomi letto dal database: la SELECT su FW_TABLES/FW_TABLE_FIELDS, righe come dict con i vuoti a '', mappe del traduttore riempite, stessa connessione = niente riletture, altro database o `force` = si rilegge, `forget`. |
+| `test_dictionary.py` | 14 | Dizionario dei nomi letto dal database: la SELECT su FW_TABLES/FW_TABLE_FIELDS, righe come dict con i vuoti a '', `load` ritorna un `Dictionary`, stessa connessione = niente riletture, altro database o `force` = si rilegge, `forget`; **due dizionari insieme non si mescolano**, `update` sostituisce, un dizionario vuoto rifiuta di tradurre; i messaggi d'errore sono in inglese (nessuna parola italiana rimasta). |
 | `test_tecsql_lookup.py` | 11 | (portati da JCTNT) mappe giuste dopo `update_mappings`, maiuscole originali conservate, `_find_matching_descriptors` (anche due descrittori per la stessa tabella fisica). |
 | `test_tecsql_sql_to_tecsql.py` | 13 | (portati da JCTNT) SQL -> TecSQL: campi qualificati e no, costanti del JAS senza avviso, refusi con avviso, subquery. **2 `expectedFailure`**: la subquery con una seconda tabella resta non tradotta (problema gia' in JCTNT). |
 | `test_tecsql_tecsql_to_sql.py` | 11 | (portati da JCTNT) TecSQL -> SQL: SELECT, alias, subquery, `strip_params`, ORDER BY. |

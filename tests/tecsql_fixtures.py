@@ -1,8 +1,8 @@
 """Il dizionario di prova per i test del traduttore TecSQL (portato da JCTNT) e la base dei test.
 
 Ogni riga: (TABELLA_FISICA, TABELLA_LOGICA, CAMPO_FISICO, CAMPO_LOGICO, TIPO, AMPIEZZA, DECIMALI), come le restituirebbe
-la SELECT su FW_TABLES / FW_TABLE_FIELDS. Il traduttore tiene il dizionario in mappe globali di modulo: ogni classe di test
-lo carica in `setUpClass` e lo svuota in `tearDownClass`.
+la SELECT su FW_TABLES / FW_TABLE_FIELDS. Ogni classe di test
+crea il suo `Dictionary` in `setUpClass`: nessuno stato condiviso tra i test.
 """
 import os
 import sys
@@ -10,7 +10,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from jt import tecsql_translator as tr  # noqa: E402
+from jt.tecsql_translator import Dictionary  # noqa: E402
 
 MOCK_ROWS = [
     ('GD_LIRIG', '$RigaListino', 'LIRIG_LICOD', 'CodListino', 'C', 10, 0),
@@ -34,12 +34,8 @@ def rows_as_dicts(mock_rows=MOCK_ROWS):
 
 
 class TecsqlCase(unittest.TestCase):
-    """Un test con il dizionario di prova caricato."""
+    """Un test con il dizionario di prova caricato (`self.d`)."""
 
     @classmethod
     def setUpClass(cls):
-        tr.update_mappings(rows_as_dicts())
-
-    @classmethod
-    def tearDownClass(cls):
-        tr.update_mappings([])
+        cls.d = Dictionary(rows_as_dicts())

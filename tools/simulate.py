@@ -550,34 +550,34 @@ def scenario_undo():
 
 def scenario_names():
     """Il dizionario dei nomi letto dal database simulato (FW_TABLES e FW_TABLE_FIELDS) e la traduzione SQL <-> TecSQL."""
-    from jt import dictionary, tecsql_translator as translator
+    from jt import dictionary
+    from jt.tecsql_translator import Dictionary
     s = Scenario('Nomi: dizionario letto dal database e traduzione SQL <-> TecSQL')
     dictionary.forget()
     try:
         expected = s.sim.query('SELECT COUNT(*) FROM FW_TABLES TAB JOIN FW_TABLE_FIELDS FIE ON (FIE.TABLENAME = TAB.TABLENAME)')[0][0]
-        rows = dictionary.load(s.db)
-        s.check('il dizionario ha una riga per ogni campo', len(rows) == expected and expected > 0, (len(rows), expected))
-        s.check('le mappe del traduttore sono piene', translator.TABLE_MAP.get('$rigalistino') == 'GD_LIRIG',
-                translator.TABLE_MAP.get('$rigalistino'))
-        s.check('con la stessa connessione non si rilegge', dictionary.load(s.db) is rows)
+        d = dictionary.load(s.db)
+        s.check('il dizionario ha una riga per ogni campo', len(d.rows) == expected and expected > 0, (len(d.rows), expected))
+        s.check('le mappe sono piene', d.table_map.get('$rigalistino') == 'GD_LIRIG', d.table_map.get('$rigalistino'))
+        s.check('con la stessa connessione non si rilegge', dictionary.load(s.db) is d)
 
-        sql = translator.translate_tecsql('SELECT $RigaListino.Prezzo FROM $RigaListino WHERE $RigaListino.CatListino = \'LL\'')
+        sql = d.to_sql("SELECT $RigaListino.Prezzo FROM $RigaListino WHERE $RigaListino.CatListino = 'LL'")
         s.check('TecSQL -> SQL: nomi logici diventano fisici',
                 'GD_LIRIG.LIRIG_PREZO' in sql and "GD_LIRIG.LIRIG_CATLI = 'LL'" in sql, sql)
 
-        result = translator.translate_sql_to_tecsql('SELECT GD_LIRIG.LIRIG_LICOD FROM GD_LIRIG')
+        result = d.to_tecsql('SELECT GD_LIRIG.LIRIG_LICOD FROM GD_LIRIG')
         s.check('SQL -> TecSQL: nomi fisici diventano logici',
                 result['success'] and '$RigaListino.CodListino' in result['tecsql'], result)
 
-        ambiguous = translator.translate_sql_to_tecsql('SELECT ARTI_ARTCO FROM MD_ARTI')
+        ambiguous = d.to_tecsql('SELECT ARTI_ARTCO FROM MD_ARTI')
         s.check('SQL -> TecSQL: MD_ARTI ha due nomi logici, il traduttore chiede quale',
                 ambiguous.get('ambiguous') and len(ambiguous.get('candidates', [])) == 2, ambiguous)
-        chosen = translator.translate_sql_to_tecsql('SELECT ARTI_ARTCO FROM MD_ARTI', '$articoloesteso')
+        chosen = d.to_tecsql('SELECT ARTI_ARTCO FROM MD_ARTI', '$articoloesteso')
         s.check('scelto il descrittore, la traduzione riesce', chosen['success'] and '$ArticoloEsteso' in chosen['tecsql'],
                 chosen)
 
-        s.check('un database senza dizionario: errore chiaro (non un risultato vuoto)',
-                _raises(lambda: (dictionary.forget(), translator.translate_tecsql('SELECT $A.B FROM $A'))), 'nessun errore')
+        s.check('un dizionario vuoto: errore chiaro (non un risultato vuoto)',
+                _raises(lambda: Dictionary().to_sql('SELECT $A.B FROM $A')), 'nessun errore')
     finally:
         dictionary.forget()
     return s

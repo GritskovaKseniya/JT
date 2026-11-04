@@ -1,20 +1,13 @@
-"""Traduzione SQL <-> TecSQL: i nomi logici dei descrittori ($RigaListino.CodListino) e i nomi fisici di Oracle (GD_LIRIG.LIRIG_LICOD).
+"""Traduzione SQL <-> TecSQL: i nomi logici dei descrittori ($RigaListino.CodListino) e i nomi fisici di Oracle
+(GD_LIRIG.LIRIG_LICOD).
 
-Portato da JCTNT (scritto da Angelo J. Marin) com'e': le mappe del dizionario sono ancora
-globali di modulo e `update_mappings(rows)` le riempie. Il dizionario si legge dal database con `jt/dictionary.py`; i messaggi
-d'errore sono ancora in italiano come nell'originale. Passo successivo (vedi PIANO_TOOLKIT.md): trasformare le mappe globali in
-una classe `Dictionary` senza stato condiviso. Usa `sqlparse`.
+Portato da JCTNT (scritto da Angelo J. Marin). Il dizionario e' un oggetto `Dictionary` (in fondo al modulo), uno per
+database collegato, senza stato globale: lo riempiono le righe di FW_TABLES e FW_TABLE_FIELDS (vedi `jt/dictionary.py`) e
+traduce con `to_sql(...)` e `to_tecsql(...)`. Le funzioni di modulo che lo usano lo prendono come primo parametro (`d`).
+I messaggi d'errore sono in inglese (come tutta l'interfaccia). Usa `sqlparse`.
 """
 import re
 import sqlparse
-
-# --- Dynamic mapping (populated after DB connect) ---
-TABLE_MAP = {}
-FIELD_MAP = {}
-PHYSICAL_TABLE_MAP = {}
-REVERSE_FIELD_MAP = {}  # physical_table → {physical_field → {descriptor → logical_field}}
-TABLE_ORIGINAL_CASE = {}   # normalized_key → original logical table name with $ (original case)
-FIELD_ORIGINAL_CASE = {}   # (normalized_table_key, normalized_field_key) → original logical field name
 
 KEYWORDS = {
     'SELECT', 'FROM', 'WHERE', 'JOIN', 'LEFT', 'RIGHT', 'FULL', 'INNER', 'OUTER',
@@ -340,7 +333,7 @@ def _extract_unqualified_field(identifier, unqualified):
             unqualified.append(field)
 
 
-def _find_matching_descriptors(physical_table, used_fields):
+def _find_matching_descriptors(d, physical_table, used_fields):
     """
     Find which descriptors contain used fields.
 
@@ -359,7 +352,7 @@ def _find_matching_descriptors(physical_table, used_fields):
         }
     """
     physical_key = str(physical_table).strip().lower()
-    all_descriptors = PHYSICAL_TABLE_MAP.get(physical_key, [])
+    all_descriptors = d.physical_table_map.get(physical_key, [])
 
     if not all_descriptors:
         return {'exact_matches': [], 'partial_matches': [], 'best_match': None}
@@ -371,7 +364,7 @@ def _find_matching_descriptors(physical_table, used_fields):
     partial_matches = []
 
     for descriptor in all_descriptors:
-        available_fields = FIELD_MAP.get(descriptor, {})
+        available_fields = d.field_map.get(descriptor, {})
         available_physical = set()
         for logical_field, physical_field in available_fields.items():
             available_physical.add(str(physical_field).strip().upper())
@@ -407,68 +400,19 @@ def _find_matching_descriptors(physical_table, used_fields):
     }
 
 
-def update_mappings(rows):
-    # Build logical->physical maps from DB dictionary rows.
-    # Now supports multiple descriptors per physical table.
-    TABLE_MAP.clear()
-    FIELD_MAP.clear()
-    PHYSICAL_TABLE_MAP.clear()
-    REVERSE_FIELD_MAP.clear()
-    TABLE_ORIGINAL_CASE.clear()
-    FIELD_ORIGINAL_CASE.clear()
-
-    for row in rows:
-        logical_table = row.get('TABELLA_LOGICA')
-        physical_table = row.get('TABELLA_FISICA')
-        logical_field = row.get('CAMPO_LOGICO')
-        physical_field = row.get('CAMPO_FISICO')
-
-        table_key = _normalize_table_key(logical_table)
-        if not table_key or not physical_table:
-            continue
-
-        # Logical → Physical (unchanged)
-        TABLE_MAP.setdefault(table_key, physical_table)
-
-        # Original case storage (for SQL → TecSQL reverse translation)
-        TABLE_ORIGINAL_CASE.setdefault(table_key, '$' + str(logical_table).strip())
-
-        # Physical → Logical (FIXED: store all descriptors in list)
-        physical_key = str(physical_table).strip().lower()
-        if physical_key not in PHYSICAL_TABLE_MAP:
-            PHYSICAL_TABLE_MAP[physical_key] = []
-        if table_key not in PHYSICAL_TABLE_MAP[physical_key]:
-            PHYSICAL_TABLE_MAP[physical_key].append(table_key)
-
-        # Field maps (Logical → Physical)
-        field_key = _normalize_field_key(logical_field)
-        if field_key and physical_field:
-            FIELD_MAP.setdefault(table_key, {})
-            FIELD_MAP[table_key].setdefault(field_key, physical_field)
-
-            # Reverse field map (Physical → Logical for each descriptor)
-            REVERSE_FIELD_MAP.setdefault(physical_key, {})
-            physical_field_lower = str(physical_field).strip().lower()
-            REVERSE_FIELD_MAP[physical_key].setdefault(physical_field_lower, {})
-            REVERSE_FIELD_MAP[physical_key][physical_field_lower][table_key] = field_key
-
-            # Original case storage for field names
-            FIELD_ORIGINAL_CASE.setdefault((table_key, field_key), str(logical_field).strip())
-
-
-def _resolve_table(logical_table):
+def _resolve_table(d, logical_table):
     key = _normalize_table_key(logical_table)
-    if key not in TABLE_MAP:
-        raise ValueError(f'Tabella logica non mappata: {logical_table}')
-    return TABLE_MAP[key]
+    if key not in d.table_map:
+        raise ValueError(f'Logical table not mapped: {logical_table}')
+    return d.table_map[key]
 
 
-def _resolve_field(logical_table, logical_field):
+def _resolve_field(d, logical_table, logical_field):
     table_key = _normalize_table_key(logical_table)
-    fields = FIELD_MAP.get(table_key, {})
+    fields = d.field_map.get(table_key, {})
     field_key = _normalize_field_key(logical_field)
     if field_key not in fields:
-        raise ValueError(f'Campo logico non mappato: {logical_table}.{logical_field}')
+        raise ValueError(f'Logical field not mapped: {logical_table}.{logical_field}')
     return fields[field_key]
 
 
@@ -514,7 +458,7 @@ def _collect_subquery_tokens(tokens, open_paren_idx):
     return inner, i - 1
 
 
-def _pre_scan_tables(tokens):
+def _pre_scan_tables(d, tokens):
     context = None
     expecting_table = False
     outer_next = False
@@ -575,10 +519,10 @@ def _pre_scan_tables(tokens):
                 table_key = _normalize_table_key(token['name'])
             elif token_type == 'IDENT':
                 logical_guess = _normalize_table_key(text)
-                if logical_guess in TABLE_MAP:
+                if logical_guess in d.table_map:
                     table_key = logical_guess
                 else:
-                    phys_result = PHYSICAL_TABLE_MAP.get(text.strip().lower())
+                    phys_result = d.physical_table_map.get(text.strip().lower())
                     table_key = phys_result[0] if isinstance(phys_result, list) and phys_result else phys_result
 
             if table_key:
@@ -610,7 +554,7 @@ def _format_unqualified_field(physical_field, is_outer, context):
     return physical_field
 
 
-def _translate_subqueries_in_sql(sql, chosen_descriptor=None):
+def _translate_subqueries_in_sql(d, sql, chosen_descriptor=None):
     """
     Traduce le subquery (SELECT...) nella stringa SQL lavorando inside-out:
     prima le più interne (che non contengono parentesi), poi le più esterne.
@@ -633,7 +577,7 @@ def _translate_subqueries_in_sql(sql, chosen_descriptor=None):
             inner_with_parens = m.group(0)
             inner = inner_with_parens[1:-1].strip()  # rimuove parentesi esterne
 
-            result = translate_sql_to_tecsql(inner, chosen_descriptor)
+            result = translate_sql_to_tecsql(d, inner, chosen_descriptor)
             if result.get('success'):
                 translated_inner = result['tecsql']
             else:
@@ -699,7 +643,7 @@ def _split_sql_at_top_level_unions(sql):
     return parts, operators
 
 
-def translate_sql_to_tecsql(sql_query, chosen_descriptor=None):
+def translate_sql_to_tecsql(d, sql_query, chosen_descriptor=None):
     """
     Translate SQL (physical names) to TecSQL (logical names).
 
@@ -714,8 +658,8 @@ def translate_sql_to_tecsql(sql_query, chosen_descriptor=None):
             'untranslated_fields': [...]
         }
     """
-    if not sql_query or not TABLE_MAP:
-        return {'success': False, 'error': 'Query vuota o dizionario non caricato'}
+    if not sql_query or not d.table_map:
+        return {'success': False, 'error': 'Empty query or dictionary not loaded'}
 
     normalized = normalize_query_text(sql_query)
 
@@ -724,7 +668,7 @@ def translate_sql_to_tecsql(sql_query, chosen_descriptor=None):
     if len(parts) > 1:
         translated_parts = []
         for part in parts:
-            result = translate_sql_to_tecsql(part, chosen_descriptor)
+            result = translate_sql_to_tecsql(d, part, chosen_descriptor)
             if not result['success'] and not result.get('ambiguous'):
                 return result  # Propaga primo errore
             if result.get('ambiguous'):
@@ -738,7 +682,7 @@ def translate_sql_to_tecsql(sql_query, chosen_descriptor=None):
                 'partial_translation': False, 'untranslated_fields': []}
 
     # Pre-processa subquery: traduce dentro-fuori (subquery più interne per prime)
-    normalized = _translate_subqueries_in_sql(normalized, chosen_descriptor)
+    normalized = _translate_subqueries_in_sql(d, normalized, chosen_descriptor)
 
     extraction = _extract_fields_from_sql(normalized)
     tables = extraction['tables']
@@ -746,7 +690,7 @@ def translate_sql_to_tecsql(sql_query, chosen_descriptor=None):
     alias_map = extraction.get('alias_map', {})
 
     if not tables:
-        return {'success': False, 'error': 'Nessuna tabella trovata nella query'}
+        return {'success': False, 'error': 'No table found in the query'}
 
     # Find descriptor for each table
     descriptor_choices = {}
@@ -754,11 +698,11 @@ def translate_sql_to_tecsql(sql_query, chosen_descriptor=None):
 
     for table in tables:
         used_fields = fields_by_table.get(table, [])
-        matches = _find_matching_descriptors(table, used_fields)
+        matches = _find_matching_descriptors(d, table, used_fields)
 
         if len(matches['exact_matches']) == 0:
             if not matches['best_match']:
-                return {'success': False, 'error': f'Tabella {table} non trovata nel dizionario'}
+                return {'success': False, 'error': f'Table {table} not found in the dictionary'}
 
             # Partial match: use best match but track missing fields
             descriptor_choices[table] = matches['best_match']
@@ -780,7 +724,7 @@ def translate_sql_to_tecsql(sql_query, chosen_descriptor=None):
                     'ambiguous': True,
                     'table': table,
                     # Return display names (original case) so the UI shows them correctly
-                    'candidates': [TABLE_ORIGINAL_CASE.get(c, c) for c in matches['exact_matches']],
+                    'candidates': [d.table_original_case.get(c, c) for c in matches['exact_matches']],
                     'fields_used': used_fields
                 }
 
@@ -795,8 +739,8 @@ def translate_sql_to_tecsql(sql_query, chosen_descriptor=None):
     # - Alias prefix           → kept as-is, only the field name is translated
     for table, descriptor in descriptor_choices.items():
         physical_key = table.lower()
-        reverse_fields = REVERSE_FIELD_MAP.get(physical_key, {})
-        descriptor_display = TABLE_ORIGINAL_CASE.get(descriptor, descriptor)
+        reverse_fields = d.reverse_field_map.get(physical_key, {})
+        descriptor_display = d.table_original_case.get(descriptor, descriptor)
 
         # Valid prefixes: physical table name + any alias pointing to this table
         all_prefixes = [table]
@@ -807,7 +751,7 @@ def translate_sql_to_tecsql(sql_query, chosen_descriptor=None):
         for physical_field, descriptor_map in reverse_fields.items():
             logical_field = descriptor_map.get(descriptor)
             if logical_field:
-                logical_field_display = FIELD_ORIGINAL_CASE.get((descriptor, logical_field), logical_field)
+                logical_field_display = d.field_original_case.get((descriptor, logical_field), logical_field)
                 for prefix in all_prefixes:
                     pattern = re.escape(prefix) + r'\.' + re.escape(physical_field.upper())
                     if prefix.upper() == table.upper():
@@ -820,7 +764,7 @@ def translate_sql_to_tecsql(sql_query, chosen_descriptor=None):
 
     # Step 2: Replace standalone table names (now that TABLE.FIELD pairs are already done)
     for table, descriptor in descriptor_choices.items():
-        descriptor_display = TABLE_ORIGINAL_CASE.get(descriptor, descriptor)
+        descriptor_display = d.table_original_case.get(descriptor, descriptor)
         pattern = r'\b' + re.escape(table) + r'\b'
         tecsql = re.sub(pattern, descriptor_display, tecsql, flags=re.IGNORECASE)
 
@@ -835,8 +779,8 @@ def translate_sql_to_tecsql(sql_query, chosen_descriptor=None):
             descriptor = descriptor_choices.get(table)
             if descriptor:
                 physical_key = table.lower()
-                reverse_fields = REVERSE_FIELD_MAP.get(physical_key, {})
-                descriptor_display = TABLE_ORIGINAL_CASE.get(descriptor, descriptor)
+                reverse_fields = d.reverse_field_map.get(physical_key, {})
+                descriptor_display = d.table_original_case.get(descriptor, descriptor)
 
                 for unqualified_field in unqualified_fields:
                     physical_field_lower = unqualified_field.lower()
@@ -844,7 +788,7 @@ def translate_sql_to_tecsql(sql_query, chosen_descriptor=None):
                     logical_field = descriptor_map.get(descriptor)
 
                     if logical_field:
-                        logical_field_display = FIELD_ORIGINAL_CASE.get((descriptor, logical_field), logical_field)
+                        logical_field_display = d.field_original_case.get((descriptor, logical_field), logical_field)
                         pattern = r'\b' + re.escape(unqualified_field) + r'\b'
                         replacement = f'{descriptor_display}.{logical_field_display}'
                         tecsql = re.sub(pattern, replacement, tecsql, flags=re.IGNORECASE)
@@ -859,13 +803,13 @@ def translate_sql_to_tecsql(sql_query, chosen_descriptor=None):
 
                 for table, descriptor in descriptor_choices.items():
                     physical_key = table.lower()
-                    reverse_fields = REVERSE_FIELD_MAP.get(physical_key, {})
+                    reverse_fields = d.reverse_field_map.get(physical_key, {})
                     descriptor_map = reverse_fields.get(physical_field_lower, {})
                     logical_field = descriptor_map.get(descriptor)
 
                     if logical_field:
-                        descriptor_display = TABLE_ORIGINAL_CASE.get(descriptor, descriptor)
-                        logical_field_display = FIELD_ORIGINAL_CASE.get((descriptor, logical_field), logical_field)
+                        descriptor_display = d.table_original_case.get(descriptor, descriptor)
+                        logical_field_display = d.field_original_case.get((descriptor, logical_field), logical_field)
                         pattern = r'\b' + re.escape(unqualified_field) + r'\b'
                         replacement = f'{descriptor_display}.{logical_field_display}'
                         tecsql = re.sub(pattern, replacement, tecsql, flags=re.IGNORECASE)
@@ -1019,7 +963,7 @@ def _strip_param_conditions(normalized_query):
     return _format_tokens(result)
 
 
-def translate_tecsql(normalized_query, strip_params=False):
+def translate_tecsql(d, normalized_query, strip_params=False):
     """
     Entry point pubblico. Gestisce UNION/INTERSECT/MINUS traducendo ogni
     SELECT indipendentemente e ricongiungedoli.
@@ -1028,9 +972,9 @@ def translate_tecsql(normalized_query, strip_params=False):
                   parameter tokens before translating.
     """
     if not normalized_query:
-        raise ValueError('Query TecSql vuota')
-    if not TABLE_MAP:
-        raise ValueError('Dizionario TecSql non caricato. Connetti al database prima di tradurre.')
+        raise ValueError('Empty TecSQL query')
+    if not d.table_map:
+        raise ValueError('TecSQL dictionary not loaded. Connect to the database before translating.')
 
     if strip_params:
         normalized_query = _strip_param_conditions(normalized_query)
@@ -1039,13 +983,13 @@ def translate_tecsql(normalized_query, strip_params=False):
     parts, operators = _split_at_top_level_unions(tokens)
 
     if len(parts) == 1:
-        return _translate_tecsql_single(normalized_query)
+        return _translate_tecsql_single(d, normalized_query)
 
     # Traduce ogni SELECT indipendentemente e ricongiunge
     translated = []
     for part_tokens in parts:
         part_text = _format_tokens(part_tokens)
-        translated.append(_translate_tecsql_single(part_text))
+        translated.append(_translate_tecsql_single(d, part_text))
 
     result = translated[0]
     for op, part in zip(operators, translated[1:]):
@@ -1053,7 +997,7 @@ def translate_tecsql(normalized_query, strip_params=False):
     return result
 
 
-def _pre_scan_aliases(tokens):
+def _pre_scan_aliases(d, tokens):
     """
     Pre-scan tokens to collect alias → table mappings from FROM/JOIN clauses.
     Called before the main translation loop so that aliases referenced in SELECT/WHERE
@@ -1145,7 +1089,7 @@ def _pre_scan_aliases(tokens):
             if ttype == 'LOGICAL_NAME':
                 logical_key = _normalize_table_key(token['name'])
                 try:
-                    physical_table = _resolve_table(token['name'])
+                    physical_table = _resolve_table(d, token['name'])
                 except ValueError:
                     physical_table = None
                 last_table_logical_key = logical_key
@@ -1155,12 +1099,12 @@ def _pre_scan_aliases(tokens):
                 pending_alias = True
             elif ttype == 'IDENT':
                 logical_key = _normalize_table_key(text)
-                if logical_key in TABLE_MAP:
+                if logical_key in d.table_map:
                     last_table_logical_key = logical_key
-                    last_table_physical = TABLE_MAP[logical_key]
+                    last_table_physical = d.table_map[logical_key]
                     last_table_mode = 'logical'
                 else:
-                    phys_result = PHYSICAL_TABLE_MAP.get(text.strip().lower())
+                    phys_result = d.physical_table_map.get(text.strip().lower())
                     last_table_logical_key = phys_result[0] if isinstance(phys_result, list) and phys_result else phys_result
                     last_table_physical = text
                     last_table_mode = 'physical'
@@ -1172,15 +1116,15 @@ def _pre_scan_aliases(tokens):
     return alias_map
 
 
-def _translate_tecsql_single(normalized_query):
+def _translate_tecsql_single(d, normalized_query):
     # Parse the query, track clause context, and translate logical names.
     if not normalized_query:
-        raise ValueError('Query TecSql vuota')
-    if not TABLE_MAP:
-        raise ValueError('Dizionario TecSql non caricato. Connetti al database prima di tradurre.')
+        raise ValueError('Empty TecSQL query')
+    if not d.table_map:
+        raise ValueError('TecSQL dictionary not loaded. Connect to the database before translating.')
 
     tokens = _tokenize(normalized_query)
-    base_table_key, outer_table_keys = _pre_scan_tables(tokens)
+    base_table_key, outer_table_keys = _pre_scan_tables(d, tokens)
     output = []
     context = None
     context_stack = []
@@ -1190,7 +1134,7 @@ def _translate_tecsql_single(normalized_query):
     skip_next_ident = False
     as_is_mode = False
     outer_next_table = False
-    alias_table_map = _pre_scan_aliases(tokens)
+    alias_table_map = _pre_scan_aliases(d, tokens)
     tables = []
     fields = []
     last_table_physical = None
@@ -1267,7 +1211,7 @@ def _translate_tecsql_single(normalized_query):
                     inner_tokens, close_idx = _collect_subquery_tokens(tokens, i)
                     inner_text = _format_tokens(inner_tokens)
                     # Translate recursively
-                    translated_inner = _translate_tecsql_single(inner_text)
+                    translated_inner = _translate_tecsql_single(d, inner_text)
                     output.append({'type': 'SYMBOL', 'text': '('})
                     output.append({'type': 'IDENT', 'text': translated_inner})
                     output.append({'type': 'SYMBOL', 'text': ')'})
@@ -1322,14 +1266,14 @@ def _translate_tecsql_single(normalized_query):
             continue
 
         if token_type == 'LOGICAL_TABLE_STAR':
-            physical_table = _resolve_table(token['table'])
+            physical_table = _resolve_table(d, token['table'])
             output.append({'type': 'IDENT', 'text': f'{physical_table}.*'})
             i += 1
             continue
 
         if token_type == 'LOGICAL_NAME' and expecting_table:
             logical_key = _normalize_table_key(token['name'])
-            physical_table = _resolve_table(token['name'])
+            physical_table = _resolve_table(d, token['name'])
             last_table_logical_key = logical_key
             last_table_physical = physical_table
             last_table_mode = 'logical'
@@ -1345,8 +1289,8 @@ def _translate_tecsql_single(normalized_query):
             continue
 
         if token_type == 'LOGICAL_FIELD':
-            physical_table = _resolve_table(token['table'])
-            physical_field = _resolve_field(token['table'], token['field'])
+            physical_table = _resolve_table(d, token['table'])
+            physical_field = _resolve_field(d, token['table'], token['field'])
             is_outer = _normalize_table_key(token['table']) in outer_table_keys
             fields.append({
                 'logical_table': token['table'],
@@ -1363,10 +1307,10 @@ def _translate_tecsql_single(normalized_query):
 
         if token_type == 'LOGICAL_NAME':
             if not base_table_key:
-                raise ValueError(f'Campo logico non risolvibile: {token["name"]}')
-            physical_table = TABLE_MAP.get(base_table_key)
+                raise ValueError(f'Logical field cannot be resolved: {token["name"]}')
+            physical_table = d.table_map.get(base_table_key)
             field_name = token['name'][1:] if token['name'].startswith('$') else token['name']
-            physical_field = _resolve_field(base_table_key, field_name)
+            physical_field = _resolve_field(d, base_table_key, field_name)
             is_outer = base_table_key in outer_table_keys
             fields.append({
                 'logical_table': base_table_key,
@@ -1397,8 +1341,8 @@ def _translate_tecsql_single(normalized_query):
                         if alias_entry['mode'] == 'logical':
                             logical_table = alias_entry['logical_key']
                             if not logical_table:
-                                raise ValueError(f'Tabella logica non mappata per alias: {text}')
-                            physical_field = _resolve_field(logical_table, right['text'])
+                                raise ValueError(f'Logical table not mapped for alias: {text}')
+                            physical_field = _resolve_field(d, logical_table, right['text'])
                             output.append({
                                 'type': 'IDENT',
                                 'text': _format_physical_field(physical_table, physical_field, is_outer, context)
@@ -1412,13 +1356,13 @@ def _translate_tecsql_single(normalized_query):
                         continue
 
                     logical_key = _normalize_table_key(text)
-                    if logical_key in TABLE_MAP:
-                        physical_table = TABLE_MAP[logical_key]
+                    if logical_key in d.table_map:
+                        physical_table = d.table_map[logical_key]
                         is_outer = logical_key in outer_table_keys
                         if right['type'] == 'SYMBOL' and right['text'] == '*':
                             output.append({'type': 'IDENT', 'text': f'{physical_table}.*'})
                         else:
-                            physical_field = _resolve_field(logical_key, right['text'])
+                            physical_field = _resolve_field(d, logical_key, right['text'])
                             output.append({
                                 'type': 'IDENT',
                                 'text': _format_physical_field(physical_table, physical_field, is_outer, context)
@@ -1428,8 +1372,8 @@ def _translate_tecsql_single(normalized_query):
 
         if token_type == 'IDENT' and expecting_table and context in {'FROM', 'JOIN'}:
             logical_key = _normalize_table_key(text)
-            if logical_key in TABLE_MAP:
-                physical_table = TABLE_MAP[logical_key]
+            if logical_key in d.table_map:
+                physical_table = d.table_map[logical_key]
                 last_table_logical_key = logical_key
                 last_table_physical = physical_table
                 last_table_mode = 'logical'
@@ -1442,7 +1386,7 @@ def _translate_tecsql_single(normalized_query):
                 pending_alias = True
             else:
                 last_table_physical = text
-                phys_result = PHYSICAL_TABLE_MAP.get(text.strip().lower())
+                phys_result = d.physical_table_map.get(text.strip().lower())
                 last_table_logical_key = phys_result[0] if isinstance(phys_result, list) and phys_result else phys_result
                 last_table_mode = 'physical'
                 last_table_outer = outer_next_table
@@ -1457,3 +1401,84 @@ def _translate_tecsql_single(normalized_query):
         i += 1
 
     return _format_tokens(output)
+
+
+class Dictionary:
+    """Il dizionario dei nomi di un database Jflex: tabelle e campi logici ($RigaListino.CodListino) <-> fisici
+    (GD_LIRIG.LIRIG_LICOD). Un oggetto per database collegato, senza stato condiviso: lo riempie `update(rows)` con le righe
+    lette da FW_TABLES e FW_TABLE_FIELDS (vedi dictionary.py); i traduttori sono `to_sql` e `to_tecsql`."""
+
+    def __init__(self, rows=()):
+        self.table_map = {}                # $tabella normalizzata -> tabella fisica
+        self.field_map = {}                # $tabella -> {campo normalizzato -> campo fisico}
+        self.physical_table_map = {}       # tabella fisica (minuscola) -> [$tabelle che la usano]
+        self.reverse_field_map = {}        # tabella fisica -> {campo fisico -> {$tabella -> campo logico}}
+        self.table_original_case = {}      # $tabella normalizzata -> nome logico con le maiuscole originali
+        self.field_original_case = {}      # ($tabella, campo normalizzato) -> nome logico originale
+        self.rows = []                     # le righe lette dal database (le servono anche gli strumenti di ricerca)
+        self.update(rows)
+
+    def __bool__(self):
+        return bool(self.table_map)
+
+    def update(self, rows):
+        """Costruisce le mappe logico <-> fisico dalle righe del dizionario (piu' descrittori per la stessa tabella fisica)."""
+        rows = list(rows)
+        self.rows = rows
+        # Now supports multiple descriptors per physical table.
+        self.table_map.clear()
+        self.field_map.clear()
+        self.physical_table_map.clear()
+        self.reverse_field_map.clear()
+        self.table_original_case.clear()
+        self.field_original_case.clear()
+
+        for row in rows:
+            logical_table = row.get('TABELLA_LOGICA')
+            physical_table = row.get('TABELLA_FISICA')
+            logical_field = row.get('CAMPO_LOGICO')
+            physical_field = row.get('CAMPO_FISICO')
+
+            table_key = _normalize_table_key(logical_table)
+            if not table_key or not physical_table:
+                continue
+
+            # Logical → Physical (unchanged)
+            self.table_map.setdefault(table_key, physical_table)
+
+            # Original case storage (for SQL → TecSQL reverse translation)
+            self.table_original_case.setdefault(table_key, '$' + str(logical_table).strip())
+
+            # Physical → Logical (FIXED: store all descriptors in list)
+            physical_key = str(physical_table).strip().lower()
+            if physical_key not in self.physical_table_map:
+                self.physical_table_map[physical_key] = []
+            if table_key not in self.physical_table_map[physical_key]:
+                self.physical_table_map[physical_key].append(table_key)
+
+            # Field maps (Logical → Physical)
+            field_key = _normalize_field_key(logical_field)
+            if field_key and physical_field:
+                self.field_map.setdefault(table_key, {})
+                self.field_map[table_key].setdefault(field_key, physical_field)
+
+                # Reverse field map (Physical → Logical for each descriptor)
+                self.reverse_field_map.setdefault(physical_key, {})
+                physical_field_lower = str(physical_field).strip().lower()
+                self.reverse_field_map[physical_key].setdefault(physical_field_lower, {})
+                self.reverse_field_map[physical_key][physical_field_lower][table_key] = field_key
+
+                # Original case storage for field names
+                self.field_original_case.setdefault((table_key, field_key), str(logical_field).strip())
+
+    def to_sql(self, tecsql, strip_params=False):
+        """TecSQL -> SQL. Se `strip_params` toglie le condizioni WHERE/HAVING con parametri (?nome). Solleva ValueError."""
+        return translate_tecsql(self, tecsql, strip_params=strip_params)
+
+    def to_tecsql(self, sql, chosen_descriptor=None):
+        """SQL -> TecSQL: ritorna un dict (success, tecsql, ambiguous, candidates, partial_translation, ...)."""
+        return translate_sql_to_tecsql(self, sql, chosen_descriptor)
+
+    def find_descriptors(self, physical_table, used_fields):
+        """Quali descrittori (nomi logici) contengono i campi usati di una tabella fisica."""
+        return _find_matching_descriptors(self, physical_table, used_fields)

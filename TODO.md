@@ -14,11 +14,6 @@ Cose note da fare o da correggere, in ordine di importanza. Il piano completo di
   `tests/test_tecsql_sql_to_tecsql.py` (`test_subquery_fields_translated`, `test_full_multiline_query`): quando funziona,
   togliere `@unittest.expectedFailure`. Si affronta nel passo 8 (schermata SQL <-> TecSQL).
 
-## Pulizia (passo 7 del piano)
-
-- Trasformare le mappe globali di `tecsql_translator.py` in una classe `Dictionary` senza stato condiviso. *(in corso)*
-- Messaggi d'errore del traduttore in inglese (oggi in italiano come nell'originale). *(in corso)*
-
 ## Idee rimandate
 
 - Segnare nell'anteprima le righe troppo lunghe per la colonna.
