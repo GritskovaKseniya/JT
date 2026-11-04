@@ -100,6 +100,7 @@ una traduzione vera in en, fr, de, es e hi (le altre restano `[lingua] testo`), 
 run_simulator.bat                    esegue gli scenari (livelli, utente, categoria, Update by keys, errori) e dice cosa non va
 run_simulator.bat --gui              apre la finestra di JT collegata al database simulato: si prova con il mouse
 run_simulator.bat --gui --azure      come sopra, ma con il vero Azure (chiave di Data\azure_services.json: costa pochi caratteri)
+run_simulator.bat --gui --nokey      come lo vede chi non ha la chiave Azure: Load conta, ma Preview/Translate/Write sono spenti
 ```
 
 Con `--azure` il database resta simulato: niente di reale viene scritto, ma le traduzioni sono quelle vere (utile per vedere come

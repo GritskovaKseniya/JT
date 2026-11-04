@@ -577,7 +577,7 @@ def real_azure_available(credentials_path):
     return bool(key) and not key.upper().startswith('INSERISCI')
 
 
-def run_gui(sample=None, azure=False):
+def run_gui(sample=None, azure=False, nokey=False):
     """La finestra vera di JT, collegata al database simulato. Azure e' finto (traduzioni di prova) oppure, con `azure`,
     quello vero: il database resta simulato e i file di JT dell'utente non si toccano."""
     import tkinter as tk
@@ -590,6 +590,9 @@ def run_gui(sample=None, azure=False):
         for name in ('Data', 'Graphics'):
             shutil.copytree(os.path.join(ROOT, name), os.path.join(folder, name))
         paths = Paths(folder)
+        if nokey:                  # come nello zip senza chiave: il modello al posto della chiave
+            write_json(paths.azure, {'subscription_key': 'INSERISCI-QUI-LA-CHIAVE-AZURE',
+                                     'endpoint': 'https://api.cognitive.microsofttranslator.com', 'location': 'italynorth'})
         write_json(paths.query, {'linput': 'Italian', 'loutput': 'French', 'table': 'JFX: Strings'})
         write_json(paths.connection, {'host': 'simulator', 'port': '1521', 'sid': 'SIM', 'username': 'simulator',
                                       'password': 'x'})
@@ -602,7 +605,7 @@ def run_gui(sample=None, azure=False):
             azure = False
         if not azure:
             app.make_translator = lambda: SimTranslator(realistic=True)
-        root.title(root.title() + ('  [SIMULATOR - real Azure]' if azure else '  [SIMULATOR]'))
+        root.title(root.title() + ('  [SIMULATOR - no key]' if nokey else '  [SIMULATOR - real Azure]' if azure else '  [SIMULATOR]'))
         app.connect({'host': 'simulator', 'port': '1521', 'sid': 'SIM', 'username': 'simulator', 'password': 'x',
                      'environment': 'test'})            # test: conferma normale; per provare la conferma forte: New connection > prod
         app.show_translation()
@@ -627,11 +630,13 @@ def main(argv=None):
     parser.add_argument('--sample', help="file di extract_sample.py: righe vere in piu' (solo con --gui)")
     parser.add_argument('--azure', action='store_true',
                         help='con il vero Azure (la chiave di Data\\azure_services.json; costa pochi caratteri; solo con --gui)')
+    parser.add_argument('--nokey', action='store_true',
+                        help='senza chiave Azure (il modello del pacchetto): per vedere JT come lo vede chi non la ha ricevuta; solo con --gui')
     args = parser.parse_args(argv)
-    if (args.sample or args.azure) and not args.gui:
-        parser.error('--sample e --azure servono solo con --gui: gli scenari contano le righe di prova e non spendono')
+    if (args.sample or args.azure or args.nokey) and not args.gui:
+        parser.error('--sample, --azure e --nokey servono solo con --gui: gli scenari contano le righe di prova e non spendono')
     if args.gui:
-        run_gui(tool.load_sample(args.sample) if args.sample else None, args.azure)
+        run_gui(tool.load_sample(args.sample) if args.sample else None, args.azure, args.nokey)
         return 0
     ok, total = run_scenarios()
     print(f'\n{ok}/{total} controlli riusciti.')

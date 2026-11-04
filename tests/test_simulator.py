@@ -195,6 +195,14 @@ class ScenarioTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(sim.main([]), 0)
 
+    def test_the_gui_only_options_need_gui(self):
+        import contextlib
+        import io
+        for option in ('--nokey', '--azure'):
+            with self.subTest(option=option), contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    sim.main([option])
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -53,12 +53,20 @@ class ToolTip:
         self.widgets = (widget,) + more_widgets
         self.content = content
         self.tip = None
+        self._pressed = False                  # cliccato: il suggerimento non torna finche' il mouse non esce dal widget
         for w in self.widgets:
             w.bind('<Enter>', self.show, add='+')
             w.bind('<Leave>', self._leave, add='+')
+            w.bind('<ButtonPress>', self._press, add='+')
+
+    def _press(self, _event=None):
+        """Un clic (per esempio sul menu a tendina: l'elenco prende il mouse e <Leave> non arriva) chiude il suggerimento
+        e lo tiene chiuso: scelta una voce, il mouse e' ancora sul campo e senza questo lo si rivedrebbe."""
+        self._pressed = True
+        self.hide()
 
     def show(self, _event=None):
-        if self.tip:
+        if self.tip or self._pressed:
             return
         data = self.content() if callable(self.content) else self.content
         if isinstance(data, (str, os.PathLike)):
@@ -108,6 +116,7 @@ class ToolTip:
         except (tk.TclError, KeyError):
             under_pointer = None
         if under_pointer not in self.widgets:
+            self._pressed = False
             self.hide()
 
     def hide(self, _event=None):

@@ -2436,6 +2436,21 @@ class OneRowSelectionTests(UiCase):
         self.resize(screen, threshold - 60)
         self.assertEqual(self.fit.call_count, 2)
 
+    def test_a_click_closes_the_tooltip_and_keeps_it_closed_until_the_mouse_leaves(self):
+        screen = self.step2()
+        tip = ToolTip(screen.label_missing, {'title': 'Hint'})
+        tip.show()
+        self.assertIsNotNone(tip.tip)
+        screen.label_missing.event_generate('<ButtonPress-1>')          # per esempio aprire il menu a tendina
+        self.assertIsNone(tip.tip)
+        tip.show()                                                       # <Enter> dopo lo scatto del mouse: resta chiuso
+        self.assertIsNone(tip.tip)
+        with patch.object(screen.label_missing, 'winfo_containing', return_value=None):
+            tip._leave()                                                 # il mouse esce davvero
+        tip.show()
+        self.assertIsNotNone(tip.tip)
+        tip.hide()
+
     def test_a_tooltip_with_a_plain_text_shows_it(self):
         screen = self.step2()
         tip = ToolTip(screen.label_missing, 'C:\some\folder')
