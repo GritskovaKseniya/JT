@@ -9,7 +9,9 @@ jt/
   settings.py             ultima connessione, ultima scelta, credenziali Azure
   glossary.py             termini sostituiti (UMV -> HU) e non tradotti (Supply Chain Planning, MES...)
   azure.py                client Azure Translator (usa il glossario)
-  environments.py         etichetta dell'ambiente di un database (dev/test/prod, non impostata = prod), chiave per ricordarla
+  undo.py                 lo script che annulla una corsa: `UndoRecord` (come si riconosce la riga e cosa c'era prima), costanti SQL
+                          sicure (apici raddoppiati, UNISTR per i caratteri speciali), `build_script`
+environments.py         etichetta dell'ambiente di un database (dev/test/prod, non impostata = prod), chiave per ricordarla
   layers.py               livelli di Jflex (FW, AP, CW, CT, CK, CC): intervalli dei codici, prefissi dei nomi, utente scritto, livelli visibili
   tables.py               UNA CLASSE PER TABELLA: SQL di selezione (anche per livello), traduzione di una riga, INSERT, UPDATE
   db.py                   connessione Oracle, cursori, metadati (niente logica di traduzione)
@@ -56,6 +58,11 @@ test `JTApp.confirm_write` e' sostituito da una risposta automatica (`UiCase`).
 Update by keys) e "Details" (tempi) sono `Collapsible` (`ui/widgets.py`): chiuse mostrano solo la riga con un riassunto
 (`TranslationScreen._update_summaries`). Nel passo 1 il banner (`StatusBar(closable=True)`) compare solo quando succede qualcosa. Ogni apertura o chiusura fa riadattare la
 finestra (`app.fit_window`); se non entra nello schermo compare la barra di `ScrollArea`.
+
+**L'annullamento di una corsa.** `service._write` annota per ogni riga scritta un `UndoRecord` (la chiave della riga da
+`spec.update_target(...).where`; per gli UPDATE i valori di prima, letti con una sola `SELECT` che dice anche se la riga c'e' gia',
+utente e data compresi). `logs.write_undo_script` scrive `JT_undo_<data>.sql` dopo ogni corsa che ha scritto, anche se i CSV non si
+possono scrivere. Il simulatore esegue lo script (`Simulator.run_script`) e il suo scenario controlla che il database torni identico.
 
 **Aggiungere un livello alla finestra.** I livelli sono gia' tutti in `jt/layers.py`: basta aggiungere il suo nome a `VISIBLE`.
 Per i livelli la tabella dice come filtrare (`level_condition`), di che livello e' una riga (`layer_of_row`) e con quale utente si

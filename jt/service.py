@@ -11,6 +11,7 @@ from typing import Any, List
 from .config import SECONDS_PER_ROW
 from .layers import level_label, user_of_layer
 from .tables import EmptySourceText, SchemaError
+from .undo import UndoRecord
 
 
 @dataclass
@@ -62,6 +63,7 @@ class RunResult:
     skipped: int = 0
     stopped: bool = False
     failure: Any = None            # errore imprevisto che ha interrotto la corsa (le righe gia' scritte restano qui)
+    undo: list = field(default_factory=list)       # un UndoRecord per ogni riga scritta (lo script che annulla la corsa)
 
 
 @dataclass
@@ -275,10 +277,11 @@ class TranslationService:
         return PreviewRow(row, base, translated, 'UPDATE', old=self._old_text(translated, target, existing))
 
     def _existing(self, spec, target):
-        """I valori che la riga ha adesso in lingua di output ({colonna: valore}), oppure None se non c'e'."""
+        """I valori che la riga ha adesso in lingua di output ({colonna: valore}, con utente e data se la tabella li ha),
+        oppure None se non c'e'."""
         conditions = ' AND '.join(f'{col} = :w{i}' for i, col in enumerate(target.where))
         binds = {f'w{i}': value for i, value in enumerate(target.where.values())}
-        columns = list(target.sets)
+        columns = list(target.sets) + list(target.audit)
         found = self.db.fetch_all(f"SELECT {', '.join(columns)} FROM {spec.name} WHERE {conditions}", binds)
         return dict(zip(columns, found[0])) if found else None
 
@@ -326,12 +329,15 @@ class TranslationService:
         spec, lan_out = selection.spec, selection.lan_out
         now = datetime.now().isoformat()
         try:
-            action, statement = 'insert', None
+            columns = selection.columns
+            if spec.needs_columns and not columns:           # i nomi delle colonne servono a riconoscere la riga (in cache)
+                columns = self._columns(spec)
+            target = spec.update_target(row, lan_out, translated.values, columns)    # come si riconosce la riga
+            action, existing = 'insert', None
             if selection.update_mode:
-                statement = self._update_statement(spec, spec.update_target(row, lan_out, translated.values,
-                                                                            selection.columns), spec.user_sql(row))
-            if statement:
-                self.db.execute(*statement)
+                existing = self._existing(spec, target)       # una lettura: c'e' gia' e cosa c'era
+            if existing is not None:
+                self.db.execute(*self._update_statement(spec, target, spec.user_sql(row)))
                 action = 'update'
             else:
                 self.db.execute(*spec.insert(row, lan_out, translated.values))
@@ -345,16 +351,16 @@ class TranslationService:
             result.updates += 1
         else:
             result.inserts += 1
+        old_output = self._old_text(translated, target, existing) if existing is not None else ''
+        result.undo.append(UndoRecord(spec.name, action, dict(target.where), dict(existing) if existing is not None else {}))
         result.successes.append({'date': now, 'action': action, 'code': base['code'], 'level': base['level'],
                                  'user': base['user'], 'lng_in': base['lng_in'], 'lng_out': base['lng_out'],
-                                 'input': base['input'], 'output': translated.primary})
+                                 'input': base['input'], 'output': translated.primary, 'old_output': old_output})
 
     def _update_statement(self, spec, target, user_sql):
-        """(sql, binds) dell'UPDATE se la riga esiste gia' in lingua di output, altrimenti None (-> INSERT)."""
+        """(sql, binds) dell'UPDATE di una riga che esiste gia' in lingua di output."""
         conditions = ' AND '.join(f'{col} = :w{i}' for i, col in enumerate(target.where))
         binds = {f'w{i}': value for i, value in enumerate(target.where.values())}
-        if self.db.scalar(f'SELECT COUNT(*) FROM {spec.name} WHERE {conditions}', binds) == 0:
-            return None
         parts = [f'{col} = :s{i}' for i, col in enumerate(target.sets)]
         binds.update({f's{i}': value for i, value in enumerate(target.sets.values())})
         if len(target.audit) == 2:

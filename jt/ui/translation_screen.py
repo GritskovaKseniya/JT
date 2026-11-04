@@ -6,7 +6,7 @@ from tkinter import ttk
 
 from .. import environments
 from ..layers import DEFAULT_LEVEL, LEVEL_ALL, LEVEL_CHOICES, level_label, users_written
-from ..logs import write_run_logs
+from ..logs import write_run_logs, write_undo_script
 from ..runner import DONE, ERROR, PROGRESS
 from ..tables import TooManyKeys, get_table
 from .scale import pad, px
@@ -79,6 +79,7 @@ class TranslationScreen(ttk.Frame):
         self.preview = None            # l'anteprima fatta e non ancora scritta (service.Preview)
         self._shown = []               # le righe dell'anteprima nella tabella (stesso ordine)
         self._folded = []              # le sezioni che l'anteprima ha chiuso per fare posto alla tabella
+        self._undo_path = None         # lo script che annulla l'ultima corsa (JT_undo_<data>.sql), se ha scritto qualcosa
         self._job = 'translate'        # cosa sta girando: translate | preview | write
         self.running = False
         self.counts = {}
@@ -300,6 +301,10 @@ class TranslationScreen(ttk.Frame):
         self.link_logs.pack(side='right')
         self.link_logs.bind('<Button-1>', lambda _e: self.open_logs())
         ToolTip(self.link_logs, self.app.paths.logs)
+        self.link_undo = tk.Label(self.details.extra, text='Undo script', bg=PALETTE['bg'], fg=PALETTE['accent'],
+                                  cursor='hand2', font=(FONT, 9, 'underline'))          # compare dopo una corsa che ha scritto
+        self.link_undo.bind('<Button-1>', lambda _e: self.open_undo())
+        ToolTip(self.link_undo, self._undo_hint)
 
     def open_logs(self):
         """Apre la cartella dei log in Esplora file (la crea se non c'e' ancora)."""
@@ -308,6 +313,32 @@ class TranslationScreen(ttk.Frame):
             os.startfile(self.app.paths.logs)
         except OSError as e:
             self.status.show('error', f'Could not open {self.app.paths.logs}: {reason(e)}')
+
+    def _undo_hint(self):
+        return {'title': 'Undo script', 'intro': 'Undoes the last run: a DELETE for every inserted row and an UPDATE that puts '
+                                                 'the previous values back. Run it in SQL Developer on the same database.',
+                'rows': [('File', self._undo_path or '-')]}
+
+    def open_undo(self):
+        """Apre lo script di annullamento (con il programma associato ai .sql; se non ce n'e', la cartella)."""
+        path = self._undo_path
+        if not path:
+            return
+        try:
+            try:
+                os.startfile(path)
+            except OSError:
+                os.startfile(os.path.dirname(path))
+        except OSError as e:
+            self.status.show('error', f'Could not open {path}: {reason(e)}')
+
+    def _set_undo(self, path):
+        self._undo_path = path
+        if path:
+            if not self.link_undo.winfo_manager():
+                self.link_undo.pack(side='right', padx=(0, px(12)))
+        else:
+            self.link_undo.pack_forget()
 
     def _build_hidden_button(self):
         # pulsante nascosto (easter egg), mimetizzato con lo sfondo
@@ -580,6 +611,7 @@ class TranslationScreen(ttk.Frame):
 
     def _begin_run(self, selection, job='translate', total=None):
         self._job = job
+        self._set_undo(None)                  # lo script della corsa di prima non vale per questa
         self._stale_message = False
         self.running = self.app.translating = True
         self._stopping = False
@@ -748,15 +780,24 @@ class TranslationScreen(ttk.Frame):
         except OSError as e:                     # cartella Logs non scrivibile / file bloccato: la fine della corsa non si ferma
             print(f'Could not write the logs: {e}')
             paths = []
+        undo_path = None
+        try:                                     # lo script di annullamento non dipende dai log: si scrive comunque
+            if result is not None:
+                info = self.app.db.info or {}
+                undo_path = write_undo_script(result, self.app.paths.logs,
+                                              info.get('db_name') or info.get('sid') or '', info.get('host', ''))
+        except OSError as e:
+            print(f'Could not write the undo script: {e}')
         self.translate_button.config(text='Translate', style='Primary.TButton', command=self.translate, state='disabled')
         if self.app.closing:
             self.app.finish_close()
             return
         self._lock(False)
-        self._show_summary(result, error, paths)
+        self._set_undo(undo_path)
+        self._show_summary(result, error, paths, undo_path)
         self.refresh_missing()
 
-    def _show_summary(self, result, error, paths):
+    def _show_summary(self, result, error, paths, undo_path=None):
         failure = error if error is not None else (result.failure if result is not None else None)
         if failure is not None:
             text = f'The run stopped because of an error: {reason(failure)}'
@@ -765,6 +806,8 @@ class TranslationScreen(ttk.Frame):
                 text += f' {written} rows were written before.'
             if paths:
                 text += f' Log: Logs\{os.path.basename(paths[-1])}'
+            if undo_path:
+                text += f' Undo script: Logs\\{os.path.basename(undo_path)}'
             self.status.show('error', text)
             return
         written = f'{result.inserts} inserted' + (f', {result.updates} updated' if self._update_run else '')
@@ -773,6 +816,8 @@ class TranslationScreen(ttk.Frame):
             text += f' {len(result.errors)} errors, {result.skipped} skipped.'
         if paths:
             text += f' Log: Logs\\{os.path.basename(paths[-1])}'
+        if undo_path:
+            text += f' Undo script: Logs\\{os.path.basename(undo_path)}'
         if result.errors:
             text += f"\nFirst error (code {result.errors[0]['code']}): {shorten(result.errors[0]['reason'], 160)}"
         self.status.show('warn' if (result.errors or result.skipped or result.stopped) else 'ok', text)

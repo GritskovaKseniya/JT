@@ -31,6 +31,7 @@ from jt.db import Database  # noqa: E402
 from jt.layers import BY_NAME  # noqa: E402
 from jt.service import TranslationService  # noqa: E402
 from jt.tables import get_table  # noqa: E402
+from jt.undo import build_script  # noqa: E402
 
 LEVELS = {'All': None, 'Standard': BY_NAME['AP'], 'CW': BY_NAME['CW'], 'CT': BY_NAME['CT']}      # nomi brevi, per i rapporti
 PARTS = re.compile(r',\s*(?=[a-z_0-9]+ [A-Z])')
@@ -48,6 +49,7 @@ def to_sqlite(sql):
     if re.fullmatch(r"SELECT SYS_CONTEXT\('USERENV', 'DB_NAME'\) FROM dual", text, re.I):
         return "SELECT 'SIMULATOR'"
     text = re.sub(r'\bsysdate\b', 'CURRENT_TIMESTAMP', text, flags=re.I)
+    text = re.sub(r"TO_DATE\('([^']*)', 'YYYY-MM-DD HH24:MI:SS'\)", r"'\1'", text)      # le date sono testo nel simulatore
     if text.endswith('WHERE ROWNUM = 1'):
         return text[:-len('WHERE ROWNUM = 1')] + 'LIMIT 1'
     if ' AND ROWNUM <= :n' in text:
@@ -57,6 +59,34 @@ def to_sqlite(sql):
             return f'{match.group(1)} FROM (SELECT X.* FROM {match.group(2)} X WHERE {match.group(3)} LIMIT :n) X'
         return text + ' LIMIT :n'
     return text
+
+
+def _unistr(text):
+    """UNISTR di Oracle: le sequenze \\XXXX sono unita' UTF-16."""
+    def decode(match):
+        return bytes.fromhex(match.group().replace('\\', '')).decode('utf-16-be')
+    return re.sub(r'(?:\\[0-9A-Fa-f]{4})+', decode, text)
+
+
+def statements(script):
+    """Le istruzioni SQL di uno script, senza i commenti e senza i comandi di SQL Developer (SET ..., COMMIT)."""
+    found, current, quoted, i = [], [], False, 0
+    while i < len(script):
+        if not quoted and script.startswith('--', i):            # un commento arriva fino a fine riga
+            end = script.find('\n', i)
+            i = len(script) if end < 0 else end
+            continue
+        ch = script[i]
+        if ch == "'":
+            quoted = not quoted                                 # '' dentro un testo si chiude e si riapre: va bene
+        if ch == ';' and not quoted:
+            found.append(''.join(current).strip())
+            current = []
+        else:
+            current.append(ch)
+        i += 1
+    found.append(''.join(current).strip())
+    return [text for text in found if text and not text.upper().startswith(('SET ', 'COMMIT'))]
 
 
 def oracle_message(error, limits):
@@ -130,6 +160,7 @@ class Simulator:
         """`sample` = contenuto di un file di extract_sample.py: righe vere in piu' a quelle di prova."""
         self.raw = sqlite3.connect(':memory:', check_same_thread=False)    # il thread di traduzione usa la stessa connessione
         self.raw.execute('PRAGMA case_sensitive_like = ON')                 # come Oracle: 'ctX' non e' 'Ct%'
+        self.raw.create_function('UNISTR', 1, _unistr)
         self.raw.create_function('NVL', 2, lambda value, other: other if value is None else value)
         self.limits = {}
         cursor = self.raw.cursor()
@@ -164,6 +195,13 @@ class Simulator:
     # --- per guardare cosa c'e' nel database
     def query(self, sql, binds=()):
         return self.raw.execute(sql, binds).fetchall()
+
+    def run_script(self, script):
+        """Esegue uno script SQL (come farebbe SQL Developer con F5): un'istruzione alla volta, poi COMMIT."""
+        cursor = self.connect('script', '').cursor()
+        for text in statements(script):
+            cursor.execute(text)
+        self.raw.commit()
 
 
 # Traduzioni delle stringhe italiane del database di prova (create_test_db.py), per vedere nella finestra come appare un
@@ -466,8 +504,45 @@ def scenario_preview():
     return s
 
 
+def scenario_undo():
+    s = Scenario('Annullare con lo script di annullamento: il database torna com\'era')
+    tables = ('FW_STRINGS', 'FW_FIELD_STRINGS', 'FW_OPZIONI')
+
+    def snapshot():
+        return {table: s.sim.query(f'SELECT * FROM {table} ORDER BY 1, 2, 3') for table in tables}
+
+    s.translator = SimTranslator(realistic=True)
+    s.translate_missing('FW_STRINGS', BY_NAME['AP'], lan_out='hi')       # righe in hindi, con accenti e apostrofi
+    before = snapshot()
+    plain = SimTranslator()
+    s.translator = plain
+    spec = get_table('FW_STRINGS')
+    runs = []
+    selection = s.service.load_keys(spec, 'it', 'hi', spec.parse_keys('100001, 100005'), None)
+    runs.append(s.service.run(selection, plain))                          # UPDATE: il testo di prima e' in hindi
+    runs.append(s.translate_missing('FW_STRINGS', BY_NAME['CT'], lan_out='hi')[1])
+    runs.append(s.translate_missing('FW_FIELD_STRINGS', None, lan_out='hi')[1])
+    runs.append(s.translate_missing('FW_OPZIONI', None, lan_out='hi')[1])
+    records = [record for run in runs for record in run.undo]
+    s.check('la corsa ha aggiornato righe e ne ha inserite in tre tabelle',
+            sum(r.action == 'update' for r in records) == 2 and {r.table for r in records} == set(tables),
+            [(r.table, r.action) for r in records][:6])
+    changed = snapshot()
+    s.check('dopo la corsa il database e\' diverso', changed != before)
+    script = build_script(records, 'SIM', 'simulator')
+    s.check('lo script e\' solo ASCII (accenti e hindi con UNISTR) e ha SET DEFINE OFF e COMMIT',
+            script.isascii() and 'UNISTR(' in script and 'SET DEFINE OFF;' in script and script.rstrip().endswith('COMMIT;'))
+    s.sim.run_script(script)
+    after = snapshot()
+    s.check('eseguito lo script, il database e\' uguale a prima (righe inserite tolte, testi, utente e data rimessi)',
+            after == before, {t: (len(before[t]), len(after[t])) for t in tables})
+    s.check('lo script rieseguito non rompe niente (le righe non ci sono piu\')',
+            s.sim.run_script(script) is None and snapshot() == before)
+    return s
+
+
 SCENARIOS = (scenario_counts, scenario_strings, scenario_all_levels, scenario_triplets, scenario_options,
-             scenario_update_by_keys, scenario_errors, scenario_preview)
+             scenario_update_by_keys, scenario_errors, scenario_preview, scenario_undo)
 
 
 def run_scenarios(out=print):

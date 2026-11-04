@@ -212,4 +212,23 @@ La fase A rende **piu' sicuro JT** e si usa subito; la B e' piccola; la C e' l'u
 - **Idee per dopo:** chiedere conferma anche per la sola "traduzione diretta" con meno righe (soglia)? un elenco di profili di
   connessione con l'etichetta (passo 6).
 
+### Passo 3 - Log con annullamento: fatto (2026-11-04)
+
+- Il servizio annota per ogni riga scritta un `UndoRecord` (`jt/undo.py`): la chiave della riga e, per gli UPDATE, i valori di prima
+  (testo, **utente e data compresi**, cosi' l'annullamento rimette anche chi aveva scritto la riga). Per questo l'UPDATE ora legge la
+  riga con una `SELECT` (c'e' gia' + cosa c'era) invece del `COUNT(*)`.
+- Il CSV delle righe scritte ha la colonna `old_output` (il testo di prima, solo per gli UPDATE).
+- **Scelta diversa dal piano:** non c'e' un pulsante "Create undo script": lo script `JT_undo_<data>.sql` si scrive **da solo** dopo ogni
+  corsa che ha scritto qualcosa (cosi' non ci si dimentica), anche se i CSV non si possono scrivere; accanto a "Open the logs folder"
+  compare il collegamento **Undo script** che lo apre, e il messaggio finale ne dice il nome.
+- Lo script: un `DELETE` per riga inserita, un `UPDATE` che rimette i valori di prima, dall'ultima riga scritta alla prima; solo ASCII
+  (UNISTR per accenti, hindi, a capo: la codifica del file non conta), `SET DEFINE OFF`, `COMMIT`; nomi di tabella e colonna
+  controllati (mai testi dei dati); rilanciarlo non fa danni.
+- **Provato col simulatore** (scenario "Annullare con lo script"): una corsa che aggiorna righe in hindi (accenti, apostrofi) e inserisce
+  in tre tabelle, si esegue lo script e il database torna **identico** a prima; il test ha anche trovato `identifier(None)` che
+  accettava "None" come nome.
+- **Limiti noti:** lo script non e' una transazione e non controlla se altri hanno cambiato le righe nel frattempo; non si lancia da
+  JTools (solo SQL Developer). **Idee per dopo:** un pulsante "Undo last run" dentro JTools con anteprima delle righe che cambierebbe;
+  segnare nell'anteprima le righe troppo lunghe per la colonna.
+
 (scrivi qui le altre decisioni passo per passo e cio' che si scopre)

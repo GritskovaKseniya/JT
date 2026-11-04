@@ -163,7 +163,8 @@ I testi passano da un glossario: **UMV** diventa **HU** nelle lingue diverse dal
 | Dove | Cosa |
 |---|---|
 | Nel database | Le traduzioni. Nella colonna "utente" delle righe inserite o aggiornate scrive la sigla `JT`, ma per le righe del livello CT scrive `ZFXCUSTOM` e per quelle del livello CW `ZFXINTEGR`. La categoria (il modulo: MES, WMS...) la copia dalla riga di partenza. |
-| `%LOCALAPPDATA%\JT\Logs\JT_inserts_log_<data>.csv` | Una riga per ogni traduzione scritta (data, azione, codice, livello, utente scritto, lingue, testo, traduzione). Le righe CT e CW si ritrovano da qui, non dalla sigla `JT`. |
+| `%LOCALAPPDATA%\JT\Logs\JT_inserts_log_<data>.csv` | Una riga per ogni traduzione scritta (data, azione, codice, livello, utente scritto, lingue, testo, traduzione e, per gli UPDATE, `old_output`: il testo che c'era prima). Le righe CT e CW si ritrovano da qui, non dalla sigla `JT`. |
+| `...\Logs\JT_undo_<data>.sql` | Lo script che **annulla la corsa** (vedi "Annullare una corsa"). Si scrive da solo dopo ogni corsa che ha scritto qualcosa. |
 | `...\Logs\JT_errors_log_<data>.csv` | Le righe che il database ha rifiutato, con il motivo (colonna `reason`). |
 | `...\Logs\JT_skipped_log_<data>.csv` | Le righe non tradotte perche' Azure ha dato errore, con il motivo. |
 
@@ -172,6 +173,20 @@ folder** nel programma), non nella cartella di JT: restano anche se aggiorni o c
 
 I file CSV si aprono con Excel. Se l'Excel italiano mette tutto in una colonna usa **Dati > Da testo/CSV** e scegli il
 separatore "virgola".
+
+### Annullare una corsa
+
+Dopo ogni corsa che ha scritto qualcosa JT prepara da solo lo script **`JT_undo_<data>.sql`** (nella cartella dei log; il collegamento
+**Undo script** accanto a "Open the logs folder" lo apre, e il messaggio finale ne dice il nome). Contiene:
+
+- un `DELETE` per ogni riga **inserita**;
+- un `UPDATE` per ogni riga **aggiornata**, che rimette il testo di prima (e anche l'utente e la data di prima, se la tabella li ha).
+
+Per annullare: apri lo script in **SQL Developer**, collegati **allo stesso database** e lancialo con *Run Script* (F5). Va lanciato
+**subito**: non controlla se qualcuno ha cambiato quelle righe dopo JT (le sovrascrive). Se lo lanci due volte non succede niente di
+male. Lo script e' solo ASCII (accenti e hindi sono scritti con `UNISTR`), quindi la codifica del file non conta, e ha `SET DEFINE OFF`
+(un `&` nei testi non fa chiedere valori). Una corsa fermata con Stop o interrotta da un errore ha lo script delle righe scritte fin li';
+una corsa che non ha scritto niente (per esempio solo Preview) non ne ha.
 
 ## 8. Quando qualcosa non va
 
@@ -189,5 +204,7 @@ separatore "virgola".
 
 - Prova sempre con **Max rows = 1** o 5 prima di una corsa lunga.
 - Ogni riga e' una chiamata Azure a pagamento: guarda i caratteri stimati dopo **Load**.
-- Le traduzioni sono scritte subito (commit a ogni riga): per annullare bisogna usare il database, non basta chiudere JT.
+- Le traduzioni sono scritte subito (commit a ogni riga): chiudere JT non le annulla. Per tornare indietro serve lo script
+  `JT_undo_<data>.sql` della corsa (vedi "Annullare una corsa").
+- Il database di prova (`JT-TestDB`) o `run_simulator.bat` servono a provare senza rischi, anche lo script di annullamento.
 - Chiudendo la finestra durante una traduzione, JT finisce la riga in corso, chiude la connessione ed esce.

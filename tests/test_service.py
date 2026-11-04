@@ -16,6 +16,7 @@ from jt.layers import BY_NAME
 from jt.logs import write_run_logs
 from jt.service import Progress, RunResult, Selection, TranslationService
 from jt.tables import TABLES, SchemaError, get_table
+from jt.undo import statement
 
 ALL_NAMES = list(TABLES)
 
@@ -344,9 +345,9 @@ class RunMissingModeTests(ServiceCase):
             result = self.service.run(selection, self.translator)
         self.assertEqual(result.successes[0], {'date': '2026-01-02T03:04:05', 'action': 'insert', 'code': 100000,
                                                'level': 'Standard', 'user': 'JT', 'lng_in': 'de', 'lng_out': 'fr',
-                                               'input': 'Ordine UMV', 'output': 'T:Ordine UMV'})
+                                               'input': 'Ordine UMV', 'output': 'T:Ordine UMV', 'old_output': ''})
         self.assertEqual(list(result.successes[0]), ['date', 'action', 'code', 'level', 'user', 'lng_in', 'lng_out',
-                                                     'input', 'output'])
+                                                     'input', 'output', 'old_output'])
         self.assertEqual(result.successes[1]['code'], 100001)
 
     def test_commit_per_row(self):
@@ -471,9 +472,9 @@ class RunKeysModeTests(ServiceCase):
 
     def test_existence_check_uses_bind_variables(self):
         self.run_keys('FW_STRINGS', '100000')
-        checks = [(s, b) for s, b in self.state.log if s.startswith('SELECT COUNT(*) FROM FW_STRINGS WHERE')]
-        self.assertEqual(checks, [('SELECT COUNT(*) FROM FW_STRINGS WHERE language = :w0 AND code = :w1',
-                                   {'w0': 'de', 'w1': 100000})])
+        checks = [(s, b) for s, b in self.state.log if s.startswith('SELECT value, USR, DT FROM FW_STRINGS WHERE')]
+        self.assertEqual(checks, [('SELECT value, USR, DT FROM FW_STRINGS WHERE language = :w0 AND code = :w1',
+                                   {'w0': 'de', 'w1': 100000})])          # una lettura: c'e' gia' e cosa c'era (per annullare)
 
     def test_update_with_apostrophes_stays_in_binds(self):
         self.state.source['FW_STRINGS'] = [('it', 1, "l'ordine & 5%", None, None, None)]
@@ -799,7 +800,7 @@ class PreviewAndWriteTests(ServiceCase):
     def test_an_unexpected_error_in_the_preview_is_kept_and_the_rows_so_far_too(self):
         self.state.existing = {self.key('FW_STRINGS', 100000)}
         selection = self.keys_selection('FW_STRINGS', '100000, 100001')
-        self.state.fail_sql = ['SELECT value FROM']
+        self.state.fail_sql = ['SELECT value, USR, DT FROM']
         preview = self.service.preview(selection, self.translator)
         self.assertIsNotNone(preview.failure)
         self.assertEqual(preview.rows, [])
@@ -818,3 +819,137 @@ class PreviewAndWriteTests(ServiceCase):
         preview = self.service.preview(selection, self.translator, should_stop=lambda: True)
         result = self.service.write(selection, preview)
         self.assertEqual((result.inserts, result.skipped, self.state.writes()), (0, 0, []))
+
+
+class UndoRecordsTests(ServiceCase):
+    """Per ogni riga scritta il servizio annota come annullarla: cosa si e' inserito e, per gli UPDATE, cosa c'era prima."""
+
+    def key(self, table, code, lang='de'):
+        return (table, (('language', lang), ('code', code)))
+
+    def undo_of(self, result):
+        return [(r.table, r.action, r.where, r.old) for r in result.undo]
+
+    def test_an_insert_is_recorded_with_the_key_of_the_new_row(self):
+        result = self.service.run(self.missing_selection(), self.translator)
+        self.assertEqual(self.undo_of(result),
+                         [('FW_STRINGS', 'insert', {'language': 'fr', 'code': 100000}, {}),
+                          ('FW_STRINGS', 'insert', {'language': 'fr', 'code': 100001}, {})])
+
+    def test_an_update_is_recorded_with_what_was_there_before_user_and_date_included(self):
+        key = self.key('FW_STRINGS', 100000)
+        self.state.existing = {key}
+        self.state.old_values = {key: {'value': 'Vecchio testo', 'usr': 'ZFXCUSTOM', 'dt': '2025-03-19'}}
+        result = self.service.run(self.keys_selection('FW_STRINGS', '100000, 100001'), self.translator)
+        self.assertEqual(self.undo_of(result),
+                         [('FW_STRINGS', 'update', {'language': 'de', 'code': 100000},
+                           {'value': 'Vecchio testo', 'USR': 'ZFXCUSTOM', 'DT': '2025-03-19'}),
+                          ('FW_STRINGS', 'insert', {'language': 'de', 'code': 100001}, {})])
+
+    def test_the_log_says_the_old_text_of_an_update_and_nothing_for_an_insert(self):
+        key = self.key('FW_STRINGS', 100000)
+        self.state.existing = {key}
+        self.state.old_values = {key: {'value': 'Vecchio testo'}}
+        result = self.service.run(self.keys_selection('FW_STRINGS', '100000, 100001'), self.translator)
+        self.assertEqual([(s['action'], s['old_output']) for s in result.successes],
+                         [('update', 'Vecchio testo'), ('insert', '')])
+
+    def test_the_old_text_of_a_triplet_is_the_one_that_matches_the_main_text(self):
+        key = self.key('FW_FIELD_STRINGS', 10)
+        self.state.existing = {key}
+        self.state.old_values = {key: {'caption': 'Vecchia caption', 'description': 'Vecchia descrizione'}}
+        result = self.service.run(self.keys_selection('FW_FIELD_STRINGS', '10'), self.translator)
+        self.assertEqual(result.successes[0]['old_output'], 'Vecchia caption')
+        record = result.undo[0]
+        self.assertEqual((record.old['caption'], record.old['description']), ('Vecchia caption', 'Vecchia descrizione'))
+        self.assertIn('USR', record.old)                                           # utente e data di prima
+
+    def test_a_row_the_database_refused_leaves_no_undo_record(self):
+        self.state.fail_write = lambda sql, binds: 'T:Ordine UMV' in binds
+        result = self.service.run(self.missing_selection(), self.translator)
+        self.assertEqual([r.where['code'] for r in result.undo], [100001])
+        self.assertEqual(len(result.errors), 1)
+
+    def test_skipped_rows_leave_no_undo_record(self):
+        self.state.source['FW_STRINGS'] = [('it', 1, None, None, None, None), ('it', 2, 'ok', None, None, None)]
+        result = self.service.run(self.missing_selection(), self.translator)
+        self.assertEqual([r.where['code'] for r in result.undo], [2])
+
+    def test_a_stopped_run_can_be_undone_for_the_rows_it_wrote(self):
+        asked = []
+        result = self.service.run(self.missing_selection(), self.translator,
+                                  should_stop=lambda: asked.append(1) or len(asked) > 1)
+        self.assertTrue(result.stopped)
+        self.assertEqual(len(result.undo), result.inserts)
+
+    def test_write_after_a_preview_records_the_same_as_translating_directly(self):
+        selection = self.missing_selection()
+        written = self.service.write(selection, self.service.preview(selection, self.translator))
+        direct = self.service.run(self.missing_selection(), self.translator)
+        self.assertEqual(self.undo_of(written), self.undo_of(direct))
+
+    def test_every_table_records_a_key_that_makes_a_valid_delete(self):
+        for name in ALL_NAMES:
+            with self.subTest(table=name):
+                result = self.service.run(self.missing_selection(name), self.translator)
+                self.assertEqual(len(result.undo), result.inserts)
+                for record in result.undo:
+                    self.assertEqual((record.table, record.action), (name, 'insert'))
+                    self.assertTrue(record.where)
+                    self.assertTrue(statement(record).startswith(f'DELETE FROM {name} WHERE '))
+
+    def test_the_key_of_a_docu_node_uses_the_real_column_names(self):
+        result = self.service.run(self.missing_selection('FW_DOCU_NODES_T'), self.translator)
+        self.assertEqual(result.undo[0].where, {'LANG': 'fr', 'NODEID': 100000})
+
+    def test_the_key_of_an_option_has_type_and_code(self):
+        result = self.service.run(self.missing_selection('FW_OPZIONI'), self.translator)
+        self.assertEqual(result.undo[0].where, {'lingua': 'fr', 'tipo': 'ProcessiLunghi', 'codice': '0'})
+
+    def test_the_undo_does_not_touch_the_database_when_it_is_only_built(self):
+        result = self.service.run(self.missing_selection(), self.translator)
+        writes = len(self.state.writes())
+        statement(result.undo[0])
+        self.assertEqual(len(self.state.writes()), writes)
+
+
+class UndoScriptFileTests(JtCase):
+    """JT_undo_<data>.sql nella cartella dei log."""
+
+    @staticmethod
+    def result():
+        from jt.undo import UndoRecord
+        return RunResult(undo=[UndoRecord('FW_STRINGS', 'insert', {'language': 'fr', 'code': 1}),
+                               UndoRecord('FW_STRINGS', 'update', {'language': 'fr', 'code': 2}, {'value': 'Menù'})])
+
+    def test_nothing_written_means_no_file(self):
+        from jt.logs import write_undo_script
+        self.assertIsNone(write_undo_script(RunResult(), self.tmp))
+        self.assertEqual(glob.glob(os.path.join(self.tmp, '*')), [])
+
+    def test_the_file_has_the_statements_and_says_which_database(self):
+        from jt.logs import write_undo_script
+        path = write_undo_script(self.result(), os.path.join(self.tmp, 'Logs'), 'ORA319', 'rete-ud-6')
+        self.assertRegex(os.path.basename(path), r'^JT_undo_\d{14}\.sql$')
+        with open(path, encoding='utf-8') as f:
+            text = f.read()
+        self.assertIn('for the database ORA319 (rete-ud-6)', text)
+        self.assertIn("DELETE FROM FW_STRINGS WHERE language = 'fr' AND code = 1;", text)
+        self.assertIn("UPDATE FW_STRINGS SET value = UNISTR('Men\\00F9') WHERE language = 'fr' AND code = 2;", text)
+        self.assertTrue(text.rstrip().endswith('COMMIT;'))
+
+    def test_the_folder_is_created_and_the_file_is_plain_ascii_with_unix_newlines(self):
+        from jt.logs import write_undo_script
+        folder = os.path.join(self.tmp, 'new', 'Logs')
+        path = write_undo_script(self.result(), folder)
+        with open(path, 'rb') as f:
+            data = f.read()
+        self.assertTrue(data.isascii())
+        self.assertNotIn(b'\r', data)
+
+    def test_two_scripts_in_the_same_second_do_not_overwrite_each_other(self):
+        from jt.logs import write_undo_script
+        first = write_undo_script(self.result(), self.tmp)
+        second = write_undo_script(self.result(), self.tmp)
+        self.assertNotEqual(first, second)
+        self.assertTrue(os.path.exists(first) and os.path.exists(second))

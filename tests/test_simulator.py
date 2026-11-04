@@ -136,6 +136,44 @@ class TranslatorTests(unittest.TestCase):
             translator.translate('a boom here', 'it', 'fr')
 
 
+class UndoScriptSupportTests(unittest.TestCase):
+    """Il simulatore sa eseguire uno script di annullamento come farebbe SQL Developer."""
+
+    def test_statements_split_outside_quotes_and_drop_comments_and_commands(self):
+        script = ("-- header; with a semicolon\nSET DEFINE OFF;\nDELETE FROM T WHERE a = 'x;y';\n"
+                  "UPDATE T SET b = 'it''s; ok' WHERE a = 1;\nCOMMIT;\n")
+        self.assertEqual(sim.statements(script),
+                         ["DELETE FROM T WHERE a = 'x;y'", "UPDATE T SET b = 'it''s; ok' WHERE a = 1"])
+
+    def test_the_last_statement_counts_even_without_a_final_semicolon(self):
+        self.assertEqual(sim.statements('DELETE FROM T WHERE a = 1'), ['DELETE FROM T WHERE a = 1'])
+        self.assertEqual(sim.statements(''), [])
+
+    def test_unistr_decodes_utf16_units(self):
+        self.assertEqual(sim._unistr('Men\\00F9'), 'Menù')
+        self.assertEqual(sim._unistr('\\D83D\\DE00'), '\U0001F600')                  # due unita': un carattere
+        self.assertEqual(sim._unistr('C:\\005Cx'), 'C:\\x')
+        self.assertEqual(sim._unistr('plain'), 'plain')
+
+    def test_to_date_becomes_text_in_the_simulator(self):
+        self.assertEqual(sim.to_sqlite("UPDATE T SET d = TO_DATE('2025-03-19 10:20:30', 'YYYY-MM-DD HH24:MI:SS') WHERE a = 1"),
+                         "UPDATE T SET d = '2025-03-19 10:20:30' WHERE a = 1")
+
+    def test_run_script_executes_every_statement(self):
+        from jt.undo import UndoRecord, build_script
+        db = sim.Simulator()
+        before = db.query('SELECT COUNT(*) FROM FW_STRINGS')[0][0]
+        script = build_script([UndoRecord('FW_STRINGS', 'insert', {'language': 'it', 'code': 100000}),
+                               UndoRecord('FW_STRINGS', 'update', {'language': 'it', 'code': 100001}, {'value': "L'altro"})])
+        db.run_script(script)
+        self.assertEqual(db.query('SELECT COUNT(*) FROM FW_STRINGS')[0][0], before - 1)
+        self.assertEqual(db.query("SELECT value FROM FW_STRINGS WHERE language = 'it' AND code = 100001"), [("L'altro",)])
+
+    def test_a_broken_statement_in_a_script_is_an_oracle_style_error(self):
+        with self.assertRaises(sim.OracleError):
+            sim.Simulator().run_script('DELETE FROM NO_SUCH_TABLE WHERE a = 1;')
+
+
 class ScenarioTests(unittest.TestCase):
     def test_every_scenario_check_passes(self):
         import contextlib

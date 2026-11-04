@@ -1756,7 +1756,7 @@ class PreviewFlowTests(UiCase):
         screen = self.step2()
         self.choose(screen, keys='100000, 100001')
         screen.load()
-        self.fake_db.fail_sql = ['SELECT value FROM']
+        self.fake_db.fail_sql = ['SELECT value, USR, DT FROM']
         screen.preview_button.invoke()
         self.assertEqual(screen.status.state, 'error')
         self.assertIn('The preview stopped because of an error', screen.status.message.cget('text'))
@@ -2184,6 +2184,128 @@ class WriteConfirmationTests(UiCase):
         self.assertEqual(self.fake_db.writes(), [])
         self.assertEqual(len(self.azure.calls), 0)
         self.assertEqual(screen.status.message.cget('text'), 'Cancelled. Nothing was translated or written.')
+
+
+class UndoLinkTests(UiCase):
+    """Dopo una corsa che ha scritto, lo script che la annulla e' pronto e c'e' il collegamento per aprirlo."""
+
+    def ran(self, rows=2, **choice):
+        self.azure = self.use_azure(choice.pop('fail_on', None))
+        screen = self.loaded_strings(rows, **choice)
+        screen.translate_button.invoke()
+        return screen
+
+    def script(self, screen):
+        with open(screen._undo_path, encoding='utf-8') as f:
+            return f.read()
+
+    def test_no_link_before_anything_was_written(self):
+        screen = self.step2()
+        self.assertEqual(screen.link_undo.winfo_manager(), '')
+        self.assertIsNone(screen._undo_path)
+
+    def test_a_run_that_wrote_leaves_a_script_and_a_link(self):
+        screen = self.ran(2)
+        self.assertEqual(screen.link_undo.winfo_manager(), 'pack')
+        self.assertTrue(os.path.exists(screen._undo_path))
+        self.assertEqual(os.path.dirname(screen._undo_path), self.paths.logs)
+        text = self.script(screen)
+        self.assertIn("DELETE FROM FW_STRINGS WHERE language = 'en' AND code = 100001;", text)
+        self.assertIn("DELETE FROM FW_STRINGS WHERE language = 'en' AND code = 100000;", text)
+        self.assertIn('for the database FAKEDB (fake-host)', text)
+
+    def test_the_summary_names_the_script(self):
+        screen = self.ran(2)
+        text = screen.status.message.cget('text')
+        self.assertRegex(text, r'Log: Logs\\JT_inserts_log_\d+\.csv Undo script: Logs\\JT_undo_\d+\.sql')
+
+    def test_write_after_a_preview_leaves_the_script_too(self):
+        self.use_azure()
+        screen = self.loaded_strings(2)
+        screen.preview_button.invoke()
+        self.assertEqual(screen.link_undo.winfo_manager(), '')                    # l'anteprima non scrive: niente da annullare
+        screen.write_button.invoke()
+        self.assertEqual(screen.link_undo.winfo_manager(), 'pack')
+        self.assertIn('DELETE FROM FW_STRINGS', self.script(screen))
+
+    def test_a_run_that_wrote_nothing_leaves_no_script(self):
+        screen = self.ran(2, fail_on='Testo')
+        self.assertEqual(screen.link_undo.winfo_manager(), '')
+        self.assertIsNone(screen._undo_path)
+        self.assertEqual(glob.glob(os.path.join(self.paths.logs, 'JT_undo_*.sql')), [])
+        self.assertNotIn('Undo script', screen.status.message.cget('text'))
+
+    def test_an_update_script_puts_the_previous_text_back(self):
+        key = ('FW_STRINGS', (('language', 'en'), ('code', 100000)))
+        self.fake_db.existing = {key}
+        self.fake_db.old_values = {key: {'value': "L'ordine & il vecchio", 'usr': 'ZFXCUSTOM'}}
+        self.use_azure()
+        self.fake_db.source['FW_STRINGS'] = plain_rows(2)
+        screen = self.step2()
+        self.choose(screen, keys='100000, 100001')
+        screen.load()
+        screen.translate_button.invoke()
+        text = self.script(screen)
+        self.assertIn("UPDATE FW_STRINGS SET value = 'L''ordine & il vecchio', USR = 'ZFXCUSTOM', DT = 'old dt' "
+                      "WHERE language = 'en' AND code = 100000;", text)
+        self.assertIn("DELETE FROM FW_STRINGS WHERE language = 'en' AND code = 100001;", text)
+        self.assertIn('SET DEFINE OFF;', text)
+
+    def test_the_link_goes_away_when_a_new_run_starts_and_comes_back_with_the_new_script(self):
+        self.use_azure()
+        screen = self.loaded_strings(2)
+        screen.translate_button.invoke()
+        first = screen._undo_path
+        self.assertEqual(screen.link_undo.winfo_manager(), 'pack')
+        seen = {}
+        self.hook_progress(screen_for_hook := self.reload(screen), lambda p: seen.setdefault(
+            'during', (screen_for_hook.link_undo.winfo_manager(), screen_for_hook._undo_path)))
+        screen_for_hook.translate_button.invoke()
+        self.assertEqual(seen['during'], ('', None))                              # durante la corsa non c'e' lo script vecchio
+        self.assertEqual(screen_for_hook.link_undo.winfo_manager(), 'pack')
+
+    def reload(self, screen):
+        """Un nuovo Load (le righe si leggono una volta sola): ritorna la stessa schermata pronta a tradurre."""
+        self.fake_db.missing['FW_STRINGS'] = 2
+        screen.load()
+        return screen
+
+    def test_the_script_is_written_even_when_the_csv_logs_cannot_be_written(self):
+        self.use_azure()
+        screen = self.loaded_strings(2)
+        with patch('jt.ui.translation_screen.write_run_logs', side_effect=PermissionError('locked')):
+            screen.translate_button.invoke()
+        self.assertEqual(screen.link_undo.winfo_manager(), 'pack')
+        self.assertTrue(os.path.exists(screen._undo_path))
+
+    def test_the_link_opens_the_script_and_falls_back_to_the_folder(self):
+        screen = self.ran(2)
+        with patch('os.startfile', create=True) as start:
+            screen.open_undo()
+        start.assert_called_once_with(screen._undo_path)
+        with patch('os.startfile', create=True, side_effect=[OSError('no application'), None]) as start:
+            screen.open_undo()
+        self.assertEqual([c.args[0] for c in start.call_args_list], [screen._undo_path, self.paths.logs])
+
+    def test_a_script_that_cannot_be_opened_is_reported(self):
+        screen = self.ran(2)
+        with patch('os.startfile', create=True, side_effect=OSError('nope')):
+            screen.open_undo()
+        self.assertEqual(screen.status.state, 'error')
+        self.assertIn('Could not open', screen.status.message.cget('text'))
+
+    def test_the_tooltip_has_the_path_and_the_instructions(self):
+        screen = self.ran(2)
+        hint = screen._undo_hint()
+        self.assertEqual(hint['title'], 'Undo script')
+        self.assertIn('SQL Developer', hint['intro'])
+        self.assertEqual(hint['rows'], [('File', screen._undo_path)])
+
+    def test_opening_without_a_script_does_nothing(self):
+        screen = self.step2()
+        with patch('os.startfile', create=True) as start:
+            screen.open_undo()
+        start.assert_not_called()
 
 
 class StaleSelectionTests(UiCase):

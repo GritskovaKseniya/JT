@@ -4,6 +4,7 @@ import os
 from datetime import datetime
 
 from .config import LOG_PREFIX
+from .undo import build_script
 
 
 def write_csv(rows, prefix, directory):
@@ -17,6 +18,20 @@ def write_csv(rows, prefix, directory):
         writer = csv.DictWriter(f, fieldnames=rows[0].keys())
         writer.writeheader()
         writer.writerows(rows)
+    return path
+
+
+def write_undo_script(result, directory, database='', host=''):
+    """Lo script che annulla la corsa (JT_undo_<data>.sql), solo se e' stato scritto qualcosa. Ritorna il percorso o None."""
+    if not result.undo:
+        return None
+    os.makedirs(directory, exist_ok=True)
+    base = os.path.join(directory, f"{LOG_PREFIX}_undo_{datetime.now().strftime('%Y%m%d%H%M%S')}")
+    path, number = base + '.sql', 2
+    while os.path.exists(path):
+        path, number = f'{base}_{number}.sql', number + 1
+    with open(path, 'w', encoding='utf-8', newline='\n') as f:
+        f.write(build_script(result.undo, database, host))
     return path
 
 
