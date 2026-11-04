@@ -9,6 +9,21 @@ from .texts import shorten
 from .theme import FONT, FONT_SYMBOL, PALETTE
 
 
+def work_area_bottom(widget):
+    """Il bordo basso dell'area utile dello schermo: sopra la barra delle applicazioni di Windows, che copre il resto.
+    Senza Windows (o se la chiamata fallisce) e' il bordo dello schermo."""
+    screen_height = widget.winfo_screenheight()
+    try:
+        import ctypes
+        from ctypes import wintypes
+        rect = wintypes.RECT()
+        if ctypes.windll.user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(rect), 0):      # SPI_GETWORKAREA
+            return min(rect.bottom, screen_height)
+    except (AttributeError, ImportError, OSError):
+        pass
+    return screen_height
+
+
 class ToolTip:
     """Suggerimento che compare passando il mouse sul widget (o su uno qualsiasi di quelli indicati: un solo riquadro).
     content: dict (title, intro, rows, footer) oppure funzione che lo restituisce."""
@@ -52,9 +67,15 @@ class ToolTip:
         self.tip.update_idletasks()
         w, h = self.tip.winfo_reqwidth(), self.tip.winfo_reqheight()
         x = min(self.widget.winfo_rootx() + px(10), self.widget.winfo_screenwidth() - w - px(10))
-        y = self.widget.winfo_rooty() + self.widget.winfo_height() + px(6)
-        if y + h > self.widget.winfo_screenheight() - px(10):
-            y = self.widget.winfo_rooty() - h - px(6)
+        limit = work_area_bottom(self.widget) - px(8)          # non sotto la barra delle applicazioni
+        below = self.widget.winfo_rooty() + self.widget.winfo_height() + px(6)
+        above = self.widget.winfo_rooty() - h - px(6)
+        if below + h <= limit:
+            y = below
+        elif above >= 0:
+            y = above
+        else:                                  # ne' sotto ne' sopra: si tiene tutta in vista, anche se copre il widget
+            y = max(0, limit - h)
         self.tip.wm_geometry(f'+{max(x, 0)}+{max(y, 0)}')
         self.tip.lift()
 

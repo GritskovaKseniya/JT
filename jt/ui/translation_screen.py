@@ -42,6 +42,16 @@ LEVEL_HINT = {
               'translate everything.',
 }
 
+MAX_PREVIEW_ROWS = 500          # righe mostrate nella tabella dell'anteprima (si scrivono tutte, anche le altre)
+
+PREVIEW_HINT = {
+    'title': 'Preview',
+    'intro': 'Translate the loaded rows without writing anything, then check the table before it goes to the database.',
+    'rows': [('Write', 'Writes exactly these translations. Azure is not called again, so you pay for the characters once.'),
+             ('Discard', 'Throws the preview away. Nothing was written; press Load to start again.')],
+    'footer': 'Translate (without Preview) translates and writes in one go.',
+}
+
 PROGRESS_HINT = {
     'title': 'Progress',
     'rows': [('Processed', 'Rows handled so far, out of the rows loaded.'),
@@ -65,6 +75,10 @@ class TranslationScreen(ttk.Frame):
         self.wrap = WrapTracker()
         self.selection = None          # selezione caricata con "Load": tabella e lingue sono salvate al suo interno
         self._stale_message = False    # il banner dice com'e' finito un Load senza selezione (errore, nulla da tradurre)
+        self.preview = None            # l'anteprima fatta e non ancora scritta (service.Preview)
+        self._shown = []               # le righe dell'anteprima nella tabella (stesso ordine)
+        self._folded = []              # le sezioni che l'anteprima ha chiuso per fare posto alla tabella
+        self._job = 'translate'        # cosa sta girando: translate | preview | write
         self.running = False
         self.counts = {}
         self._update_run = False
@@ -87,6 +101,7 @@ class TranslationScreen(ttk.Frame):
         self._build_languages(languages)
         self._build_selection(descriptions)
         self._build_actions()
+        self._build_preview()
         self._build_progress()
         self._build_hidden_button()
         self._update_level_state()
@@ -222,12 +237,50 @@ class TranslationScreen(ttk.Frame):
         buttons.pack(fill='x', pady=px(8))
         self.load_button = ttk.Button(buttons, text='Load', style='Secondary.TButton', command=self.load)
         self.load_button.pack(side='left', expand=True, fill='x', padx=(0, px(6)))
+        self.preview_button = ttk.Button(buttons, text='Preview', style='Secondary.TButton', state='disabled',
+                                         command=self.run_preview)
+        self.preview_button.pack(side='left', expand=True, fill='x', padx=px(6))
+        ToolTip(self.preview_button, PREVIEW_HINT)
         self.translate_button = ttk.Button(buttons, text='Translate', style='Primary.TButton', state='disabled',
                                            command=self.translate)
         self.translate_button.pack(side='left', expand=True, fill='x', padx=(px(6), 0))
         self.status = StatusBar(self, 'Load the data for the translation.', on_change=self.app.fit_window)
         self.status.pack(fill='x')
         self.wrap.add(self.status, 95)
+
+    def _build_preview(self):
+        """La tabella dell'anteprima: nascosta finche' non c'e' un'anteprima (vedi _show_preview_section)."""
+        self.preview_section, card = self._section('PREVIEW')
+        frame = tk.Frame(card, bg=PALETTE['bg'])
+        frame.pack(fill='x')
+        columns = (('code', 'Code', 70, False), ('level', 'Level', 62, False), ('action', 'Action', 62, False),
+                   ('source', 'Source', 130, True), ('translation', 'Translation', 130, True))
+        self.preview_tree = ttk.Treeview(frame, columns=[c[0] for c in columns], show='headings', height=7,
+                                         selectmode='browse')
+        for name, title, width, stretch in columns:
+            self.preview_tree.heading(name, text=title, anchor='w')
+            self.preview_tree.column(name, width=px(width), minwidth=px(40), stretch=stretch, anchor='w')
+        bar = ttk.Scrollbar(frame, orient='vertical', command=self.preview_tree.yview)
+        self.preview_tree.configure(yscrollcommand=bar.set)
+        self.preview_tree.pack(side='left', fill='x', expand=True)
+        bar.pack(side='right', fill='y')
+        self.preview_tree.tag_configure('update', background='#fff4e0')
+        self.preview_tree.tag_configure('skip', foreground=PALETTE['muted'])
+        self.preview_tree.bind('<<TreeviewSelect>>', self._show_preview_detail)
+        self.preview_summary = ttk.Label(card, text='', style='Muted.TLabel')
+        self.preview_summary.pack(anchor='w', pady=(px(6), 0))
+        self.preview_detail = tk.Label(card, text='Select a row to read it in full.', bg=PALETTE['bg'], fg=PALETTE['muted'],
+                                       font=(FONT, 9), wraplength=px(340), justify='left', anchor='nw')
+        self.preview_detail.pack(fill='x', pady=(px(2), 0))
+        self.wrap.add(self.preview_detail, 80)
+        row = ttk.Frame(card)
+        row.pack(fill='x', pady=(px(8), 0))
+        self.write_button = ttk.Button(row, text='Write', style='Primary.TButton', state='disabled', command=self.write)
+        self.write_button.pack(side='left', expand=True, fill='x', padx=(0, px(6)))
+        self.discard_button = ttk.Button(row, text='Discard', style='Secondary.TButton', state='disabled',
+                                         command=self.discard)
+        self.discard_button.pack(side='left', expand=True, fill='x', padx=(px(6), 0))
+        self.preview_section.pack_forget()
 
     def _build_progress(self):
         self.progress_section, card = self._section('PROGRESS')
@@ -315,7 +368,9 @@ class TranslationScreen(ttk.Frame):
                 self.status.show('info', 'Load the data for the translation.')
             return
         self.selection = None
+        self._clear_preview()
         self.translate_button.config(state='disabled')
+        self.preview_button.config(state='disabled')
         self.status.show('info', 'Selection changed. Press Load to prepare it again.')
 
     def _reset_progress(self):
@@ -334,7 +389,9 @@ class TranslationScreen(ttk.Frame):
 
     def _load(self):
         self.selection = None
+        self._clear_preview()
         self.translate_button.config(state='disabled')
+        self.preview_button.config(state='disabled')
         self._reset_progress()
         try:
             spec, lan_in, lan_out = self._current()
@@ -420,18 +477,26 @@ class TranslationScreen(ttk.Frame):
                                           self.var_level.get())
         self.status.show(state, text)
         self.translate_button.config(state='normal')
+        self.preview_button.config(state='normal')
 
     # ------------------------------------------------------------------ traduzione
 
-    def translate(self):
-        selection = self.selection          # tabella e lingue sono quelle del "Load", non quelle dei campi
-        if selection is None or self.running:
-            return
+    def _make_translator(self):
+        """Il traduttore Azure, oppure None (con il messaggio) se la chiave non c'e' o non vale."""
         try:
-            translator = self.app.make_translator()
+            return self.app.make_translator()
         except Exception as e:
             print(e)
             self.status.show('error', f'Azure settings not found or not valid ({self.app.paths.azure}).')
+            return None
+
+    def translate(self):
+        """Traduce e scrive, una riga alla volta (senza anteprima)."""
+        selection = self.selection          # tabella e lingue sono quelle del "Load", non quelle dei campi
+        if selection is None or self.running or self.preview is not None:
+            return
+        translator = self._make_translator()
+        if translator is None:
             return
         self._begin_run(selection)
         service, app = self.app.service, self.app
@@ -439,7 +504,43 @@ class TranslationScreen(ttk.Frame):
             selection, translator, on_progress=emit, should_stop=lambda: should_stop() or app.closing))
         self._poll()
 
-    def _begin_run(self, selection):
+    def run_preview(self):
+        """Traduce senza scrivere: poi si controlla la tabella e si sceglie Write o Discard."""
+        selection = self.selection
+        if selection is None or self.running or self.preview is not None:
+            return
+        translator = self._make_translator()
+        if translator is None:
+            return
+        self._begin_run(selection, 'preview')
+        service, app = self.app.service, self.app
+        app.runner.start(lambda emit, should_stop: service.preview(
+            selection, translator, on_progress=emit, should_stop=lambda: should_stop() or app.closing))
+        self._poll()
+
+    def write(self):
+        """Scrive le traduzioni dell'anteprima (Azure non si richiama)."""
+        selection, preview = self.selection, self.preview
+        if selection is None or preview is None or self.running or not preview.writable:
+            return
+        self._begin_run(selection, 'write', total=len(preview.rows))
+        service, app = self.app.service, self.app
+        app.runner.start(lambda emit, should_stop: service.write(
+            selection, preview, on_progress=emit, should_stop=lambda: should_stop() or app.closing))
+        self._poll()
+
+    def discard(self):
+        """Butta l'anteprima: non e' stato scritto niente. La selezione va ricaricata (le righe si leggono una volta sola)."""
+        if self.running or self.preview is None:
+            return
+        self._clear_preview()
+        self.selection = None
+        self.translate_button.config(state='disabled')
+        self.preview_button.config(state='disabled')
+        self.status.show('info', 'Preview discarded. Nothing was written. Press Load to prepare the selection again.')
+
+    def _begin_run(self, selection, job='translate', total=None):
+        self._job = job
         self._stale_message = False
         self.running = self.app.translating = True
         self._stopping = False
@@ -449,8 +550,13 @@ class TranslationScreen(ttk.Frame):
         self._update_run = selection.update_mode
         self._lock(True)
         self.translate_button.config(text='Stop', style='Danger.TButton', command=self.stop, state='normal')
-        self.progress.config(maximum=max(selection.total, 1), value=0)
-        self.status.show('info', 'Translating... you can press Stop at any time.')
+        self.progress.config(maximum=max(total if total is not None else selection.total, 1), value=0)
+        if self.progress_section in self._folded:        # scrivendo si vuole vedere l'avanzamento
+            self._folded.remove(self.progress_section)
+            self.progress_section.expand(notify=False)
+            self.app.fit_window()
+        what = {'translate': 'Translating', 'preview': 'Previewing (nothing is written)', 'write': 'Writing'}[job]
+        self.status.show('info', f'{what}... you can press Stop at any time.')
 
     def stop(self):
         """Ferma la traduzione dopo la riga in corso (le righe gia' scritte restano nel database)."""
@@ -476,24 +582,126 @@ class TranslationScreen(ttk.Frame):
             elif kind in (DONE, ERROR):
                 if latest is not None:
                     self._show_progress(latest)
-                self._finish(payload if kind == DONE else None, payload if kind == ERROR else None)
+                self._finish_job(payload if kind == DONE else None, payload if kind == ERROR else None)
                 return
         if latest is not None:
             self._show_progress(latest)
         self._poll_job = self.after(POLL_MS, self._poll)
 
     def _show_progress(self, p):
-        done = (f'Inserted {p.inserts} · Updated {p.updates}' if self._update_run else f'Inserted {p.inserts}')
         skipped = f' · Skipped {p.skipped}' if p.skipped else ''
-        self.label_bar.config(text=f'Processed {p.done}/{p.total} · {done} · Errors {p.errors}{skipped}')
+        if self._job == 'preview':
+            self.label_bar.config(text=f'Previewed {p.done}/{p.total} · Insert {p.inserts} · Update {p.updates}{skipped}')
+        else:
+            done = (f'Inserted {p.inserts} · Updated {p.updates}' if self._update_run else f'Inserted {p.inserts}')
+            self.label_bar.config(text=f'Processed {p.done}/{p.total} · {done} · Errors {p.errors}{skipped}')
         self.label_time.config(text=f'Elapsed (min): {p.elapsed_min} · Expected (min): {p.expected_min}')
         self.progress.config(value=p.done)
         self.progress_section.set_summary(f'{p.done}/{p.total}')
+
+    def _finish_job(self, payload, error):
+        """Fine del lavoro in corso: l'anteprima mostra la tabella, traduzione e scrittura mostrano il riepilogo."""
+        if self._job == 'preview':
+            self._finish_preview(payload, error)
+        else:
+            self._finish(payload, error)
+
+    def _finish_preview(self, preview, error):
+        self.running = self.app.translating = False
+        self._stale_message = False
+        if error is not None:
+            print(error)
+        self.translate_button.config(text='Translate', style='Primary.TButton', command=self.translate, state='disabled')
+        if self.app.closing:
+            self.app.finish_close()
+            return
+        self._lock(False)
+        failure = error if error is not None else (preview.failure if preview is not None else None)
+        if failure is not None or preview is None or preview.stopped:
+            self.selection = None                    # le righe si leggono una volta sola: si ricarica
+            if failure is not None:
+                self.status.show('error', f'The preview stopped because of an error: {reason(failure)}. '
+                                          'Nothing was written. Press Load to prepare it again.')
+            else:
+                self.status.show('warn', 'Preview stopped. Nothing was written. Press Load to prepare it again.')
+            return
+        self.preview = preview
+        self._fill_preview(preview)
+        self._show_preview_section()
+        self._lock(False)
+        counts = f'{preview.inserts} insert, {preview.updates} update, {preview.skipped} skipped'
+        if preview.writable:
+            self.status.show('warn' if preview.skipped else 'ok',
+                             f'Preview ready: {counts}. Check the translations, then press Write.')
+        else:
+            self.status.show('warn', f'Nothing to write: {counts}. See the table for the reasons.')
+
+    def _fill_preview(self, preview):
+        tree = self.preview_tree
+        tree.delete(*tree.get_children())
+        self._shown = preview.rows[:MAX_PREVIEW_ROWS]
+        for i, row in enumerate(self._shown):
+            if row.action == 'SKIP':
+                text, tag = f'skipped: {row.reason}', 'skip'
+            else:
+                text, tag = row.translated.primary or '', ('update' if row.action == 'UPDATE' else '')
+            tree.insert('', 'end', iid=str(i), tags=(tag,), values=(
+                row.base['code'], row.base['level'], row.action, shorten(str(row.base['input'] or ''), 60),
+                shorten(text, 60)))
+        shown = f' (showing the first {len(self._shown)})' if len(preview.rows) > len(self._shown) else ''
+        self.preview_summary.config(text=f'{preview.inserts} insert \u00b7 {preview.updates} update \u00b7 '
+                                         f'{preview.skipped} skipped{shown}')
+        self.preview_detail.config(text='Select a row to read it in full.')
+
+    def _show_preview_detail(self, _event=None):
+        chosen = self.preview_tree.selection()
+        if not chosen:
+            return
+        row = self._shown[int(chosen[0])]
+        base = row.base
+        lines = [f"{base['code']} \u00b7 level {base['level'] or '-'} \u00b7 user {base['user'] or '-'} \u00b7 {row.action}",
+                 f"From: {shorten(str(base['input'] or ''), 300)}"]
+        if row.action == 'SKIP':
+            lines.append(f'Skipped: {row.reason}')
+        else:
+            lines.append(f"To: {shorten(row.translated.primary or '', 300)}")
+            if row.action == 'UPDATE':
+                lines.append(f'Was: {shorten(row.old, 300)}')
+        self.preview_detail.config(text='\n'.join(lines))
+
+    def _show_preview_section(self):
+        if not self.preview_section.winfo_manager():
+            self.preview_section.pack(fill='x', pady=(px(8), 0), before=self.progress_section)
+        # chi controlla la tabella non ha bisogno dei campi: si chiudono (il riassunto resta in riga) per fare posto
+        # e si riaprono da soli quando l'anteprima finisce (_clear_preview)
+        self._folded = [section for section in (self.languages_section, self.selection_section, self.progress_section)
+                        if section.expanded]
+        for section in self._folded:
+            section.collapse(notify=False)
+        self.app.fit_window()
+
+    def _clear_preview(self):
+        """Toglie l'anteprima (e la tabella): dopo la scrittura, Discard, un nuovo Load o un campo cambiato."""
+        self.preview = None
+        self._shown = []
+        self.preview_tree.delete(*self.preview_tree.get_children())
+        self.write_button.config(state='disabled')
+        self.discard_button.config(state='disabled')
+        refit = bool(self._folded) or bool(self.preview_section.winfo_manager())
+        for section in self._folded:
+            section.expand(notify=False)
+        self._folded = []
+        if self.preview_section.winfo_manager():
+            self.preview_section.pack_forget()
+        if refit:
+            self.app.fit_window()
 
     def _finish(self, result, error):
         self.running = self.app.translating = False
         self._stale_message = False                  # il riepilogo della corsa resta finche' non si fa un altro Load
         self.selection = None
+        self._clear_preview()
+        self.preview_button.config(state='disabled')
         if error is not None:
             print(error)
         try:
@@ -537,6 +745,11 @@ class TranslationScreen(ttk.Frame):
         for combo in (self.cmb_in, self.cmb_out, self.cmb_table):
             combo.config(state='disabled' if locked else 'readonly')
         self.cmb_level.config(state='disabled' if locked or self._levelless else 'readonly')
+        if locked:
+            self.preview_button.config(state='disabled')
+        has_preview = self.preview is not None
+        self.write_button.config(state='normal' if has_preview and not locked and self.preview.writable else 'disabled')
+        self.discard_button.config(state='normal' if has_preview and not locked else 'disabled')
         self.hidden_button.config(state='disabled' if locked else 'normal')
         self.app.stepper.set_link_enabled(not locked)
 

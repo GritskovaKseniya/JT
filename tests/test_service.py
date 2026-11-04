@@ -673,3 +673,148 @@ class ReviewFixesTests(ServiceCase):
 
     def test_the_connection_is_opened_for_use_from_another_thread(self):
         self.assertEqual(self.driver.options, {'threaded': True})
+
+
+class PreviewAndWriteTests(ServiceCase):
+    """Anteprima: tradurre senza scrivere; poi scrivere quelle stesse traduzioni senza richiamare Azure."""
+
+    def key(self, table, code, lang='de'):
+        return (table, (('language', lang), ('code', code)))
+
+    def test_preview_writes_nothing_and_translates_each_row_once(self):
+        selection = self.missing_selection()
+        preview = self.service.preview(selection, self.translator)
+        self.assertEqual(self.state.writes(), [])
+        self.assertEqual(self.conn.commits, 0)
+        self.assertEqual(len(self.azure.calls), 2)
+        self.assertEqual((preview.inserts, preview.updates, preview.skipped, preview.writable), (2, 0, 0, 2))
+        self.assertEqual([row.action for row in preview.rows], ['INSERT', 'INSERT'])
+        self.assertEqual([row.translated.primary for row in preview.rows], ['T:Ordine UMV', 'T:Nuovo testo'])
+        self.assertFalse(preview.stopped)
+        self.assertIsNone(preview.failure)
+
+    def test_write_uses_the_preview_and_never_calls_azure_again(self):
+        selection = self.missing_selection()
+        preview = self.service.preview(selection, self.translator)
+        calls = len(self.azure.calls)
+        result = self.service.write(selection, preview)
+        self.assertEqual(len(self.azure.calls), calls)
+        self.assertEqual((result.inserts, result.updates, result.skipped, result.errors), (2, 0, 0, []))
+        self.assertEqual(self.conn.commits, 2)
+
+    def test_preview_then_write_is_the_same_as_translating_directly(self):
+        selection = self.missing_selection()
+        written = self.service.write(selection, self.service.preview(selection, self.translator))
+        via_preview = (self.state.writes(), [(s['action'], s['code'], s['output']) for s in written.successes])
+        self.state.log.clear()
+        selection = self.missing_selection()
+        direct = self.service.run(selection, self.translator)
+        self.assertEqual(self.state.writes(), via_preview[0])
+        self.assertEqual([(s['action'], s['code'], s['output']) for s in direct.successes], via_preview[1])
+        self.assertEqual((direct.inserts, direct.updates), (written.inserts, written.updates))
+
+    def test_by_keys_the_preview_says_update_or_insert_and_shows_the_old_text(self):
+        key = self.key('FW_STRINGS', 100000)
+        self.state.existing = {key}
+        self.state.old_values = {key: {'value': 'Vecchio testo'}}
+        selection = self.keys_selection('FW_STRINGS', '100000, 100001')
+        preview = self.service.preview(selection, self.translator)
+        self.assertEqual({row.base['code']: (row.action, row.old) for row in preview.rows},
+                         {100000: ('UPDATE', 'Vecchio testo'), 100001: ('INSERT', '')})
+        self.assertEqual(self.state.writes(), [])
+        result = self.service.write(selection, preview)
+        self.assertEqual((result.updates, result.inserts), (1, 1))
+
+    def test_the_old_text_of_a_triplet_is_the_one_that_matches_the_main_text(self):
+        key = self.key('FW_FIELD_STRINGS', 10)
+        self.state.existing = {key}
+        self.state.old_values = {key: {'caption': 'Vecchia caption', 'description': 'Vecchia descrizione'}}
+        preview = self.service.preview(self.keys_selection('FW_FIELD_STRINGS', '10'), self.translator)
+        self.assertEqual((preview.rows[0].action, preview.rows[0].old), ('UPDATE', 'Vecchia caption'))
+
+    def test_rows_without_text_and_azure_errors_are_skipped_with_the_reason(self):
+        self.state.source['FW_STRINGS'] = [('it', 1, None, None, None, None), ('it', 2, 'ok', None, None, None),
+                                           ('it', 3, 'Nuovo', None, None, None)]
+        self.translator = self.make_translator(FakeAzure(fail_on='Nuovo'))
+        selection = self.missing_selection()
+        preview = self.service.preview(selection, self.translator)
+        self.assertEqual([(row.base['code'], row.action, row.reason) for row in preview.rows],
+                         [(1, 'SKIP', 'empty source text'), (2, 'INSERT', ''), (3, 'SKIP', 'Azure down')])
+        result = self.service.write(selection, preview)
+        self.assertEqual((result.inserts, result.skipped), (1, 2))
+        self.assertEqual([(e['code'], e['reason']) for e in result.skipped_rows],
+                         [(1, 'empty source text'), (3, 'Azure down')])
+        self.assertEqual(len(self.state.writes()), 1)
+
+    def test_keys_of_another_level_are_skip_rows_with_the_reason(self):
+        self.state.source['FW_STRINGS'].append(('it', 3000001, 'Testo CT', None, None, None))
+        spec = get_table('FW_STRINGS')
+        selection = self.service.load_keys(spec, 'it', 'de', spec.parse_keys('100000, 3000001'), BY_NAME['CT'])
+        preview = self.service.preview(selection, self.translator)
+        skipped = [row for row in preview.rows if row.action == 'SKIP']
+        self.assertEqual([(row.base['code'], row.base['level'], row.reason) for row in skipped],
+                         [(100000, 'Standard', 'key 100000 is level AP, selected level is CT')])
+        self.assertEqual(preview.inserts, 1)
+        result = self.service.write(selection, preview)
+        self.assertEqual(result.skipped_rows[0]['reason'], 'key 100000 is level AP, selected level is CT')
+        self.assertEqual([e['code'] for e in result.successes], [3000001])
+
+    def test_the_rows_say_level_and_user_of_the_write(self):
+        self.state.source['FW_STRINGS'].append(('it', 3000001, 'Testo CT', None, None, None))
+        spec = get_table('FW_STRINGS')
+        selection = self.service.load_keys(spec, 'it', 'de', spec.parse_keys('3000001'), None)
+        row = self.service.preview(selection, self.translator).rows[0]
+        self.assertEqual((row.base['level'], row.base['user']), ('CT', 'ZFXCUSTOM'))
+
+    def test_stop_ends_the_preview_and_keeps_what_was_done(self):
+        asked = []
+        selection = self.missing_selection()
+        preview = self.service.preview(selection, self.translator, should_stop=lambda: asked.append(1) or len(asked) > 1)
+        self.assertTrue(preview.stopped)
+        self.assertEqual(len(preview.rows), 1)
+
+    def test_stop_ends_the_write_after_the_current_row(self):
+        selection = self.missing_selection()
+        preview = self.service.preview(selection, self.translator)
+        asked = []
+        result = self.service.write(selection, preview, should_stop=lambda: asked.append(1) or len(asked) > 1)
+        self.assertTrue(result.stopped)
+        self.assertEqual(len(self.state.writes()), 1)
+
+    def test_progress_of_the_preview_counts_what_would_be_written(self):
+        events = []
+        self.state.existing = {self.key('FW_STRINGS', 100000)}
+        selection = self.keys_selection('FW_STRINGS', '100000, 100001')
+        self.service.preview(selection, self.translator, on_progress=events.append)
+        self.assertEqual([(p.done, p.total, p.inserts, p.updates, p.errors, p.skipped) for p in events],
+                         [(1, 2, 0, 1, 0, 0), (2, 2, 1, 1, 0, 0)])
+
+    def test_progress_of_the_write_counts_what_was_written(self):
+        selection = self.missing_selection()
+        preview = self.service.preview(selection, self.translator)
+        events = []
+        self.service.write(selection, preview, on_progress=events.append)
+        self.assertEqual([(p.done, p.total, p.inserts, p.errors) for p in events], [(1, 2, 1, 0), (2, 2, 2, 0)])
+
+    def test_an_unexpected_error_in_the_preview_is_kept_and_the_rows_so_far_too(self):
+        self.state.existing = {self.key('FW_STRINGS', 100000)}
+        selection = self.keys_selection('FW_STRINGS', '100000, 100001')
+        self.state.fail_sql = ['SELECT value FROM']
+        preview = self.service.preview(selection, self.translator)
+        self.assertIsNotNone(preview.failure)
+        self.assertEqual(preview.rows, [])
+
+    def test_a_database_error_while_writing_goes_to_the_errors_and_the_rest_goes_on(self):
+        selection = self.missing_selection()
+        preview = self.service.preview(selection, self.translator)
+        self.state.fail_write = lambda sql, binds: 'T:Ordine UMV' in binds
+        result = self.service.write(selection, preview)
+        self.assertEqual((result.inserts, len(result.errors)), (1, 1))
+        self.assertEqual(result.errors[0]['code'], 100000)
+        self.assertEqual(self.conn.commits, 1)
+
+    def test_an_empty_preview_writes_nothing(self):
+        selection = self.missing_selection()
+        preview = self.service.preview(selection, self.translator, should_stop=lambda: True)
+        result = self.service.write(selection, preview)
+        self.assertEqual((result.inserts, result.skipped, self.state.writes()), (0, 0, []))

@@ -3,11 +3,14 @@
     .venv\Scripts\python.exe tools\simulate.py            esegue gli scenari e dice cosa e' andato bene o male
     .venv\Scripts\python.exe tools\simulate.py --gui      apre la finestra di JT collegata al database simulato
     ... --gui --sample tools\sample_data.json                 con in piu' righe vere (le copia tools\extract_sample.py)
+    ... --gui --azure                                         con il vero Azure (la chiave di Data\azure_services.json)
 
 Il "database" e' SQLite in memoria con le tabelle e le righe di `create_test_db.py`, corretto per comportarsi come Oracle
 dove conta per JT: LIKE che distingue maiuscole e minuscole, ROWNUM, sysdate, NVL, limiti di lunghezza (ORA-12899) e
-colonne obbligatorie (ORA-01400). Il codice di JT (servizio, tabelle, finestra) e' quello vero; solo Azure e' finto
-(risponde "[lingua] testo"). Non sostituisce una prova su un Oracle vero: non conosce PL/SQL, byte contro caratteri, ecc.
+colonne obbligatorie (ORA-01400). Il codice di JT (servizio, tabelle, finestra) e' quello vero; solo Azure e' finto: negli
+scenari risponde "[lingua] testo"; nella finestra (--gui) le stringhe di prova hanno una traduzione vera in en, fr, de, es e hi
+(le altre restano "[lingua] testo"); con --azure si usa il vero Azure (costa pochi caratteri) e il database resta simulato:
+niente di reale viene scritto. Non sostituisce una prova su un Oracle vero: non conosce PL/SQL, byte contro caratteri, ecc.
 """
 import argparse
 import os
@@ -163,17 +166,73 @@ class Simulator:
         return self.raw.execute(sql, binds).fetchall()
 
 
-class SimTranslator:
-    """Al posto di Azure: '[fr] testo'. Con `fail_on` quel testo non si traduce (come un errore di Azure)."""
+# Traduzioni delle stringhe italiane del database di prova (create_test_db.py), per vedere nella finestra come appare un
+# testo tradotto. "Supply Chain Planning" resta uguale e UMV diventa HU: lo fa il glossario di JT con il vero Azure.
+TRANSLATIONS = {
+    'Gestione ordini': {'en': 'Order management', 'fr': 'Gestion des commandes', 'de': 'Auftragsverwaltung',
+                        'es': 'Gestión de pedidos', 'hi': 'ऑर्डर प्रबंधन'},
+    'Utenti e Menù': {'en': 'Users and Menu', 'fr': 'Utilisateurs et menu', 'de': 'Benutzer und Menüs',
+                      'es': 'Usuarios y menú', 'hi': 'उपयोगकर्ता और मेनू'},
+    'Applicazioni e Contenitori': {'en': 'Applications and Containers', 'fr': 'Applications et conteneurs',
+                                   'de': 'Anwendungen und Container', 'es': 'Aplicaciones y contenedores',
+                                   'hi': 'एप्लिकेशन और कंटेनर'},
+    'Ordine UMV confermato': {'en': 'HU order confirmed', 'fr': 'Commande HU confirmée', 'de': 'HU-Auftrag bestätigt',
+                              'es': 'Pedido HU confirmado', 'hi': 'HU ऑर्डर की पुष्टि हो गई'},
+    'Supply Chain Planning': {code: 'Supply Chain Planning' for code in ('en', 'fr', 'de', 'es', 'hi')},
+    "L'ordine e' stato confermato dall'operatore": {
+        'en': 'The order was confirmed by the operator', 'fr': "La commande a été confirmée par l'opérateur",
+        'de': 'Der Auftrag wurde vom Bediener bestätigt', 'es': 'El pedido fue confirmado por el operador',
+        'hi': 'ऑपरेटर द्वारा ऑर्डर की पुष्टि की गई'},
+    'Copia i campi dalla tabella': {'en': 'Copy the fields from the table', 'fr': 'Copier les champs de la table',
+                                    'de': 'Felder aus der Tabelle kopieren', 'es': 'Copiar los campos de la tabla',
+                                    'hi': 'तालिका से फ़ील्ड कॉपी करें'},
+    'Nessun risultato trovato': {'en': 'No results found', 'fr': 'Aucun résultat trouvé',
+                                 'de': 'Keine Ergebnisse gefunden', 'es': 'No se encontraron resultados',
+                                 'hi': 'कोई परिणाम नहीं मिला'},
+    'Stampa etichette': {'en': 'Print labels', 'fr': 'Imprimer les étiquettes', 'de': 'Etiketten drucken',
+                         'es': 'Imprimir etiquetas', 'hi': 'लेबल प्रिंट करें'},
+    'Imballo con 5 UMV per pallet': {'en': 'Packaging with 5 HU per pallet', 'fr': 'Emballage avec 5 HU par palette',
+                                     'de': 'Verpackung mit 5 HU pro Palette', 'es': 'Embalaje con 5 HU por palé',
+                                     'hi': 'प्रति पैलेट 5 HU के साथ पैकेजिंग'},
+    'Gestione del magazzino': {'en': 'Warehouse management', 'fr': "Gestion de l'entrepôt", 'de': 'Lagerverwaltung',
+                               'es': 'Gestión del almacén', 'hi': 'गोदाम प्रबंधन'},
+    'Etichetta personalizzata per il cliente': {
+        'en': 'Custom label for the customer', 'fr': 'Étiquette personnalisée pour le client',
+        'de': 'Kundenspezifisches Etikett', 'es': 'Etiqueta personalizada para el cliente',
+        'hi': 'ग्राहक के लिए अनुकूलित लेबल'},
+    'Report di produzione personalizzato': {
+        'en': 'Custom production report', 'fr': 'Rapport de production personnalisé',
+        'de': 'Kundenspezifischer Produktionsbericht', 'es': 'Informe de producción personalizado',
+        'hi': 'अनुकूलित उत्पादन रिपोर्ट'},
+    'Campo extra del cliente': {'en': 'Customer extra field', 'fr': 'Champ supplémentaire du client',
+                                'de': 'Zusatzfeld des Kunden', 'es': 'Campo adicional del cliente',
+                                'hi': 'ग्राहक का अतिरिक्त फ़ील्ड'},
+    "Integrazione con l'ERP del cliente": {
+        'en': "Integration with the customer's ERP", 'fr': "Intégration avec l'ERP du client",
+        'de': 'Integration mit dem ERP des Kunden', 'es': 'Integración con el ERP del cliente',
+        'hi': 'ग्राहक के ERP के साथ एकीकरण'},
+    'Invio degli ordini al magazzino esterno': {
+        'en': 'Sending orders to the external warehouse', 'fr': "Envoi des commandes à l'entrepôt externe",
+        'de': 'Versand der Aufträge an das externe Lager', 'es': 'Envío de pedidos al almacén externo',
+        'hi': 'बाहरी गोदाम को ऑर्डर भेजना'},
+}
 
-    def __init__(self, fail_on=None):
+
+class SimTranslator:
+    """Al posto di Azure: '[fr] testo'. Con `fail_on` quel testo non si traduce (come un errore di Azure).
+    Con `realistic=True` i testi del database di prova (TRANSLATIONS) hanno una traduzione vera; gli altri restano '[fr] testo'."""
+
+    def __init__(self, fail_on=None, realistic=False):
         self.fail_on = fail_on
+        self.realistic = realistic
         self.calls = []
 
     def translate(self, text, lan_in, lan_out):
         self.calls.append(text)
         if self.fail_on and self.fail_on in text:
             raise RuntimeError('Azure error (simulated)')
+        if self.realistic and lan_out in TRANSLATIONS.get(text, {}):
+            return TRANSLATIONS[text][lan_out]
         return f'[{lan_out}] {text}'
 
 
@@ -357,8 +416,58 @@ def scenario_errors():
     return s
 
 
+def _strings(scenario, lang):
+    """Le stringhe di una lingua senza la data (che cambia a ogni corsa)."""
+    return scenario.sim.query("SELECT language, code, value, info, usr FROM FW_STRINGS WHERE language = ? ORDER BY code",
+                              (lang,))
+
+
+def scenario_preview():
+    s = Scenario('Anteprima: tradurre senza scrivere, poi scrivere le stesse traduzioni')
+    everything = 'SELECT COUNT(*), SUM(code), MAX(dt) FROM FW_STRINGS'
+    before = s.sim.query(everything)
+    selection = s.service.load_missing(get_table('FW_STRINGS'), 'it', 'fr', 1000, BY_NAME['CT'])
+    preview = s.service.preview(selection, s.translator)
+    s.check("l'anteprima non scrive niente nel database", s.sim.query(everything) == before, s.sim.query(everything))
+    counts = (preview.inserts, preview.updates, preview.skipped)
+    s.check("l'anteprima ha una riga INSERT per ogni stringa CT", counts == (3, 0, 0), counts)
+    calls = len(s.translator.calls)
+    result = s.service.write(selection, preview)
+    s.check('write non richiama Azure (si paga una volta sola)', len(s.translator.calls) == calls,
+            (calls, len(s.translator.calls)))
+    s.check("write scrive le righe dell'anteprima, senza errori", (result.inserts, result.errors) == (3, []),
+            (result.inserts, result.errors))
+    direct = Scenario('direct')
+    direct.translate_missing('FW_STRINGS', BY_NAME['CT'])
+    s.check("il database dopo anteprima + write e' uguale a quello della traduzione diretta",
+            _strings(s, 'fr') == _strings(direct, 'fr'), (_strings(s, 'fr'), _strings(direct, 'fr')))
+
+    u = Scenario('anteprima di un UPDATE')
+    spec = get_table('FW_STRINGS')
+    selection = u.service.load_keys(spec, 'it', 'de', spec.parse_keys('3000003, 3000001'), BY_NAME['CT'])
+    preview = u.service.preview(selection, u.translator)
+    rows = {row.base['code']: (row.action, row.old) for row in preview.rows}
+    u.check("per chiavi: la riga gia' tradotta e' UPDATE e mostra il testo di prima",
+            rows == {3000003: ('UPDATE', 'Zusatzfeld des Kunden'), 3000001: ('INSERT', '')}, rows)
+    german = "SELECT value FROM FW_STRINGS WHERE language = 'de' AND code = 3000003"
+    u.check("il testo di prima e' ancora nel database fino a Write", u.sim.query(german)[0][0] == 'Zusatzfeld des Kunden')
+    u.service.write(selection, preview)
+    u.check("dopo Write il testo e' quello nuovo", u.sim.query(german)[0][0] == '[de] Campo extra del cliente')
+    s.checks += u.checks
+
+    limits = Scenario('limite delle colonne')
+    selection = limits.service.load_missing(get_table('FW_OBJ_DESCRS'), 'it', 'fr', 100, None)
+    preview = limits.service.preview(selection, limits.translator)
+    result = limits.service.write(selection, preview)
+    s.check("un testo tradotto piu' lungo della colonna si vede solo scrivendo: ORA-12899 nel log "
+            "(l'anteprima non conosce ancora i limiti)",
+            preview.skipped == 0 and len(result.errors) == 1 and 'ORA-12899' in result.errors[0]['reason'],
+            (preview.skipped, result.errors))
+    return s
+
+
 SCENARIOS = (scenario_counts, scenario_strings, scenario_all_levels, scenario_triplets, scenario_options,
-             scenario_update_by_keys, scenario_errors)
+             scenario_update_by_keys, scenario_errors, scenario_preview)
 
 
 def run_scenarios(out=print):
@@ -376,8 +485,19 @@ def run_scenarios(out=print):
 
 # --------------------------------------------------------------------------------- finestra
 
-def run_gui(sample=None):
-    """La finestra vera di JT, collegata al database simulato e con un Azure finto. I file di JT dell'utente non si toccano."""
+def real_azure_available(credentials_path):
+    """True se nel file della chiave c'e' una chiave vera (non il segnaposto del modello)."""
+    from jt.jsonstore import read_json
+    try:
+        key = str(read_json(credentials_path).get('subscription_key', ''))
+    except (OSError, ValueError, AttributeError):
+        return False
+    return bool(key) and not key.upper().startswith('INSERISCI')
+
+
+def run_gui(sample=None, azure=False):
+    """La finestra vera di JT, collegata al database simulato. Azure e' finto (traduzioni di prova) oppure, con `azure`,
+    quello vero: il database resta simulato e i file di JT dell'utente non si toccano."""
     import tkinter as tk
     from jt.ui.app import JTApp
     from jt.ui.dpi import enable_dpi_awareness
@@ -395,8 +515,12 @@ def run_gui(sample=None):
         enable_dpi_awareness()
         root = tk.Tk()
         app = JTApp(root, paths, Database(driver=simulator))
-        app.make_translator = lambda: SimTranslator()
-        root.title(root.title() + '  [SIMULATOR]')
+        if azure and not real_azure_available(paths.azure):
+            print('Data\\azure_services.json non ha una chiave vera: si usano le traduzioni di prova.')
+            azure = False
+        if not azure:
+            app.make_translator = lambda: SimTranslator(realistic=True)
+        root.title(root.title() + ('  [SIMULATOR - real Azure]' if azure else '  [SIMULATOR]'))
         app.connect({'host': 'simulator', 'port': '1521', 'sid': 'SIM', 'username': 'simulator', 'password': 'x'})
         app.show_translation()
         try:
@@ -417,12 +541,14 @@ def run_gui(sample=None):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--gui', action='store_true', help='apre la finestra di JT sul database simulato')
-    parser.add_argument('--sample', help='file di extract_sample.py: righe vere in piu' + "'" + ' (solo con --gui)')
+    parser.add_argument('--sample', help="file di extract_sample.py: righe vere in piu' (solo con --gui)")
+    parser.add_argument('--azure', action='store_true',
+                        help='con il vero Azure (la chiave di Data\\azure_services.json; costa pochi caratteri; solo con --gui)')
     args = parser.parse_args(argv)
-    if args.sample and not args.gui:
-        parser.error('--sample serve solo con --gui: gli scenari contano le righe di prova')
+    if (args.sample or args.azure) and not args.gui:
+        parser.error('--sample e --azure servono solo con --gui: gli scenari contano le righe di prova e non spendono')
     if args.gui:
-        run_gui(tool.load_sample(args.sample) if args.sample else None)
+        run_gui(tool.load_sample(args.sample) if args.sample else None, args.azure)
         return 0
     ok, total = run_scenarios()
     print(f'\n{ok}/{total} controlli riusciti.')

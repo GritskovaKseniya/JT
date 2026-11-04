@@ -92,13 +92,18 @@ tutto resta nella cartella del progetto (`Data\`, `Logs\`). La scelta e' in `Pat
 
 Per provare tutto senza un database vero (anche senza rete e senza client Oracle). Il database e' SQLite in memoria con le
 tabelle e le righe di `tools\create_test_db.py`, corretto per comportarsi come Oracle dove conta per JT (`LIKE` che distingue
-maiuscole e minuscole, `ROWNUM`, `sysdate`, `NVL`, `ORA-12899` per i testi troppo lunghi, `ORA-01400`); Azure e' finto
-(risponde `[lingua] testo`). Il codice di JT e' quello vero.
+maiuscole e minuscole, `ROWNUM`, `sysdate`, `NVL`, `ORA-12899` per i testi troppo lunghi, `ORA-01400`). Il codice di JT e' quello
+vero; Azure e' finto: negli scenari risponde `[lingua] testo`, nella finestra (`--gui`) le stringhe del database di prova hanno
+una traduzione vera in en, fr, de, es e hi (le altre restano `[lingua] testo`), e con `--azure` si usa il **vero Azure**.
 
 ```
 run_simulator.bat                    esegue gli scenari (livelli, utente, categoria, Update by keys, errori) e dice cosa non va
 run_simulator.bat --gui              apre la finestra di JT collegata al database simulato: si prova con il mouse
+run_simulator.bat --gui --azure      come sopra, ma con il vero Azure (chiave di Data\azure_services.json: costa pochi caratteri)
 ```
+
+Con `--azure` il database resta simulato: niente di reale viene scritto, ma le traduzioni sono quelle vere (utile per vedere come
+appaiono in tabella, per esempio in hindi). Se la chiave non c'e' o e' il segnaposto, si usano le traduzioni di prova.
 
 **Con righe vere.** `tools\extract_sample.py` copia da un Oracle vero (solo `SELECT`) una piccola selezione di righe in
 `tools\sample_data.json`: tutte le stringhe e triplette CT/CW, una parte di FW, AP e CC con le loro traduzioni, le opzioni `Fw...`

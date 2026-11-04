@@ -1583,6 +1583,229 @@ class StaleLoadMessageTests(UiCase):
         self.assertEqual(screen.status.message.cget('text'), 'Selection changed. Press Load to prepare it again.')
 
 
+class PreviewFlowTests(UiCase):
+    """Load -> Preview (traduce senza scrivere) -> controllo della tabella -> Write (senza richiamare Azure) o Discard."""
+
+    def previewed(self, rows=2, **choice):
+        azure = self.use_azure(choice.pop('fail_on', None))
+        screen = self.loaded_strings(rows, **choice)
+        screen.preview_button.invoke()
+        return screen, azure
+
+    def test_the_preview_button_follows_the_loaded_selection(self):
+        screen = self.step2()
+        self.assertEqual(state(screen.preview_button), 'disabled')
+        screen = self.loaded_strings(2)
+        self.assertEqual(state(screen.preview_button), 'normal')
+        screen.var_max.set('9')
+        self.assertEqual(state(screen.preview_button), 'disabled')
+
+    def test_the_preview_section_is_hidden_until_there_is_a_preview(self):
+        screen = self.loaded_strings(2)
+        self.assertEqual(screen.preview_section.winfo_manager(), '')
+        self.assertEqual(state(screen.write_button), 'disabled')
+        self.assertEqual(state(screen.discard_button), 'disabled')
+
+    def test_preview_fills_the_table_and_writes_nothing(self):
+        screen, azure = self.previewed(2)
+        self.assertIsNotNone(screen.preview)
+        self.assertEqual(len(screen.preview_tree.get_children()), 2)
+        self.assertEqual(self.fake_db.writes(), [])
+        self.assertEqual(len(azure.calls), 2)
+        self.assertEqual(screen.preview_section.winfo_manager(), 'pack')
+        self.assertTrue(screen.status.message.cget('text').startswith('Preview ready: 2 insert, 0 update, 0 skipped.'),
+                        screen.status.message.cget('text'))
+        self.assertEqual(screen.status.state, 'ok')
+        self.assertEqual(screen.label_bar.cget('text'), 'Previewed 2/2 · Insert 2 · Update 0')
+
+    def test_after_a_preview_only_write_and_discard_are_possible(self):
+        screen, azure = self.previewed(2)
+        self.assertEqual([state(b) for b in (screen.preview_button, screen.translate_button, screen.write_button,
+                                              screen.discard_button)], ['disabled', 'disabled', 'normal', 'normal'])
+        screen.translate()                               # tradurre di nuovo costerebbe il doppio: non parte
+        screen.run_preview()
+        self.assertEqual(len(azure.calls), 2)
+        self.assertEqual(self.fake_db.writes(), [])
+
+    def test_write_writes_the_previewed_translations_without_calling_azure_again(self):
+        screen, azure = self.previewed(2)
+        screen.write_button.invoke()
+        self.assertEqual(len(azure.calls), 2)
+        inserts = self.fake_db.inserts()
+        self.assertEqual([binds[2] for _sql, binds in inserts], ['T:Testo 0', 'T:Testo 1'])
+        self.assertTrue(screen.status.message.cget('text').startswith('Done: 2 inserted.'),
+                        screen.status.message.cget('text'))
+        self.assertIsNone(screen.preview)
+        self.assertEqual(screen.preview_section.winfo_manager(), '')
+        self.assertIsNone(screen.selection)
+        self.assertEqual(len(self.logs('inserts')), 1)
+
+    def test_write_gives_the_same_database_as_translating_directly(self):
+        screen, _ = self.previewed(2)
+        screen.write_button.invoke()
+        via_preview = self.fake_db.inserts()
+        self.fake_db.log.clear()
+        self.use_azure()
+        direct = self.loaded_strings(2)
+        direct.translate_button.invoke()
+        self.assertEqual(self.fake_db.inserts(), via_preview)
+
+    def test_discard_throws_the_preview_away_and_asks_for_a_new_load(self):
+        screen, _ = self.previewed(2)
+        screen.discard_button.invoke()
+        self.assertIsNone(screen.preview)
+        self.assertIsNone(screen.selection)
+        self.assertEqual(screen.preview_section.winfo_manager(), '')
+        self.assertEqual(self.fake_db.writes(), [])
+        self.assertEqual([state(b) for b in (screen.preview_button, screen.translate_button)], ['disabled', 'disabled'])
+        self.assertTrue(screen.status.message.cget('text').startswith('Preview discarded. Nothing was written.'))
+        screen.load()
+        self.assertEqual(state(screen.preview_button), 'normal')
+
+    def test_changing_a_field_discards_the_preview(self):
+        screen, _ = self.previewed(2)
+        screen.var_max.set('9')
+        self.assertIsNone(screen.preview)
+        self.assertEqual(screen.preview_section.winfo_manager(), '')
+        self.assertEqual(screen.status.message.cget('text'), 'Selection changed. Press Load to prepare it again.')
+
+    def test_a_new_load_clears_the_preview(self):
+        screen, _ = self.previewed(2)
+        screen.load()
+        self.assertIsNone(screen.preview)
+        self.assertEqual(screen.preview_section.winfo_manager(), '')
+
+    def test_update_rows_are_marked_and_the_detail_shows_the_old_text(self):
+        key = ('FW_STRINGS', (('language', 'en'), ('code', 100000)))
+        self.fake_db.existing = {key}
+        self.fake_db.old_values = {key: {'value': 'Vecchio testo'}}
+        self.use_azure()
+        self.fake_db.source['FW_STRINGS'] = plain_rows(2)
+        screen = self.step2()
+        self.choose(screen, keys='100000, 100001')
+        screen.load()
+        screen.preview_button.invoke()
+        self.assertEqual(screen.preview_tree.set('0', 'action'), 'UPDATE')
+        self.assertIn('update', screen.preview_tree.item('0', 'tags'))
+        self.assertEqual(screen.preview_tree.set('1', 'action'), 'INSERT')
+        screen.preview_tree.selection_set('0')
+        screen._show_preview_detail()
+        detail = screen.preview_detail.cget('text')
+        self.assertIn('Was: Vecchio testo', detail)
+        self.assertIn('To: T:Testo 0', detail)
+        self.assertIn('user JT', detail)
+        self.assertTrue(screen.status.message.cget('text').startswith('Preview ready: 1 insert, 1 update, 0 skipped.'))
+
+    def test_skipped_rows_show_why_and_the_banner_warns(self):
+        screen, _ = self.previewed(2, fail_on='Testo 1')
+        self.assertEqual([screen.preview_tree.set(str(i), 'action') for i in (0, 1)], ['INSERT', 'SKIP'])
+        self.assertIn('skip', screen.preview_tree.item('1', 'tags'))
+        self.assertIn('skipped: Azure down', screen.preview_tree.set('1', 'translation'))
+        self.assertEqual(screen.status.state, 'warn')
+        screen.write_button.invoke()
+        self.assertTrue(screen.status.message.cget('text').startswith('Done: 1 inserted. 0 errors, 1 skipped.'))
+        self.assertEqual(len(self.logs('skipped')), 1)
+
+    def test_when_every_row_is_skipped_there_is_nothing_to_write(self):
+        screen, _ = self.previewed(2, fail_on='Testo')
+        self.assertEqual(state(screen.write_button), 'disabled')
+        self.assertEqual(state(screen.discard_button), 'normal')
+        self.assertTrue(screen.status.message.cget('text').startswith('Nothing to write: 0 insert, 0 update, 2 skipped.'))
+
+    def test_the_table_shows_the_first_rows_but_write_writes_them_all(self):
+        with patch('jt.ui.translation_screen.MAX_PREVIEW_ROWS', 3):
+            screen, _ = self.previewed(5, max_rows='5')
+            self.assertEqual(len(screen.preview_tree.get_children()), 3)
+            self.assertIn('showing the first 3', screen.preview_summary.cget('text'))
+        screen.write_button.invoke()
+        self.assertEqual(len(self.fake_db.inserts()), 5)
+
+    def test_without_an_azure_key_the_preview_says_so_and_the_selection_stays(self):
+        screen = self.loaded_strings(2)
+        with patch.object(JTApp, 'make_translator', side_effect=RuntimeError('no key')):
+            screen.preview_button.invoke()
+        self.assertEqual(screen.status.state, 'error')
+        self.assertIn('Azure settings not found or not valid', screen.status.message.cget('text'))
+        self.assertIsNotNone(screen.selection)
+        self.assertIsNone(screen.preview)
+
+    def test_an_error_during_the_preview_writes_nothing_and_asks_for_a_new_load(self):
+        key = ('FW_STRINGS', (('language', 'en'), ('code', 100000)))
+        self.fake_db.existing = {key}
+        self.use_azure()
+        self.fake_db.source['FW_STRINGS'] = plain_rows(2)
+        screen = self.step2()
+        self.choose(screen, keys='100000, 100001')
+        screen.load()
+        self.fake_db.fail_sql = ['SELECT value FROM']
+        screen.preview_button.invoke()
+        self.assertEqual(screen.status.state, 'error')
+        self.assertIn('The preview stopped because of an error', screen.status.message.cget('text'))
+        self.assertIn('Nothing was written', screen.status.message.cget('text'))
+        self.assertIsNone(screen.preview)
+        self.assertIsNone(screen.selection)
+        self.assertEqual(self.fake_db.writes(), [])
+
+    def test_the_input_sections_fold_while_the_preview_is_open_and_come_back_after(self):
+        screen, _ = self.previewed(2)
+        for section in (screen.languages_section, screen.selection_section, screen.progress_section):
+            self.assertFalse(section.expanded)
+        self.assertIn('Italian', screen.languages_section.summary.cget('text'))          # il riassunto resta in riga
+        screen.discard_button.invoke()
+        for section in (screen.languages_section, screen.selection_section, screen.progress_section):
+            self.assertTrue(section.expanded)
+
+    def test_a_section_the_user_had_closed_stays_closed(self):
+        screen = self.loaded_strings(2)
+        self.use_azure()
+        screen.languages_section.collapse()
+        screen.preview_button.invoke()
+        screen.discard_button.invoke()
+        self.assertFalse(screen.languages_section.expanded)
+        self.assertTrue(screen.selection_section.expanded)
+
+    def test_writing_keeps_the_progress_open_and_brings_the_fields_back(self):
+        screen, _ = self.previewed(2)
+        screen.write_button.invoke()
+        self.assertTrue(screen.progress_section.expanded)
+        self.assertTrue(screen.languages_section.expanded)
+        self.assertTrue(screen.selection_section.expanded)
+
+    def test_changing_a_field_brings_the_folded_sections_back(self):
+        screen, _ = self.previewed(2)
+        screen.var_max.set('9')
+        self.assertTrue(screen.languages_section.expanded)
+        self.assertTrue(screen.selection_section.expanded)
+        self.assertEqual(screen._folded, [])
+
+    def test_the_window_refits_when_the_preview_folds_and_unfolds_the_sections(self):
+        with patch.object(JTApp, 'fit_window') as fit:
+            screen, _ = self.previewed(2)
+            self.assertGreaterEqual(fit.call_count, 1)
+            fit.reset_mock()
+            screen.discard_button.invoke()
+            self.assertGreaterEqual(fit.call_count, 1)
+
+    def test_the_fields_are_unlocked_after_the_preview(self):
+        screen, _ = self.previewed(2)
+        self.assertEqual(str(screen.entry_max.cget('state')), 'normal')
+        self.assertEqual(state(screen.load_button), 'normal')
+        self.assertEqual(screen.translate_button.cget('text'), 'Translate')
+
+    def test_the_preview_shows_the_level_and_the_user_of_every_row(self):
+        self.use_azure()
+        self.fake_db.source['FW_STRINGS'] = [('it', 3000001, 'Testo CT', None, None, None)]
+        screen = self.step2()
+        self.choose(screen, keys='3000001')
+        screen.var_level.set(L_CT)
+        screen.load()
+        screen.preview_button.invoke()
+        self.assertEqual(screen.preview_tree.set('0', 'level'), 'CT')
+        screen.preview_tree.selection_set('0')
+        screen._show_preview_detail()
+        self.assertIn('user ZFXCUSTOM', screen.preview_detail.cget('text'))
+
+
 class StaleSelectionTests(UiCase):
     CHANGES = (('var_in', 'French'), ('var_out', 'Spanish'), ('var_table', 'JFX: Options'),
                ('var_max', '7'), ('var_keys', '100000'))
@@ -3025,6 +3248,57 @@ class WidgetTests(UiCase):
             self.assertLessEqual(x + width, screen_w)
             self.assertLessEqual(y + height, screen_h)
             tip.hide()
+
+    def tip_geometry(self, rooty, work_bottom, content=KEYS_HINT, height=20):
+        """(x, y, larghezza, altezza) del suggerimento per un widget a `rooty`, con l'area utile che finisce a `work_bottom`."""
+        label = tk.Label(self.root, text='x')
+        label.pack()
+        with patch.object(label, 'winfo_rooty', return_value=rooty), \
+                patch.object(label, 'winfo_height', return_value=height), \
+                patch('jt.ui.widgets.work_area_bottom', return_value=work_bottom):
+            tip = ToolTip(label, content)
+            tip.show()
+            tip.tip.update_idletasks()
+            x, y = (int(v) for v in tip.tip.wm_geometry().split('+')[1:3])
+            size = tip.tip.winfo_reqwidth(), tip.tip.winfo_reqheight()
+            tip.hide()
+        return x, y, size[0], size[1]
+
+    def test_tooltip_is_never_hidden_under_the_taskbar(self):
+        _x, _y, _w, h = self.tip_geometry(100, 10000)
+        for rooty in (300, 400, 500):
+            work_bottom = 600                                  # lo schermo e' piu' alto: sotto ci sono la barra e il resto
+            x, y, w, h = self.tip_geometry(rooty, work_bottom)
+            self.assertLessEqual(y + h, work_bottom, rooty)
+            self.assertGreaterEqual(y, 0, rooty)
+
+    def test_tooltip_opens_below_when_there_is_room_and_above_when_there_is_not(self):
+        _x, _y, _w, h = self.tip_geometry(100, 10000)
+        _x, below, _w, _h = self.tip_geometry(100, 10000)
+        self.assertEqual(below, 100 + 20 + scale.px(6))
+        _x, above, _w, _h = self.tip_geometry(400, 400 + h)
+        self.assertEqual(above, 400 - h - scale.px(6))
+
+    def test_a_tooltip_taller_than_the_room_on_either_side_stays_fully_in_view(self):
+        _x, _y, _w, h = self.tip_geometry(100, 10000)
+        x, y, w, h = self.tip_geometry(h // 2, h + 30)
+        self.assertGreaterEqual(y, 0)
+        self.assertLessEqual(y + h, h + 30)
+
+    def test_the_work_area_is_never_taller_than_the_screen(self):
+        from jt.ui.widgets import work_area_bottom
+        label = tk.Label(self.root, text='x')
+        label.pack()
+        bottom = work_area_bottom(label)
+        self.assertGreater(bottom, 0)
+        self.assertLessEqual(bottom, self.root.winfo_screenheight())
+
+    def test_without_the_windows_call_the_work_area_is_the_whole_screen(self):
+        from jt.ui.widgets import work_area_bottom
+        label = tk.Label(self.root, text='x')
+        label.pack()
+        with patch.dict(sys.modules, {'ctypes': SimpleNamespace()}):                  # niente windll, niente wintypes
+            self.assertEqual(work_area_bottom(label), self.root.winfo_screenheight())
 
     def test_combobox_dropdown_uses_the_app_style(self):
         combo = ttk.Combobox(self.root, values=['a', 'b'], state='readonly')

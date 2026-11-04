@@ -12,7 +12,8 @@ jt/
   layers.py               livelli di Jflex (FW, AP, CW, CT, CK, CC): intervalli dei codici, prefissi dei nomi, utente scritto, livelli visibili
   tables.py               UNA CLASSE PER TABELLA: SQL di selezione (anche per livello), traduzione di una riga, INSERT, UPDATE
   db.py                   connessione Oracle, cursori, metadati (niente logica di traduzione)
-  service.py              il lavoro: sceglie le righe, traduce, scrive (INSERT o UPDATE), avanzamento
+  service.py              il lavoro: sceglie le righe, traduce, scrive (INSERT o UPDATE), avanzamento; anteprima (`preview`:
+                          traduce senza scrivere) e `write` (scrive le traduzioni dell'anteprima senza richiamare Azure)
   logs.py                 log CSV di ogni esecuzione (cartella Logs\)
   runner.py               esegue un lavoro lungo in un thread e riporta avanzamento/fine/errore (senza Tkinter)
   ui/

@@ -183,4 +183,17 @@ La fase A rende **piu' sicuro JT** e si usa subito; la B e' piccola; la C e' l'u
 
 ## 10. Risultati e note (da compilare)
 
-(scrivi qui le decisioni prese passo per passo e cio' che si scopre)
+### Passo 1 - Anteprima: fatto (2026-11-04)
+
+- `service.preview` traduce senza scrivere e conserva i risultati (`Preview` / `PreviewRow`: INSERT, UPDATE con il testo di prima,
+  SKIP con il motivo); `service.write` scrive quei risultati senza richiamare Azure; `run` (Translate diretto) non cambia.
+- Finestra: pulsante **Preview**, tabella PREVIEW (Treeview, prime 500 righe, UPDATE evidenziati, dettaglio della riga), **Write** e
+  **Discard**; dopo una Preview Translate e Preview sono spenti (tradurre di nuovo costerebbe il doppio); Discard e un campo
+  cambiato cancellano l'anteprima; le righe di un Load si leggono una volta sola, quindi dopo Discard si ricarica.
+- Provato: test del servizio e della finestra, e lo scenario del simulatore (nessuna modifica dopo Preview; stesso database della
+  traduzione diretta; UPDATE con il testo di prima; Azure chiamato una volta).
+- **Idee per dopo** (non fatte): l'anteprima non conosce i limiti delle colonne (un testo piu' lungo di `value` 255 o `caption`
+  100 si scopre solo scrivendo, `ORA-12899` nel log): si potrebbe segnarlo gia' in tabella leggendo le lunghezze da
+  `cursor.description`; modificare una traduzione nella tabella prima di scrivere; la conferma con riepilogo (passo 2).
+
+(scrivi qui le altre decisioni passo per passo e cio' che si scopre)

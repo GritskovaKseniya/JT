@@ -95,6 +95,7 @@ class FakeDB:
     def __init__(self):
         self.log = []                 # (sql, binds) di ogni execute
         self.existing = set()         # (tabella, ((colonna_minuscola, valore), ...)) gia' presenti in lingua di output
+        self.old_values = {}          # stessa chiave -> {colonna_minuscola: testo di prima}; senza: 'old <colonna>'
         self.missing = {}             # tabella -> conteggio restituito dai COUNT(*) con :li
         self.source = {k: list(v) for k, v in SOURCE.items()}
         self.columns = {k: list(v) for k, v in COLUMNS.items()}
@@ -166,6 +167,13 @@ class FakeCursor:
             cols = re.findall(r'(\w+) = :w\d', s)
             key = (table, tuple((c.lower(), binds['w%d' % i]) for i, c in enumerate(cols)))
             self.res = [(1 if key in self.db.existing else 0,)]
+        elif low.startswith('select') and ':w0' in low and 'count(*)' not in low:   # valori attuali di una riga (anteprima)
+            table = re.search(r'FROM (\w+) WHERE', s).group(1)
+            conditions = re.findall(r'(\w+) = :w\d', s)
+            key = (table, tuple((c.lower(), binds['w%d' % i]) for i, c in enumerate(conditions)))
+            selected = [c.strip() for c in s[len('SELECT '):s.upper().index(' FROM ')].split(',')]
+            known = self.db.old_values.get(key, {})
+            self.res = [tuple(known.get(c.lower(), f'old {c.lower()}') for c in selected)] if key in self.db.existing else []
         elif low.startswith('select sum('):
             self.res = [(self.db.chars,)]
         elif low.startswith('select *'):

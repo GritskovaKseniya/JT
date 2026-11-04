@@ -64,6 +64,44 @@ class RunResult:
     failure: Any = None            # errore imprevisto che ha interrotto la corsa (le righe gia' scritte restano qui)
 
 
+@dataclass
+class PreviewRow:
+    """Una riga dell'anteprima: cosa si scriverebbe, senza averlo scritto."""
+    row: Any                  # la riga sorgente (serve per scrivere)
+    base: dict                # codice, livello, utente, lingue, testo: come nei log
+    translated: Any = None    # Translated; None se la riga si salta
+    action: str = 'INSERT'    # INSERT | UPDATE | SKIP
+    old: str = ''             # il testo che c'e' gia' in lingua di output (solo UPDATE)
+    reason: str = ''          # perche' si salta (solo SKIP)
+
+
+@dataclass
+class Preview:
+    """Le traduzioni gia' fatte e non ancora scritte: `write` le scrive senza richiamare Azure (che fattura i caratteri)."""
+    rows: list = field(default_factory=list)
+    stopped: bool = False
+    failure: Any = None            # errore imprevisto: le righe fatte fino a li' restano
+
+    def count(self, action):
+        return sum(1 for row in self.rows if row.action == action)
+
+    @property
+    def inserts(self):
+        return self.count('INSERT')
+
+    @property
+    def updates(self):
+        return self.count('UPDATE')
+
+    @property
+    def skipped(self):
+        return self.count('SKIP')
+
+    @property
+    def writable(self):
+        return self.inserts + self.updates
+
+
 class TranslationService:
     def __init__(self, db):
         self.db = db
@@ -139,25 +177,14 @@ class TranslationService:
         for row, layer in selection.other_level:        # chiavi di un altro livello: non si toccano, si scrive il motivo
             result.skipped += 1
             result.skipped_rows.append(self._other_level_entry(selection, row, layer))
-
-        def tr(text, required=False):
-            if text is None:
-                if required:
-                    raise EmptySourceText('empty source text')
-                return None
-            if not text.strip():
-                return text              # niente da tradurre: inutile chiamare Azure
-            return translator.translate(text, lan_in, lan_out)
+        tr = self._translator_fn(translator, lan_in, lan_out)
 
         try:
             for row in selection.rows:
                 if should_stop and should_stop():
                     result.stopped = True
                     break
-                code, source_text = spec.log_info(row)
-                layer = spec.layer_of_row(row)       # livello e utente scritto: nei log si ritrovano le righe CT e CW
-                base = {'date': None, 'code': code, 'level': level_label(layer) if layer else '',
-                        'user': user_of_layer(layer), 'lng_in': lan_in, 'lng_out': lan_out, 'input': source_text}
+                base = self._base(spec, row, lan_in, lan_out)
                 try:
                     translated = spec.translate_row(row, tr)
                 except Exception as e:
@@ -169,6 +196,119 @@ class TranslationService:
                 done += 1
                 if on_progress:
                     on_progress(self._progress(done, selection.total, result, started))
+        except Exception as e:           # imprevisto: le righe gia' scritte restano nel risultato e nei log
+            print(e)
+            result.failure = e
+        return result
+
+    @staticmethod
+    def _translator_fn(translator, lan_in, lan_out):
+        """La funzione `tr(testo, required=False)` che le tabelle usano per tradurre un testo."""
+        def tr(text, required=False):
+            if text is None:
+                if required:
+                    raise EmptySourceText('empty source text')
+                return None
+            if not text.strip():
+                return text              # niente da tradurre: inutile chiamare Azure
+            return translator.translate(text, lan_in, lan_out)
+        return tr
+
+    @staticmethod
+    def _base(spec, row, lan_in, lan_out):
+        """Cio' che i log dicono di una riga: codice, livello, utente che si scrive (le righe CT e CW si ritrovano da qui)."""
+        code, source_text = spec.log_info(row)
+        layer = spec.layer_of_row(row)
+        return {'date': None, 'code': code, 'level': level_label(layer) if layer else '',
+                'user': user_of_layer(layer), 'lng_in': lan_in, 'lng_out': lan_out, 'input': source_text}
+
+    # ------------------------------------------------------------ anteprima: tradurre prima, scrivere dopo
+
+    def preview(self, selection, translator, on_progress=None, should_stop=None):
+        """Traduce le righe della selezione SENZA scrivere niente: per ognuna dice cosa si farebbe (INSERT, UPDATE, SKIP).
+        I risultati si conservano in un `Preview`: `write` li scrive senza richiamare Azure (si paga una volta sola)."""
+        spec, lan_in, lan_out = selection.spec, selection.lan_in, selection.lan_out
+        preview, counter = Preview(), RunResult()           # il secondo serve solo ai contatori dell'avanzamento
+        started, done = time.time(), 0
+        for row, layer in selection.other_level:            # chiavi di un altro livello: si vedono, ma non si scrivono
+            entry = self._other_level_entry(selection, row, layer)
+            reason = entry.pop('reason')
+            preview.rows.append(PreviewRow(row, entry, action='SKIP', reason=reason))
+            counter.skipped += 1
+        tr = self._translator_fn(translator, lan_in, lan_out)
+        try:
+            for row in selection.rows:
+                if should_stop and should_stop():
+                    preview.stopped = True
+                    break
+                base = self._base(spec, row, lan_in, lan_out)
+                try:
+                    translated = spec.translate_row(row, tr)
+                except Exception as e:
+                    print(f'[WARNING!] Problem with Azure services: {e}', flush=True)
+                    preview.rows.append(PreviewRow(row, base, action='SKIP', reason=str(e)))
+                    counter.skipped += 1
+                else:
+                    planned = self._plan(selection, row, base, translated)
+                    preview.rows.append(planned)
+                    if planned.action == 'UPDATE':
+                        counter.updates += 1
+                    else:
+                        counter.inserts += 1
+                done += 1
+                if on_progress:
+                    on_progress(self._progress(done, selection.total, counter, started))
+        except Exception as e:                  # imprevisto: le righe fatte restano nell'anteprima
+            print(e)
+            preview.failure = e
+        return preview
+
+    def _plan(self, selection, row, base, translated):
+        """INSERT o UPDATE (con il testo di prima) per una riga tradotta. Solo letture."""
+        if not selection.update_mode:
+            return PreviewRow(row, base, translated, 'INSERT')
+        spec = selection.spec
+        target = spec.update_target(row, selection.lan_out, translated.values, selection.columns)
+        existing = self._existing(spec, target)
+        if existing is None:
+            return PreviewRow(row, base, translated, 'INSERT')
+        return PreviewRow(row, base, translated, 'UPDATE', old=self._old_text(translated, target, existing))
+
+    def _existing(self, spec, target):
+        """I valori che la riga ha adesso in lingua di output ({colonna: valore}), oppure None se non c'e'."""
+        conditions = ' AND '.join(f'{col} = :w{i}' for i, col in enumerate(target.where))
+        binds = {f'w{i}': value for i, value in enumerate(target.where.values())}
+        columns = list(target.sets)
+        found = self.db.fetch_all(f"SELECT {', '.join(columns)} FROM {spec.name} WHERE {conditions}", binds)
+        return dict(zip(columns, found[0])) if found else None
+
+    @staticmethod
+    def _old_text(translated, target, existing):
+        """Il testo di prima che corrisponde al testo principale della traduzione (altrimenti il primo che c'e')."""
+        for column, value in target.sets.items():
+            if value is not None and value == translated.primary:
+                return str(existing.get(column) or '')
+        return str(next((value for value in existing.values() if value), '') or '')
+
+    def write(self, selection, preview, on_progress=None, should_stop=None):
+        """Scrive le traduzioni di un'anteprima, senza richiamare Azure. Una riga alla volta, con commit a ogni riga;
+        le righe SKIP finiscono nel log delle righe saltate con il loro motivo."""
+        result = RunResult()
+        started, done, total = time.time(), 0, len(preview.rows)
+        try:
+            for planned in preview.rows:
+                if should_stop and should_stop():
+                    result.stopped = True
+                    break
+                if planned.action == 'SKIP':
+                    result.skipped += 1
+                    result.skipped_rows.append({**planned.base, 'date': datetime.now().isoformat(),
+                                                'reason': planned.reason})
+                else:
+                    self._write(selection, planned.row, planned.translated, planned.base, result)
+                done += 1
+                if on_progress:
+                    on_progress(self._progress(done, total, result, started))
         except Exception as e:           # imprevisto: le righe gia' scritte restano nel risultato e nei log
             print(e)
             result.failure = e

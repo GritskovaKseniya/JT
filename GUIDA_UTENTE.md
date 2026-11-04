@@ -72,16 +72,36 @@ del mouse scorre, tranne sopra i menu a tendina.
   - **Update by keys**: vedi il capitolo 5. Se e' vuoto si traduce quello che manca. Se la sezione e' chiusa, scrivendo delle
     chiavi si riapre da sola.
 
-### I tre pulsanti
+### I pulsanti
 
 1. **Load** legge dal database le righe da tradurre e dice quante sono, il tempo stimato e il numero di caratteri
    (che e' quello che Azure fattura): `1.600 rows to translate: about 17 minutes, 100 characters.`
-2. **Translate** parte solo dopo un Load riuscito. Traduce e scrive **una riga alla volta**, con conferma (commit)
-   a ogni riga.
-3. **Stop** (al posto di Translate durante la corsa) ferma dopo la riga in corso. Le righe gia' scritte restano.
+2. **Preview** (dopo un Load riuscito) traduce **senza scrivere niente** e mostra una tabella da controllare: vedi sotto.
+3. **Translate** (dopo un Load riuscito) traduce e scrive **una riga alla volta**, con conferma (commit) a ogni riga, senza
+   anteprima.
+4. **Stop** (al posto di Translate durante la corsa) ferma dopo la riga in corso. Le righe gia' scritte restano.
 
-Se cambi lingua, tabella, Max rows o chiavi dopo il Load, Translate si spegne: bisogna rifare Load. Cosi' non si scrive
-mai nella tabella sbagliata.
+Se cambi lingua, tabella, Max rows o chiavi dopo il Load, Translate e Preview si spengono: bisogna rifare Load. Cosi' non si
+scrive mai nella tabella sbagliata.
+
+### Anteprima: controllare prima di scrivere
+
+**Preview** traduce le righe caricate e **non scrive niente nel database**. Compare la tabella **PREVIEW** (codice, livello,
+azione, testo di partenza, traduzione); cliccando una riga la leggi per intero, con l'utente che verra' scritto e, per gli
+UPDATE, il testo che c'era prima (`Was: ...`). Cosa guardare:
+
+- **le traduzioni hanno senso** (Azure puo' sbagliare);
+- **livello e utente sono quelli attesi** (per esempio CT scrive `ZFXCUSTOM`) e la riga in basso dice il database giusto;
+- **le righe UPDATE** (evidenziate) sostituiscono un testo che c'era gia';
+- **le righe SKIP** non verranno scritte: la traduzione dice perche' (testo vuoto, errore di Azure, chiave di un altro livello);
+- il messaggio in alto riassume i numeri: `Preview ready: 22 insert, 1 update, 1 skipped.`
+
+Poi **Write** scrive esattamente quelle traduzioni: **Azure non viene richiamato**, quindi i caratteri si pagano una volta sola.
+**Discard** butta l'anteprima (non e' stato scritto niente: per ricominciare premi Load). La tabella mostra al massimo le prime
+500 righe, ma Write le scrive tutte. Cambiare un campo, o premere Load, cancella l'anteprima.
+
+Mentre l'anteprima e' aperta, i blocchi **LANGUAGES** e **WHAT TO TRANSLATE** si chiudono da soli per fare posto alla tabella (restano
+in riga con il riassunto) e si riaprono quando l'anteprima finisce.
 
 Durante la traduzione i campi sono bloccati e la barra mostra l'avanzamento
 (`Processed 40/100 - Inserted 38 - Errors 1 - Skipped 1`). La finestra resta libera: puoi spostarla.

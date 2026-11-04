@@ -83,6 +83,52 @@ class OracleBehaviourTests(unittest.TestCase):
 
 
 class TranslatorTests(unittest.TestCase):
+    def test_realistic_mode_translates_the_test_strings_for_real(self):
+        translator = sim.SimTranslator(realistic=True)
+        self.assertEqual(translator.translate('Gestione ordini', 'it', 'en'), 'Order management')
+        hindi = translator.translate('Gestione ordini', 'it', 'hi')
+        self.assertNotIn('Gestione', hindi)
+        self.assertTrue(any('\u0900' <= ch <= '\u097f' for ch in hindi), hindi)       # alfabeto devanagari
+
+    def test_realistic_mode_falls_back_to_the_prefix_for_unknown_text_or_language(self):
+        translator = sim.SimTranslator(realistic=True)
+        self.assertEqual(translator.translate('Testo che non conosco', 'it', 'hi'), '[hi] Testo che non conosco')
+        self.assertEqual(translator.translate('Gestione ordini', 'it', 'ja'), '[ja] Gestione ordini')
+
+    def test_the_default_mode_keeps_the_prefix_the_scenarios_rely_on(self):
+        self.assertEqual(sim.SimTranslator().translate('Gestione ordini', 'it', 'hi'), '[hi] Gestione ordini')
+
+    def test_the_translations_cover_five_languages_and_real_test_strings(self):
+        import create_test_db as tool
+        italian = {row[2] for row in tool.DATA['FW_STRINGS'] if row[0] == 'it'}
+        for text, languages in sim.TRANSLATIONS.items():
+            self.assertIn(text, italian)                                            # la frase esiste nel database di prova
+            self.assertEqual(sorted(languages), ['de', 'en', 'es', 'fr', 'hi'], text)
+            if text != 'Supply Chain Planning':
+                self.assertTrue(all(value != text for value in languages.values()), text)
+        self.assertEqual(sim.TRANSLATIONS['Supply Chain Planning']['hi'], 'Supply Chain Planning')   # lo lascia uguale il glossario
+
+    def test_real_azure_is_used_only_with_a_real_key(self):
+        import json
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, 'azure_services.json')
+            self.assertFalse(sim.real_azure_available(path))                         # file mancante
+            for key, expected in (('INSERISCI-QUI-LA-CHIAVE', False), ('', False), ('0123456789abcdef', True)):
+                with open(path, 'w', encoding='utf-8') as f:
+                    json.dump({'subscription_key': key}, f)
+                self.assertEqual(sim.real_azure_available(path), expected, key)
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write('[1, 2]')
+            self.assertFalse(sim.real_azure_available(path))                         # non e' un oggetto
+
+    def test_azure_and_sample_need_the_window(self):
+        import contextlib
+        import io
+        for flag in (['--azure'], ['--sample', 'x.json']):
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                sim.main(flag)
+
     def test_translator_answers_with_the_language_and_can_fail_on_a_text(self):
         translator = sim.SimTranslator(fail_on='boom')
         self.assertEqual(translator.translate('ciao', 'it', 'fr'), '[fr] ciao')

@@ -58,6 +58,12 @@ def setup_style(root):
                     arrowcolor=c['accent'], relief='flat')
     style.configure('Horizontal.TProgressbar', troughcolor=c['trough'], background=c['accent'],
                     bordercolor=c['border'], thickness=pad(5)[0])
+    # tabella dell'anteprima
+    style.configure('Treeview', rowheight=pad(22)[0], background='white', fieldbackground='white',
+                    bordercolor=c['border'], font=(FONT, 9))
+    style.configure('Treeview.Heading', font=(FONT, 9, 'bold'), background=c['accent_soft'], foreground=c['accent'],
+                    relief='flat')
+    style.map('Treeview', background=[('selected', c['accent'])], foreground=[('selected', 'white')])
 
     # Pulsanti: Primary (azione principale, pieno), Secondary (bordo e testo blu su bianco), Danger (azione che ferma).
     # Il rettangolo tratteggiato di default e' nascosto (focuscolor = colore del pulsante).
