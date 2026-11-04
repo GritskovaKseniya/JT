@@ -400,13 +400,20 @@ class ScrollArea(tk.Frame):
         self._sync()
 
     def _sync(self, _event=None):
-        self.canvas.configure(scrollregion=(0, 0, self.inner.winfo_reqwidth(), self.inner.winfo_reqheight()))
-        needed = self.inner.winfo_reqheight() > self.canvas.winfo_height() > 1
+        wanted, visible = self.inner.winfo_reqheight(), self.canvas.winfo_height()
+        height = max(wanted, visible) if visible > 1 else wanted           # piu' alta la finestra, piu' alto il contenuto
+        self.canvas.itemconfigure(self._window, height=height)
+        self.canvas.configure(scrollregion=(0, 0, self.inner.winfo_reqwidth(), height))
+        needed = wanted > visible > 1
         if needed and not self.scrolling:
             self.bar.pack(side='right', fill='y', before=self.canvas)
         elif not needed and self.scrolling:
             self.bar.pack_forget()
             self.canvas.yview_moveto(0)
+
+    def refresh(self):
+        """Riallinea l'altezza del contenuto (se cresce la richiesta, il fotogramma stirato non se ne accorge da solo)."""
+        self._sync()
 
     def to_top(self):
         self.canvas.yview_moveto(0)
@@ -421,6 +428,32 @@ class ScrollArea(tk.Frame):
         self.canvas.yview_scroll(-1 if event.delta > 0 else 1, 'units')
 
 
+class ScrolledText(tk.Frame):
+    """Un campo di testo con la sua barra di scorrimento verticale, che compare solo quando il testo non entra. Il `Text` e'
+    in `text` (si usa quello); il contenitore, da mettere con pack/grid, e' questo oggetto."""
+
+    def __init__(self, parent, height=6, readonly=False, font=None):
+        super().__init__(parent, bg=PALETTE['bg'])
+        self.text = tk.Text(self, height=height, width=1, wrap='word', font=font or ('Consolas', 10), bg='white',
+                            fg=PALETTE['text'], undo=not readonly, relief='flat', highlightthickness=1,
+                            highlightbackground=PALETTE['field_border'], highlightcolor=PALETTE['accent'],
+                            padx=px(6), pady=px(4))
+        self.bar = ttk.Scrollbar(self, orient='vertical', command=self.text.yview)
+        self.text.configure(yscrollcommand=self._scrolled)
+        self.text.pack(side='left', fill='both', expand=True)
+        if readonly:
+            self.text.config(state='disabled', bg=PALETTE['bg'])
+
+    def _scrolled(self, first, last):
+        """Aggiorna la barra; la mostra solo se il testo e' piu' lungo del campo."""
+        self.bar.set(first, last)
+        needed = float(first) > 0.0 or float(last) < 1.0
+        if needed and not self.bar.winfo_manager():
+            self.bar.pack(side='right', fill='y')
+        elif not needed and self.bar.winfo_manager():
+            self.bar.pack_forget()
+
+
 class Collapsible(tk.Frame):
     """Sezione comprimibile: una riga con freccia, titolo e un riassunto; un clic (o Invio/Spazio) apre o chiude il corpo
     (`body`). Chiusa mostra solo la riga: il riassunto dice cosa c'e' dentro. A destra della riga c'e' `extra`, per un
@@ -429,9 +462,10 @@ class Collapsible(tk.Frame):
 
     OPEN, CLOSED = '\u25be', '\u25b8'
 
-    def __init__(self, parent, title, summary='', expanded=False, on_toggle=None):
+    def __init__(self, parent, title, summary='', expanded=False, on_toggle=None, grow=False):
         super().__init__(parent, bg=PALETTE['bg'])
         self.on_toggle = on_toggle
+        self.grow = grow                    # con grow il corpo si allarga anche in altezza quando la finestra e' piu' alta
         self.expanded = False
         self.header = tk.Frame(self, bg=PALETTE['bg'], cursor='hand2', takefocus=True, highlightthickness=1,
                                highlightbackground=PALETTE['bg'], highlightcolor=PALETTE['accent'])
@@ -460,7 +494,7 @@ class Collapsible(tk.Frame):
             return
         self.expanded = True
         self.arrow.config(text=self.OPEN)
-        self.body.pack(fill='x')
+        self.body.pack(fill='both', expand=True) if self.grow else self.body.pack(fill='x')
         if notify and self.on_toggle:
             self.on_toggle()
 

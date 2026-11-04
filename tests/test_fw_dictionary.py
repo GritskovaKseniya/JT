@@ -3,6 +3,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -23,12 +24,13 @@ class FakeCursor:
 
     def execute(self, sql):
         self.executed.append(sql)
-        for name, (columns, rows) in self.tables.items():
-            if f'FROM {name} ' in sql + ' ':
-                self.description = [(c,) for c in columns]
-                self.rows = rows
-                return
-        raise AssertionError(sql)
+        first = re.search(r'FROM\s+(\w+)', sql, re.I).group(1).upper()                  # la tabella letta, non quelle delle subquery
+        if first in self.tables:
+            columns, rows = self.tables[first]
+            self.description = [(c,) for c in columns]
+            self.rows = rows
+            return
+        raise RuntimeError(f'ORA-00942: table or view does not exist: {first}')
 
     def fetchall(self):
         return self.rows
@@ -61,7 +63,29 @@ class FetchSaveLoadTests(unittest.TestCase):
         self.assertEqual(data['tables']['FW_TABLES']['rows'][0], ['RigaListino', 'GD_LIRIG'])        # senza gli spazi in fondo
         self.assertEqual(data['tables']['FW_TABLES']['rows'][2], ['Vuota', None])
         self.assertTrue(all(sql.lstrip().upper().startswith('SELECT') for sql in connection.cursor_.executed))
-        self.assertEqual(len(connection.cursor_.executed), 2)
+        self.assertEqual(len(connection.cursor_.executed), 4)             # le due tabelle e i due tentativi sugli indici (saltati)
+
+    def test_the_indexes_are_read_too_when_the_database_allows_it(self):
+        connection = FakeConnection()
+        connection.cursor_.tables['ALL_INDEXES'] = (['TABLE_OWNER', 'TABLE_NAME', 'INDEX_NAME', 'UNIQUENESS', 'OWNER'],
+                                                    [('JFLEX', 'MD_ARTI', 'IX1', 'UNIQUE', 'JFLEX')])
+        connection.cursor_.tables['ALL_IND_COLUMNS'] = (['TABLE_OWNER', 'TABLE_NAME', 'INDEX_OWNER', 'INDEX_NAME', 'COLUMN_NAME',
+                                                         'COLUMN_POSITION'], [('JFLEX', 'MD_ARTI', 'JFLEX', 'IX1', 'ARTI_ARTCO', 1)])
+        data = fw_dictionary.fetch(connection, out=lambda *_: None)
+        self.assertEqual(set(data['tables']), {'FW_TABLES', 'FW_TABLE_FIELDS', 'ALL_INDEXES', 'ALL_IND_COLUMNS'})
+        self.assertEqual(data['tables']['ALL_INDEXES']['rows'], [['JFLEX', 'MD_ARTI', 'IX1', 'UNIQUE', 'JFLEX']])
+        for sql in fw_dictionary.OPTIONAL_SELECTS.values():              # solo letture, e solo le tabelle fisiche del dizionario
+            self.assertTrue(sql.lstrip().upper().startswith('SELECT'))
+            self.assertIn("tabledbname <> '-'", sql)
+
+    def test_the_simulator_gets_the_indexes_from_the_sample(self):
+        sample = {'tables': {'ALL_INDEXES': {'rows': [['REAL', 'MD_X', 'IX_X', 'UNIQUE', 'REAL']]},
+                             'ALL_IND_COLUMNS': {'rows': [['REAL', 'MD_X', 'REAL', 'IX_X', 'C1', 1]]}}}
+        simulator = sim.Simulator(sample)
+        self.assertEqual(simulator.query("SELECT index_name FROM ALL_INDEXES WHERE table_name = 'MD_X'"), [('IX_X',)])
+        self.assertTrue(simulator.query("SELECT 1 FROM ALL_INDEXES WHERE table_name = 'GD_LIRIG'"))       # e quelle di prova
+        self.assertEqual(simulator.query("SELECT column_name FROM ALL_IND_COLUMNS WHERE index_name = 'IDX_GD_LIRIG_1' "
+                                         "ORDER BY column_position"), [('LIRIG_LICOD',), ('LIRIG_ARTCO',)])
 
     def test_the_queries_read_only_the_columns_jt_needs_in_the_order_of_the_test_schema(self):
         import create_test_db as tool

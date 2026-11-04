@@ -21,6 +21,14 @@ SELECTS = {
     'FW_TABLE_FIELDS': ('SELECT tablename, tablefieldname, dbfieldname, type, width, decimals FROM FW_TABLE_FIELDS '
                         'ORDER BY tablename, tablefieldname'),
 }
+# gli indici (viste di Oracle) delle tabelle fisiche del dizionario: per lo strumento Indexes. Se non si leggono si salta.
+OPTIONAL_SELECTS = {
+    'ALL_INDEXES': ("SELECT table_owner, table_name, index_name, uniqueness, owner FROM all_indexes WHERE table_name IN "
+                    "(SELECT tabledbname FROM FW_TABLES WHERE tabledbname <> '-') ORDER BY table_owner, table_name, index_name"),
+    'ALL_IND_COLUMNS': ("SELECT table_owner, table_name, index_owner, index_name, column_name, column_position FROM all_ind_columns "
+                        "WHERE table_name IN (SELECT tabledbname FROM FW_TABLES WHERE tabledbname <> '-') "
+                        "ORDER BY table_owner, table_name, index_name, column_position"),
+}
 
 
 def clean(value):
@@ -32,13 +40,20 @@ def fetch(connection, out=print):
     """{'tables': {nome: {'columns': [...], 'types': [...], 'rows': [[...]]}}} letto con SELECT dal database FW collegato."""
     cursor = connection.cursor()
     tables = {}
-    for name, sql in SELECTS.items():
-        assert sql.lstrip().upper().startswith('SELECT')                 # solo lettura
-        cursor.execute(sql)
-        columns = [d[0] for d in cursor.description]
-        rows = [[clean(v) for v in row] for row in cursor.fetchall()]
-        tables[name] = {'columns': columns, 'types': [''] * len(columns), 'rows': rows}
-        out(f'  {name}: {len(rows):,} rows')
+    for optional, selects in ((False, SELECTS), (True, OPTIONAL_SELECTS)):
+        for name, sql in selects.items():
+            assert sql.lstrip().upper().startswith('SELECT')             # solo lettura
+            try:
+                cursor.execute(sql)
+                columns = [d[0] for d in cursor.description]
+                rows = [[clean(v) for v in row] for row in cursor.fetchall()]
+            except Exception as e:
+                if not optional:
+                    raise
+                out(f'  {name}: skipped ({e})')                         # senza gli indici si prova tutto il resto
+                continue
+            tables[name] = {'columns': columns, 'types': [''] * len(columns), 'rows': rows}
+            out(f'  {name}: {len(rows):,} rows')
     return {'tables': tables}
 
 

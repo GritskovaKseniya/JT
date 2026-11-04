@@ -7,7 +7,7 @@ from .. import dictionary
 from ..tecsql_translator import normalize_query_text
 from .scale import pad, px
 from .theme import FONT, PALETTE
-from .widgets import Collapsible, StatusBar, ToolTip, WrapTracker
+from .widgets import ScrolledText, StatusBar, ToolTip, WrapTracker
 
 MONO = ('Consolas', 10)
 EMPTY_HINT = 'Paste a query: with a $ it is TecSQL (to SQL), without it is SQL (to TecSQL).'
@@ -34,10 +34,13 @@ class TecsqlScreen(ttk.Frame):
         ToolTip(self.reload_button, {'title': 'Reload dictionary',
                                      'intro': 'The names are read from the database once. Reload them if they changed.'})
 
-        # --- la query
-        self.query_section, card = self._section('QUERY', first=True)
-        self.input = self._text(card, height=6)
-        self.input.pack(fill='x')
+        # --- la query e il risultato: due riquadri uno sopra l'altro con un divisore da trascinare e che crescono con la finestra
+        self.panes = ttk.PanedWindow(self, orient='vertical')
+        self.panes.pack(fill='both', expand=True)
+        query_pane, card = self._pane('QUERY')
+        self.input_box = ScrolledText(card, height=5)
+        self.input = self.input_box.text
+        self.input_box.pack(fill='both', expand=True)
         self.input.bind('<Control-Return>', lambda _e: (self.translate(), 'break')[1])
         buttons = tk.Frame(card, bg=PALETTE['bg'])
         buttons.pack(fill='x', pady=(px(8), 0))
@@ -51,8 +54,8 @@ class TecsqlScreen(ttk.Frame):
                                    'intro': 'TecSQL to SQL only: drops the WHERE/HAVING conditions that use a ?parameter, '
                                             'so the query can be run as it is.'})
 
-        # se la tabella ha piu' nomi logici: quale
-        self.choice_row = tk.Frame(self, bg=PALETTE['bg'])
+        # se la tabella ha piu' nomi logici: quale (sotto la query)
+        self.choice_row = tk.Frame(query_pane, bg=PALETTE['bg'])
         self.choice_label = tk.Label(self.choice_row, text='', bg=PALETTE['bg'], fg=PALETTE['warn'], font=(FONT, 9, 'bold'),
                                      justify='left', anchor='w', wraplength=px(420))
         self.choice_label.pack(fill='x')
@@ -61,9 +64,7 @@ class TecsqlScreen(ttk.Frame):
         self.choice_box.bind('<<ComboboxSelected>>', self._chosen)
         self.wrap.add(self.choice_label, 60)
 
-        # --- il risultato
-        self.result_section, card = self._section('RESULT')
-        self.head = self.result_section                           # la domanda dei nomi si mette prima di questa sezione
+        result_pane, card = self._pane('RESULT', top=px(8))
         top_row = tk.Frame(card, bg=PALETTE['bg'])
         top_row.pack(fill='x', pady=(0, px(4)))
         self.label_direction = ttk.Label(top_row, text='', style='Muted.TLabel')
@@ -75,31 +76,26 @@ class TecsqlScreen(ttk.Frame):
         self.swap_button.pack(side='right', padx=(0, px(6)))
         ToolTip(self.swap_button, {'title': 'Use as query',
                                    'intro': 'Puts the result in the query box, to translate it back to the other form.'})
-        self.output = self._text(card, height=6, readonly=True)
-        self.output.pack(fill='x')
+        self.output_box = ScrolledText(card, height=5, readonly=True)
+        self.output = self.output_box.text
+        self.output_box.pack(fill='both', expand=True)
 
         self.status = StatusBar(self, EMPTY_HINT, on_change=lambda: app.fit_window())
-        self.status.pack(fill='x', pady=(px(10), 0))
+        self.status.pack(fill='x', pady=(px(10), 0), side='bottom')
         self.wrap.add(self.status, 95)
 
         self.load_dictionary()
 
-    def _section(self, title, first=False):
-        """Un blocco con titolo che si chiude, come nel passo di Strings. Ritorna (la sezione, la scheda per i campi)."""
-        section = Collapsible(self, title, expanded=True, on_toggle=lambda: self.app.fit_window())
-        section.pack(fill='x', pady=(0 if first else px(8), 0))
-        card = tk.Frame(section.body, bg=PALETTE['bg'], highlightthickness=1, highlightbackground=PALETTE['border'],
+    def _pane(self, title, top=0):
+        """Un riquadro del divisore: il titolo e una scheda che cresce con la finestra. Ritorna (il riquadro, la scheda)."""
+        pane = tk.Frame(self.panes, bg=PALETTE['bg'])
+        self.panes.add(pane, weight=1)
+        tk.Label(pane, text=title, bg=PALETTE['bg'], fg=PALETTE['accent'], font=(FONT, 9, 'bold'), anchor='w').pack(
+            fill='x', pady=(top, px(2)))
+        card = tk.Frame(pane, bg=PALETTE['bg'], highlightthickness=1, highlightbackground=PALETTE['border'],
                         padx=px(10), pady=px(8))
-        card.pack(fill='x', pady=(px(2), 0))
-        return section, card
-
-    def _text(self, parent, height, readonly=False):
-        text = tk.Text(parent, height=height, width=1, wrap='word', font=MONO, bg='white', fg=PALETTE['text'], undo=not readonly,
-                       relief='flat', highlightthickness=1, highlightbackground=PALETTE['field_border'],
-                       highlightcolor=PALETTE['accent'], padx=px(6), pady=px(4))
-        if readonly:
-            text.config(state='disabled', bg=PALETTE['bg'])
-        return text
+        card.pack(fill='both', expand=True)
+        return pane, card
 
     # ------------------------------------------------------------------ dizionario
 
@@ -183,7 +179,7 @@ class TecsqlScreen(ttk.Frame):
         self.choice_label.config(text=f"{result.get('table', 'This table')} has {len(names)} logical names. Which one?")
         self.choice_box.config(values=list(names))
         self.var_choice.set('')
-        self.choice_row.pack(fill='x', pady=(px(8), 0), before=self.head)
+        self.choice_row.pack(fill='x', pady=(px(8), 0))
         self.status.show('warn', 'More than one logical name fits: choose one above.')
         self.app.fit_window()
 
@@ -219,7 +215,6 @@ class TecsqlScreen(ttk.Frame):
         self.output.delete('1.0', 'end')
         self.output.config(state='disabled')
         self.label_direction.config(text='')
-        self.result_section.set_summary('')
         for button in (self.copy_button, self.swap_button):
             button.config(state='disabled')
 

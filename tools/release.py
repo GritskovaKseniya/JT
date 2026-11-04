@@ -29,7 +29,7 @@ sys.path.insert(0, ROOT)
 PACKAGE_FILES = ('JT/JT.exe', 'JT/LEGGIMI.txt', 'JT/GUIDA_UTENTE.md', 'JT/JT-certificato.cer', 'JT/Data/tables.json',
                  'JT/Data/languages.json', 'JT/Data/glossary.json', 'JT/Data/azure_services.json')
 FORBIDDEN_FILES = ('JT/README.md', 'JT/JT-TestDB.exe')                      # cose che nel pacchetto per i colleghi non vanno
-PERSONAL_NAMES = ('connection_data.json', 'query_data.json')                # dati personali di chi ha costruito il pacchetto
+PERSONAL_NAMES = ('connection_data.json', 'query_data.json', 'search_history.json')                # dati personali di chi ha costruito il pacchetto
 PLACEHOLDER_KEY = 'INSERISCI-QUI-LA-CHIAVE-AZURE'
 CERT_SUBJECT = 'JT Jflex Translator'
 WARN_DAYS = 30

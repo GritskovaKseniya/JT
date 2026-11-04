@@ -163,6 +163,34 @@ Cose da sapere: **solo le `SELECT`** (UPDATE, INSERT e DELETE non si traducono);
 `LIMIT n` diventa `ROWNUM <= n` nel WHERE, quindi **il limite vale prima dell'`ORDER BY`** (le prime n righe, poi ordinate); un campo scritto
 con un alias resta scritto con l'alias.
 
+### Gli strumenti Names e Indexes
+
+Il **dizionario dei nomi** (la riga "Dictionary: 37.877 fields in 1.742 tables" in alto) e' l'elenco di Jflex che dice, per ogni tabella e campo, come
+si chiama in Oracle (nome **fisico**, per esempio `MD_ARTI.ARTI_ARTCO`) e come si chiama in Jflex (nome **logico**, `$Articolo.Codice`): sta in
+`FW_TABLES` e `FW_TABLE_FIELDS`, si legge una volta per connessione e **Reload** lo rilegge. Lo usano SQL <> TecSQL, Names e Indexes.
+
+**Names** cerca una tabella e ne mostra i campi (nome fisico e logico, tipo, ampiezza, decimali).
+1. Scrivi il nome della tabella, **fisico o logico** (`MD_ARTI` oppure `Articolo`), anche in minuscolo; Invio o **Search**.
+2. Se il nome e' esatto vedi i campi. Se no compare **"No exact match... Try one of these"**: i nomi piu' simili (inizia con, contiene, simile a un refuso
+   come `md_arty`), con il numero di campi; **doppio clic** su uno per aprirlo.
+3. In **Fields (optional)** puoi scrivere solo i campi che ti servono (nomi fisici o logici, separati da virgola, spazio o a capo): quelli che non
+   ci sono compaiono **in rosso** con `NOT FOUND`. Vuoto = tutti.
+4. La tabella dei campi: clic sull'intestazione = ordina (un secondo clic inverte; Width e Dec. si ordinano come numeri), **clic su una cella = la copia**,
+   **Copy all** copia tutto con l'intestazione (si incolla in Excel). Se la tabella fisica ha **piu' nomi logici** compare anche la colonna Logical table.
+5. **Recent searches** ripropone le ultime tabelle cercate. Dopo un risultato la ricerca si chiude per fare posto ai campi (clic su SEARCH per riaprirla).
+
+**Indexes** mostra gli indici di una tabella (nome e se e' UNIQUE o NONUNIQUE): apri un indice con il triangolino per vedere le sue colonne in ordine
+(**Expand** / **Collapse** li apre o chiude tutti, **Copy all** copia tutto, clic su un nome o un valore lo copia). Se in Names hai appena cercato una
+tabella, aprendo Indexes la trovi gia' li'. Gli indici si leggono da Oracle (`ALL_INDEXES` e `ALL_IND_COLUMNS`) solo per la tabella chiesta; se la stessa
+tabella esiste in piu' schemi si tiene quello con piu' indici. Se il database non lascia leggere quelle viste, la scheda e' grigia.
+
+### Finestra grande e barre di scorrimento
+
+La finestra si puo' **ridimensionare** (trascinando il bordo) o **mettere a schermo intero**: il contenuto cresce con lei. In SQL <> TecSQL i riquadri
+**Query** e **Result** si allargano e c'e' un **divisore da trascinare** tra i due per cambiare quanto spazio ha ciascuno; in Names e Indexes la tabella
+usa tutto lo spazio. Una finestra ingrandita a mano non viene piu' rimpicciolita. I campi di testo hanno la **barra di scorrimento** quando il testo e' piu'
+lungo del campo (e la finestra intera ha la sua se il contenuto non entra).
+
 ## 5. "Update by keys": rifare traduzioni specifiche
 
 Serve quando una stringa e' cambiata e vuoi rigenerare la traduzione, oppure vuoi tradurre solo alcune voci.

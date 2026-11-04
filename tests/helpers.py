@@ -98,6 +98,9 @@ class FakeDB:
         self.dictionary_rows = []     # righe del dizionario dei nomi (TABLEDBNAME, DBFIELDNAME, TABLENAME, TABLEFIELDNAME, ...)
         self.dictionary_queries = []  # le SELECT del dizionario fatte finora
         self.dictionary_error = False # la SELECT del dizionario solleva
+        self.index_rows = []          # righe di ALL_INDEXES (table_owner, table_name, index_name, uniqueness, owner)
+        self.index_column_rows = []   # righe di ALL_IND_COLUMNS (table_owner, table_name, index_owner, index_name, column_name, position)
+        self.index_queries = []       # (sql, binds) delle SELECT degli indici
         self.duplicates = set()       # stesse chiavi di existing: la SELECT per chiave torna due righe uguali
         self.old_values = {}          # stessa chiave -> {colonna_minuscola: testo di prima}; senza: 'old <colonna>'
         self.missing = {}             # tabella -> conteggio restituito dai COUNT(*) con :li
@@ -158,6 +161,10 @@ class FakeCursor:
             table = re.search(r'from (\w+) where', s, re.I).group(1)
             self.description = [(c,) for c in self.db.columns.get(table, [])]
             self.res = []
+        elif ('from all_indexes where' in low or 'from all_ind_columns where' in low) and ':t' in low:     # gli indici di una tabella
+            self.db.index_queries.append((s, binds))
+            rows = self.db.index_column_rows if 'all_ind_columns' in low else self.db.index_rows
+            self.res = [tuple(r) for r in rows if r[1] == binds['t']]
         elif 'from fw_tables tab' in low:                                       # il dizionario dei nomi
             self.db.dictionary_queries.append(s)
             if self.db.dictionary_error:

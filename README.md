@@ -102,7 +102,7 @@ run_simulator.bat --gui              apre la finestra di JT collegata al databas
 run_simulator.bat --gui --azure      come sopra, ma con il vero Azure (chiave di Data\azure_services.json: costa pochi caratteri)
 run_simulator.bat --gui --nokey      come lo vede chi non ha la chiave Azure: Load conta, ma Preview/Translate/Write sono spenti
 run_simulator.bat --gui --one-tool   senza gli strumenti di prova (con --gui di solito ci sono due strumenti finti per vedere le schede): JT come e' oggi
-run_simulator.bat --gui --fw             con il dizionario dei nomi COMPLETO di un Jflex vero (circa 1.700 tabelle e 38.000 campi): per provare SQL <> TecSQL con i dati veri
+run_simulator.bat --gui --fw             (con gli indici veri, se il database li lascia leggere) con il dizionario dei nomi COMPLETO di un Jflex vero (circa 1.700 tabelle e 38.000 campi): per provare SQL <> TecSQL con i dati veri
 run_simulator.bat --gui --fw --fw-connect HOST:PORT/SID --fw-user USER     la prima volta (o per rileggerlo): lo legge dal database FW (solo SELECT, la password si chiede) e lo salva in `tools\fw_dictionary.json`
 run_simulator.bat --translate "SELECT $FwTables.Title FROM $FwTables" --fw       senza finestra: traduce una query e la stampa (con `$` e' TecSQL, senza e' SQL; `--descriptor $Nome` se la tabella ne ha piu' d'uno)
 ```

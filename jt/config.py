@@ -84,6 +84,11 @@ class Paths:
         return self._user_file('query_data.json')
 
     @property
+    def searches(self):
+        """Le ultime tabelle cercate nello strumento Names."""
+        return self._user_file('search_history.json')
+
+    @property
     def glossary(self):
         return self._file('Data', 'glossary.json')
 

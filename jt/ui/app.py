@@ -1,7 +1,7 @@
 """La finestra principale: passi, dimensioni, chiusura. Qui si collegano interfaccia e logica."""
 import tkinter as tk
 
-from .. import azure_key, dictionary, tools as tool_registry
+from .. import azure_key, dictionary, indexes as index_reader, tools as tool_registry
 from ..azure import AzureTranslator
 from ..catalog import Catalog
 from ..config import APP_TITLE, VERSION, WINDOW_MIN_WIDTH, Paths
@@ -15,6 +15,8 @@ from .connection_screen import ConnectionScreen
 from .dialogs import ConfirmDialog
 from .scale import px
 from .theme import setup_style
+from .indexes_screen import IndexesScreen
+from .names_screen import NamesScreen
 from .tecsql_screen import TecsqlScreen
 from .tools_screen import ToolsScreen
 from .translation_screen import TranslationScreen
@@ -26,10 +28,14 @@ BOTTOM_MARGIN = 80        # spazio lasciato per la barra delle applicazioni
 
 
 def default_tools():
-    """Gli strumenti di JTools: Strings (l'attuale JT, scrive) e SQL <-> TecSQL (legge soltanto il dizionario dei nomi)."""
+    """Gli strumenti di JTools: Strings (l'attuale JT, scrive) e quelli che leggono soltanto: SQL <-> TecSQL, Names (cercare
+    una tabella e i suoi campi) e Indexes (gli indici di una tabella)."""
     return [tool_registry.Tool('strings', 'Strings', lambda parent, app: TranslationScreen(parent, app), writes=True),
             tool_registry.Tool('tecsql', 'SQL <> TecSQL', lambda parent, app: TecsqlScreen(parent, app),
-                               requires=dictionary.TABLES)]
+                               requires=dictionary.TABLES),
+            tool_registry.Tool('names', 'Names', lambda parent, app: NamesScreen(parent, app), requires=dictionary.TABLES),
+            tool_registry.Tool('indexes', 'Indexes', lambda parent, app: IndexesScreen(parent, app),
+                               requires=dictionary.TABLES + index_reader.VIEWS)]
 
 
 class JTApp:
@@ -48,6 +54,9 @@ class JTApp:
         self.last_dialog = None
         self._dialog = None
         self._placed = False
+        self._set_size = None        # la misura (larghezza, altezza) che ha dato fit_window per ultima
+        self.user_sized = False      # chi usa l'app ha ingrandito o ridimensionato la finestra: fit_window non la rimpicciolisce
+        self.current_table = None    # l'ultima tabella cercata in Names ({'physical', 'logical'}): Indexes la propone
         self.environment = ''        # etichetta del database collegato: dev, test, prod ('' = non impostata, vale come prod)
 
         if scale_factor is None:
@@ -72,6 +81,7 @@ class JTApp:
         self.area.pack(side='top', fill='both', expand=True)
         self.show_connection()
         root.protocol('WM_DELETE_WINDOW', self.on_closing)
+        root.bind('<Configure>', self._on_root_configure, add='+')
 
     # ------------------------------------------------------------------- passi
 
@@ -110,6 +120,7 @@ class JTApp:
     # ------------------------------------------------------------ servizi per le schermate
 
     def connect(self, values):
+        self.current_table = None
         try:
             self.db.connect(values['host'], values['port'], values['sid'], values['username'], values['password'])
         except Exception:
@@ -140,6 +151,7 @@ class JTApp:
 
     def disconnect(self):
         self.db.close()
+        self.current_table = None
         self.environment = ''
         self.infobar.set_disconnected()
 
@@ -170,22 +182,38 @@ class JTApp:
         if self.screen is None:
             return
         self.root.update_idletasks()
+        self.area.refresh()
         screen_w, screen_h = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
         needed_w = min(max(px(WINDOW_MIN_WIDTH), self.screen.winfo_reqwidth(), self.stepper.winfo_reqwidth()), screen_w)
         needed_h = min(self.stepper.winfo_reqheight() + self.screen.winfo_reqheight() + self.infobar.winfo_reqheight(),
                        screen_h - px(100))
         width = min(max(needed_w, self.root.winfo_width()), screen_w) if self._placed else needed_w
         self.root.minsize(needed_w, needed_h)
+        if self.root.state() == 'zoomed':               # a tutto schermo: la misura la da' Windows
+            self.user_sized = True
+            return
+        if self.user_sized and self._placed:            # ridimensionata a mano: si cresce se serve, non si torna piu' piccoli
+            needed_h = max(needed_h, min(self.root.winfo_height(), screen_h))
         if self._placed:
             x, y = self.root.winfo_x(), self.root.winfo_y()
             x = max(0, min(x, screen_w - width))             # mai oltre il bordo destro
         else:
             x, y = (screen_w - width) // 2, max(20, (screen_h - needed_h) // 4)
             self._placed = True
-        y = max(0, min(y, screen_h - needed_h - px(BOTTOM_MARGIN)))      # mai oltre il bordo basso
+        if not self.user_sized:                                          # una finestra messa a mano resta dove e' stata messa
+            y = max(0, min(y, screen_h - needed_h - px(BOTTOM_MARGIN)))      # mai oltre il bordo basso
         geometry = f'{width}x{needed_h}+{x}+{y}'
+        self._set_size = (width, needed_h)
         if self.root.geometry() != geometry:          # solo se cambia davvero: niente scatti per ridimensionamenti inutili
             self.root.geometry(geometry)
+
+    def _on_root_configure(self, event):
+        """Una misura diversa da quella data da fit_window e' di chi usa l'app (trascina il bordo, ingrandisce la finestra)."""
+        if event.widget is not self.root or self._set_size is None:
+            return
+        if (event.width, event.height) != self._set_size and self.root.state() in ('normal', 'zoomed'):
+            if self.root.state() == 'zoomed' or event.height > self._set_size[1] or event.width != self._set_size[0]:
+                self.user_sized = True
 
     def _on_screen_resize(self, event):
         if event.widget is self.screen:

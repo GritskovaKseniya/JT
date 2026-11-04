@@ -3677,9 +3677,440 @@ class TecsqlScreenTests(UiCase):
         self.assertEqual(shell.selected, 'strings')
 
     def test_the_real_app_offers_both_tools(self):
-        self.assertEqual([t.name for t in default_tools()], ['strings', 'tecsql'])
+        self.assertEqual([t.name for t in default_tools()], ['strings', 'tecsql', 'names', 'indexes'])
         tecsql = default_tools()[1]
         self.assertEqual((tecsql.requires, tecsql.writes), (('FW_TABLES', 'FW_TABLE_FIELDS'), False))
+
+
+class NamesToolsCase(UiCase):
+    """Base degli strumenti Names e Indexes: un dizionario di prova e gli indici di prova nel finto database."""
+
+    ROWS = [
+        ('GD_LIRIG', 'LIRIG_LICOD', 'RigaListino', 'CodListino', 'C', '10', '0'),
+        ('GD_LIRIG', 'LIRIG_PREZO', 'RigaListino', 'Prezzo', 'N', '15', '4'),
+        ('GD_LITES', 'LITES_LICOD', 'TestataListino', 'Codice', 'C', '10', '0'),
+        ('MD_ARTI', 'ARTI_ARTCO', 'Articolo', 'Codice', 'C', '20', '0'),
+        ('MD_ARTI', 'ARTI_DESCR', 'Articolo', 'Descrizione', 'C', '50', '0'),
+        ('MD_ARTI', 'ARTI_ARTCO', 'ArticoloEsteso', 'Codice', 'C', '20', '0'),
+        ('FW_STRINGS', 'CODE', 'FwStrings', 'Code', 'N', '10', '0'),
+        ('-', '-', 'Virtuale', 'Campo', 'C', '5', '0'),
+    ]
+    INDEXES = [('JFLEX', 'GD_LIRIG', 'IDX_LIRIG_1', 'UNIQUE', 'JFLEX'), ('JFLEX', 'GD_LIRIG', 'IDX_LIRIG_2', 'NONUNIQUE', 'JFLEX'),
+               ('JFLEX', 'FW_STRINGS', 'IDX_STR', 'UNIQUE', 'JFLEX')]
+    COLUMNS = [('JFLEX', 'GD_LIRIG', 'JFLEX', 'IDX_LIRIG_1', 'LIRIG_LICOD', 1), ('JFLEX', 'GD_LIRIG', 'JFLEX', 'IDX_LIRIG_1', 'LIRIG_PREZO', 2),
+               ('JFLEX', 'GD_LIRIG', 'JFLEX', 'IDX_LIRIG_2', 'LIRIG_PREZO', 1)]
+
+    def setUp(self):
+        super().setUp()
+        from jt import dictionary
+        dictionary.forget()
+        self.addCleanup(dictionary.forget)
+        self.fake_db.dictionary_rows = list(self.ROWS)
+        self.fake_db.index_rows = list(self.INDEXES)
+        self.fake_db.index_column_rows = list(self.COLUMNS)
+
+    def open(self, name='names'):
+        tools = {t.name: t for t in default_tools()}
+        self.app.tools = [ToolsShellTests.strings_tool(), tools['names'], tools['indexes']]
+        self.app.connect(dict(FAKE_CONNECTION))
+        self.app.show_translation()
+        shell = self.app.screen
+        shell.select(name)
+        return shell.current
+
+    def search(self, screen, table, fields=''):
+        screen.picker.set_value(table)
+        if hasattr(screen, 'fields'):
+            screen.fields.delete('1.0', 'end')
+            screen.fields.insert('1.0', fields)
+        screen.picker.search()
+
+
+class NamesScreenTests(NamesToolsCase):
+    def test_it_opens_with_the_dictionary_and_nothing_to_copy(self):
+        screen = self.open()
+        self.assertEqual(screen.bar.label.cget('text'), 'Dictionary: 8 fields in 6 tables')
+        self.assertEqual(state(screen.copy_button), 'disabled')
+        self.assertTrue(screen.search_section.expanded)
+
+    def test_a_table_by_physical_name_shows_its_fields(self):
+        screen = self.open()
+        self.search(screen, 'gd_lirig')
+        self.assertEqual([r['CAMPO_FISICO'] for r in screen.grid.rows], ['LIRIG_LICOD', 'LIRIG_PREZO'])
+        self.assertEqual(screen.title.cget('text'), 'GD_LIRIG → RigaListino')
+        self.assertEqual(screen.status.message.cget('text'), '2 fields.')
+        self.assertEqual(screen.result_section.summary.cget('text'), '2 fields')
+        self.assertEqual(state(screen.copy_button), 'normal')
+        self.assertEqual(self.app.current_table, {'physical': 'GD_LIRIG', 'logical': 'RigaListino'})
+
+    def test_after_a_result_the_search_folds_to_leave_room(self):
+        screen = self.open()
+        self.search(screen, 'GD_LIRIG')
+        self.assertFalse(screen.search_section.expanded)
+        self.assertEqual(screen.search_section.summary.cget('text'), 'GD_LIRIG → RigaListino')
+        self.assertTrue(screen.result_section.expanded)
+
+    def test_a_table_by_logical_name_in_any_case(self):
+        screen = self.open()
+        self.search(screen, 'testatalistino')
+        self.assertEqual(screen.title.cget('text'), 'GD_LITES → TestataListino')
+
+    def test_a_table_with_two_logical_names_shows_which_field_is_of_which(self):
+        screen = self.open()
+        self.search(screen, 'MD_ARTI')
+        self.assertEqual(len(screen.grid.rows), 3)
+        self.assertEqual(screen.grid.columns[0][0], 'TABELLA_LOGICA')
+        self.assertIn('2 logical names', screen.title.cget('text'))
+        self.search(screen, 'ArticoloEsteso')                            # il nome logico: solo il suo
+        self.assertEqual(len(screen.grid.rows), 1)
+        self.assertNotEqual(screen.grid.columns[0][0], 'TABELLA_LOGICA')
+
+    def test_some_fields_only_and_the_missing_ones_in_red(self):
+        screen = self.open()
+        self.search(screen, 'GD_LIRIG', 'Prezzo, Nope')
+        self.assertEqual([r['CAMPO_FISICO'] for r in screen.grid.rows], ['LIRIG_PREZO', 'Nope'])
+        self.assertTrue(screen.grid.rows[1]['notFound'])
+        self.assertEqual(screen.status.state, 'warn')
+        self.assertIn('1 of the requested fields were not found', screen.status.message.cget('text'))
+        self.assertIn('notfound', screen.grid.tree.item('1', 'tags'))
+
+    def test_no_exact_match_offers_suggestions_and_opens_the_search(self):
+        screen = self.open()
+        self.search(screen, 'GD_LIRIG')                                  # il risultato ripiega la ricerca
+        self.search(screen, 'lis')
+        self.assertEqual(screen.picker.box.winfo_manager(), 'pack')
+        self.assertTrue(screen.search_section.expanded)                  # si riapre per far vedere i suggerimenti
+        shown = [screen.picker.list.item(i, 'text') for i in screen.picker.list.get_children()]
+        self.assertEqual(sorted(shown), ['GD_LIRIG → RigaListino', 'GD_LITES → TestataListino'])
+        self.assertEqual(screen.status.state, 'warn')
+        screen.picker.list.selection_set(screen.picker.list.get_children()[0])
+        screen.picker._choose()                                          # il doppio clic
+        self.assertEqual(screen.picker.box.winfo_manager(), '')
+        self.assertIn(screen.title.cget('text'), ('GD_LIRIG → RigaListino', 'GD_LITES → TestataListino'))
+
+    def test_a_typo_is_suggested(self):
+        screen = self.open()
+        self.search(screen, 'gd_liryg')
+        names_shown = [screen.picker.list.item(i, 'text') for i in screen.picker.list.get_children()]
+        self.assertIn('GD_LIRIG → RigaListino', names_shown)
+        self.assertIn('similar', screen.picker.list.set(screen.picker.list.get_children()[0], 'why'))
+
+    def test_nothing_close_is_an_error_with_advice(self):
+        screen = self.open()
+        self.search(screen, 'qqqqqqqq')
+        self.assertEqual(screen.status.state, 'error')
+        self.assertIn('Table "QQQQQQQQ" not found in the dictionary', screen.status.message.cget('text'))
+
+    def test_an_empty_name_says_what_to_type(self):
+        screen = self.open()
+        self.search(screen, '   ')
+        self.assertEqual(screen.status.state, 'info')
+        self.assertIn('Type a table name', screen.status.message.cget('text'))
+
+    def test_a_descriptor_without_a_table_is_shown_but_not_remembered(self):
+        screen = self.open()
+        self.search(screen, 'Virtuale')
+        self.assertEqual(screen.title.cget('text'), '(no physical table) → Virtuale')
+        self.assertEqual(self.app.settings.search_history(), [])
+        self.assertEqual(self.app.current_table['physical'], '-')
+
+    def test_a_click_on_a_column_heading_sorts_and_again_reverses(self):
+        screen = self.open()
+        self.search(screen, 'MD_ARTI')
+        screen.grid.sort_by('CAMPO_LOGICO')
+        self.assertEqual([r['CAMPO_LOGICO'] for r in screen.grid.rows], ['Codice', 'Codice', 'Descrizione'])
+        self.assertIn('▲', screen.grid.tree.heading('CAMPO_LOGICO', 'text'))
+        screen.grid.sort_by('CAMPO_LOGICO')
+        self.assertEqual(screen.grid.rows[0]['CAMPO_LOGICO'], 'Descrizione')
+        self.assertIn('▼', screen.grid.tree.heading('CAMPO_LOGICO', 'text'))
+        screen.grid.sort_by('AMPIEZZA')                                    # numeri come numeri: 20, 20, 50
+        self.assertEqual([r['AMPIEZZA'] for r in screen.grid.rows], ['20', '20', '50'])
+
+    def test_a_cell_is_copied_with_a_click(self):
+        screen = self.open()
+        self.search(screen, 'GD_LIRIG')
+        tree = screen.grid.tree
+        with patch.object(tree, 'identify_region', return_value='cell'), patch.object(tree, 'identify_row', return_value='1'), \
+                patch.object(tree, 'identify_column', return_value='#2'):
+            screen.grid._click(SimpleNamespace(x=5, y=5))
+        self.assertEqual(self.root.clipboard_get(), 'Prezzo')
+        self.assertEqual(screen.status.message.cget('text'), 'Copied: Prezzo')
+
+    def test_copy_all_is_text_with_tabs_and_a_header(self):
+        screen = self.open()
+        self.search(screen, 'GD_LIRIG')
+        screen.copy_button.invoke()
+        lines = self.root.clipboard_get().split('\n')
+        self.assertEqual(lines[0], 'TABELLA_FISICA\tCAMPO_FISICO\tTABELLA_LOGICA\tCAMPO_LOGICO\tTIPO\tAMPIEZZA\tDECIMALI')
+        self.assertEqual(lines[1], 'GD_LIRIG\tLIRIG_LICOD\tRigaListino\tCodListino\tC\t10\t0')
+        self.assertEqual(screen.status.message.cget('text'), 'All rows copied to the clipboard.')
+
+    def test_recent_searches_are_remembered_and_run_again(self):
+        screen = self.open()
+        self.search(screen, 'GD_LIRIG')
+        self.search(screen, 'FW_STRINGS')
+        self.assertEqual(self.app.settings.search_history(), [{'fisico': 'FW_STRINGS', 'logico': 'FwStrings'},
+                                                               {'fisico': 'GD_LIRIG', 'logico': 'RigaListino'}])
+        values = list(screen.recent_box.cget('values'))
+        self.assertEqual(values[0], 'Recent searches...')
+        self.assertIn('GD_LIRIG → RigaListino', values)
+        screen.var_recent.set('GD_LIRIG → RigaListino')
+        screen._recent_chosen()
+        self.assertEqual(screen.title.cget('text'), 'GD_LIRIG → RigaListino')
+        self.assertEqual(screen.var_recent.get(), 'Recent searches...')
+
+    def test_it_reads_and_writes_nothing_in_the_database_and_needs_no_key(self):
+        self.key_reason = 'the key file was not found'
+        screen = self.open()
+        self.search(screen, 'GD_LIRIG')
+        self.assertEqual(self.fake_db.writes(), [])
+        self.assertEqual(screen.status.state, 'ok')
+
+    def test_a_dictionary_that_cannot_be_read_is_said_and_retried(self):
+        self.fake_db.dictionary_error = True
+        screen = self.open()
+        self.assertEqual(screen.bar.label.cget('text'), 'Dictionary not loaded')
+        self.assertEqual(screen.status.state, 'error')
+        self.fake_db.dictionary_error = False
+        self.search(screen, 'GD_LIRIG')
+        self.assertEqual(screen.title.cget('text'), 'GD_LIRIG → RigaListino')
+
+    def test_the_tool_is_off_without_the_dictionary_tables(self):
+        self.fake_db.invalid_tables = {'FW_TABLE_FIELDS'}
+        self.app.tools = [ToolsShellTests.strings_tool(), next(t for t in default_tools() if t.name == 'names')]
+        self.app.connect(dict(FAKE_CONNECTION))
+        self.app.show_translation()
+        self.assertEqual(self.app.screen.problems['names'], 'needs FW_TABLE_FIELDS: not found on this database')
+
+
+class IndexesScreenTests(NamesToolsCase):
+    def test_the_indexes_of_a_table_with_their_columns_in_order(self):
+        screen = self.open('indexes')
+        self.search(screen, 'GD_LIRIG')
+        top = screen.tree.get_children()
+        self.assertEqual([screen.tree.item(i, 'text') for i in top], ['IDX_LIRIG_1', 'IDX_LIRIG_2'])
+        self.assertEqual([screen.tree.set(i, 'kind') for i in top], ['UNIQUE', 'NONUNIQUE'])
+        first = [screen.tree.item(c, 'text') for c in screen.tree.get_children(top[0])]
+        self.assertEqual(first, ['LIRIG_LICOD', 'LIRIG_PREZO'])
+        self.assertEqual([screen.tree.set(c, 'kind') for c in screen.tree.get_children(top[0])], ['1', '2'])
+        self.assertEqual(screen.title.cget('text'), 'GD_LIRIG → RigaListino')
+        self.assertEqual(screen.status.message.cget('text'), '2 indexes.')
+        self.assertFalse(screen.table_section.expanded)
+        self.assertEqual(screen.table_section.summary.cget('text'), 'GD_LIRIG')
+
+    def test_only_the_table_asked_is_read_with_a_bind_variable(self):
+        screen = self.open('indexes')
+        self.search(screen, 'GD_LIRIG')
+        self.assertEqual(len(self.fake_db.index_queries), 2)
+        self.assertTrue(all(binds == {'t': 'GD_LIRIG'} for _, binds in self.fake_db.index_queries))
+
+    def test_a_table_without_indexes_says_so(self):
+        screen = self.open('indexes')
+        self.search(screen, 'GD_LITES')
+        self.assertEqual(screen.tree.get_children(), ())
+        self.assertEqual(screen.status.state, 'info')
+        self.assertEqual(screen.status.message.cget('text'), 'No index found for GD_LITES.')
+        self.assertEqual(state(screen.copy_button), 'disabled')
+
+    def test_expand_and_collapse_all(self):
+        screen = self.open('indexes')
+        self.search(screen, 'GD_LIRIG')
+        screen.expand_button.invoke()
+        self.assertTrue(all(screen.tree.item(i, 'open') for i in screen.tree.get_children()))
+        screen.collapse_button.invoke()
+        self.assertFalse(any(screen.tree.item(i, 'open') for i in screen.tree.get_children()))
+
+    def test_copy_all_puts_every_index_and_its_columns_on_the_clipboard(self):
+        screen = self.open('indexes')
+        self.search(screen, 'GD_LIRIG')
+        screen.copy_button.invoke()
+        text = self.root.clipboard_get()
+        self.assertTrue(text.startswith('INDEXES OF TABLE: GD_LIRIG\n\nINDEX: IDX_LIRIG_1 (UNIQUE)\nCOLUMNS:\n  1. LIRIG_LICOD\n  2. LIRIG_PREZO\n'))
+        self.assertIn('INDEX: IDX_LIRIG_2 (NONUNIQUE)', text)
+
+    def test_a_click_copies_a_name_or_a_value(self):
+        screen = self.open('indexes')
+        self.search(screen, 'GD_LIRIG')
+        with patch.object(screen.tree, 'identify_row', return_value='i0'), patch.object(screen.tree, 'identify_region', return_value='tree'), \
+                patch.object(screen.tree, 'identify_column', return_value='#0'):
+            screen._click(SimpleNamespace(x=5, y=5))
+        self.assertEqual(self.root.clipboard_get(), 'IDX_LIRIG_1')
+        with patch.object(screen.tree, 'identify_row', return_value='i0'), patch.object(screen.tree, 'identify_region', return_value='cell'), \
+                patch.object(screen.tree, 'identify_column', return_value='#1'):
+            screen._click(SimpleNamespace(x=5, y=5))
+        self.assertEqual(self.root.clipboard_get(), 'UNIQUE')
+
+    def test_the_table_searched_in_names_is_proposed_when_the_tab_opens(self):
+        shell_screen = self.open('names')
+        self.search(shell_screen, 'FW_STRINGS')
+        shell = self.app.screen
+        shell.select('indexes')
+        screen = shell.current
+        self.assertEqual(screen.picker.value(), 'FW_STRINGS')
+        self.assertEqual([screen.tree.item(i, 'text') for i in screen.tree.get_children()], ['IDX_STR'])
+        shell.select('names')                                            # tornando e riaprendo non rilegge la stessa tabella
+        before = len(self.fake_db.index_queries)
+        shell.select('indexes')
+        self.assertEqual(len(self.fake_db.index_queries), before)
+
+    def test_a_new_connection_forgets_the_last_table(self):
+        shell_screen = self.open('names')
+        self.search(shell_screen, 'FW_STRINGS')
+        self.assertIsNotNone(self.app.current_table)
+        self.app.connect(dict(FAKE_CONNECTION))
+        self.assertIsNone(self.app.current_table)
+
+    def test_a_descriptor_without_a_table_has_no_indexes(self):
+        screen = self.open('indexes')
+        self.search(screen, 'Virtuale')
+        self.assertEqual(screen.status.state, 'error')
+        self.assertIn('has no physical table', screen.status.message.cget('text'))
+
+    def test_an_error_reading_the_indexes_is_shown(self):
+        screen = self.open('indexes')
+        with patch('jt.indexes.read', side_effect=RuntimeError('ORA-00942 boom')):
+            self.search(screen, 'GD_LIRIG')
+        self.assertEqual(screen.status.state, 'error')
+        self.assertIn('Could not read the indexes: ORA-00942 boom', screen.status.message.cget('text'))
+        self.assertEqual(self.root['cursor'], '')                           # il cursore di attesa torna normale
+
+    def test_the_tool_is_off_without_the_index_views(self):
+        self.fake_db.invalid_tables = {'ALL_IND_COLUMNS'}
+        self.app.tools = [ToolsShellTests.strings_tool(), next(t for t in default_tools() if t.name == 'indexes')]
+        self.app.connect(dict(FAKE_CONNECTION))
+        self.app.show_translation()
+        self.assertEqual(self.app.screen.problems['indexes'], 'needs ALL_IND_COLUMNS: not found on this database')
+
+    def test_suggestions_open_the_table_section(self):
+        screen = self.open('indexes')
+        self.search(screen, 'GD_LIRIG')
+        self.assertFalse(screen.table_section.expanded)
+        self.search(screen, 'lis')
+        self.assertTrue(screen.table_section.expanded)
+        self.assertEqual(screen.picker.box.winfo_manager(), 'pack')
+
+
+class DataTableTests(UiCase):
+    COLUMNS = (('A', 'Name', 100, False), ('AMPIEZZA', 'Width', 60, True))
+
+    def table(self):
+        from jt.ui.datatable import DataTable
+        copied = []
+        table = DataTable(self.root, self.COLUMNS, on_copy=copied.append)
+        table.copied = copied
+        return table
+
+    def test_rows_are_shown_and_cleared(self):
+        table = self.table()
+        table.set_rows([{'A': 'x', 'AMPIEZZA': 3}, {'A': 'y', 'AMPIEZZA': None}])
+        self.assertEqual(len(table.tree.get_children()), 2)
+        self.assertEqual(table.tree.set('1', 'AMPIEZZA'), '')
+        table.clear()
+        self.assertEqual(table.tree.get_children(), ())
+
+    def test_sorting_toggles_and_numbers_are_numbers(self):
+        table = self.table()
+        table.set_rows([{'A': 'b', 'AMPIEZZA': '10'}, {'A': 'A', 'AMPIEZZA': '9'}, {'A': 'c', 'AMPIEZZA': '-'}])
+        table.sort_by('A')
+        self.assertEqual([r['A'] for r in table.rows], ['A', 'b', 'c'])
+        table.sort_by('AMPIEZZA')
+        self.assertEqual([r['AMPIEZZA'] for r in table.rows], ['9', '10', '-'])
+        table.sort_by('AMPIEZZA')
+        self.assertEqual([r['AMPIEZZA'] for r in table.rows], ['-', '10', '9'])
+        table.set_rows(table.rows)                                         # nuove righe: niente freccia
+        self.assertNotIn('▲', table.tree.heading('AMPIEZZA', 'text'))
+
+    def test_copy_text_and_the_callback(self):
+        table = self.table()
+        table.copy_text('hello')
+        self.assertEqual(self.root.clipboard_get(), 'hello')
+        self.assertEqual(table.copied, ['hello'])
+
+
+class ScrolledTextTests(UiCase):
+    def test_the_bar_shows_only_when_the_text_is_longer_than_the_field(self):
+        from jt.ui.widgets import ScrolledText
+        box = ScrolledText(self.root, height=3)
+        box.pack(fill='both', expand=True)
+        self.root.deiconify()
+        self.root.geometry('300x200')
+        for _ in range(10):
+            self.root.update()
+        self.assertEqual(box.bar.winfo_manager(), '')
+        box.text.insert('1.0', '\n'.join(str(i) for i in range(40)))
+        for _ in range(10):
+            self.root.update()
+        self.assertEqual(box.bar.winfo_manager(), 'pack')
+        box.text.delete('1.0', 'end')
+        for _ in range(10):
+            self.root.update()
+        self.assertEqual(box.bar.winfo_manager(), '')
+
+    def test_a_read_only_one_can_be_filled_by_the_code(self):
+        from jt.ui.widgets import ScrolledText
+        box = ScrolledText(self.root, height=3, readonly=True)
+        self.assertEqual(str(box.text.cget('state')), 'disabled')
+
+
+class ResizableWindowTests(UiCase):
+    def test_the_content_stretches_when_the_window_is_taller(self):
+        screen = self.step2()
+        self.root.deiconify()
+        self.root.geometry('700x1000')
+        for _ in range(15):
+            self.root.update()
+        area = self.app.area
+        self.assertGreaterEqual(area.inner.winfo_height(), area.canvas.winfo_height() - 2)
+        self.assertFalse(area.scrolling)
+
+    def test_a_window_made_bigger_by_hand_is_not_shrunk_by_the_next_layout_change(self):
+        self.step2()
+        self.root.deiconify()
+        for _ in range(10):
+            self.root.update()
+        self.root.geometry(f'{self.root.winfo_width() + 200}x{self.root.winfo_height() + 150}')
+        for _ in range(15):
+            self.root.update()
+        self.assertTrue(self.app.user_sized)
+        height = self.root.winfo_height()
+        self.app.fit_window()
+        for _ in range(10):
+            self.root.update()
+        self.assertGreaterEqual(self.root.winfo_height(), height - 2)
+
+    def test_a_maximized_window_is_left_alone_but_the_minimum_stays_right(self):
+        self.step2()
+        self.root.deiconify()
+        for _ in range(10):
+            self.root.update()
+        with patch.object(self.root, 'state', return_value='zoomed'), patch.object(self.root, 'geometry') as geometry:
+            self.app.fit_window()
+        geometry.assert_not_called()
+        self.assertTrue(self.app.user_sized)
+
+    def test_the_sql_tecsql_boxes_grow_with_the_window_and_have_a_divider(self):
+        from jt import dictionary
+        dictionary.forget()
+        self.addCleanup(dictionary.forget)
+        self.fake_db.dictionary_rows = list(TecsqlScreenTests.ROWS)
+        self.app.tools = [ToolsShellTests.strings_tool(), next(t for t in default_tools() if t.name == 'tecsql')]
+        self.app.connect(dict(FAKE_CONNECTION))
+        self.app.show_translation()
+        shell = self.app.screen
+        shell.select('tecsql')
+        screen = shell.current
+        self.root.deiconify()
+        self.root.geometry('900x500')
+        for _ in range(15):
+            self.root.update()
+        small = screen.input.winfo_height(), screen.output.winfo_height()
+        self.root.geometry('1100x900')
+        for _ in range(20):
+            self.root.update()
+        big = screen.input.winfo_height(), screen.output.winfo_height()
+        self.assertGreater(big[0], small[0])
+        self.assertGreater(big[1], small[1])
+        self.assertEqual(len(screen.panes.panes()), 2)                        # il divisore tra query e risultato
 
 
 class NoKeyTests(UiCase):

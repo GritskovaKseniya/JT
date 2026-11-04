@@ -290,4 +290,13 @@ La fase A rende **piu' sicuro JT** e si usa subito; la B e' piccola; la C e' l'u
 - **Fatto:** `ui/tecsql_screen.py` (query, direzione dal `$`, risultato, Copy / usa il risultato / Clear, "Remove ?parameters", la domanda per le tabelle con piu' nomi logici, avviso di traduzione parziale, "Reload dictionary"), registrata in `default_tools()`: ora JT ha due schede, **Strings** e **SQL <> TecSQL**, e il passo 2 si chiama Tools. Non scrive e non vuole la chiave. 19 test dell'interfaccia.
 - **Simulatore:** `--fw` carica il dizionario COMPLETO di un Jflex vero (1.742 tabelle, 37.877 campi) da `tools/fw_dictionary.json` (creato una volta con `--fw-connect HOST:PORT/SID --fw-user USER`, solo SELECT, in `.gitignore`), `--translate QUERY` traduce senza finestra (uscita 0 ok, 1 errore, 2 ambigua), `--descriptor` sceglie il nome logico. Lo strumento di prova nella finestra e' ora uno solo, spento (per vedere come appare).
 
+### Passi 9 e 10 - Names e Indexes (fatti)
+
+- **Scelta:** il "Table" del piano (la tabella dei campi) e' il risultato di **Names**; **Indexes** e' una scheda a parte. Quattro schede: Strings, SQL <> TecSQL, Names, Indexes. Il demo spento del simulatore e' sparito (ci sono gli strumenti veri).
+- **Names:** cerca per nome fisico o logico con i suggerimenti "fuzzy" (algoritmo di JCTNT, 0,1 s sul dizionario vero), campi chiesti con `NOT FOUND` in rosso, ordinamento, copia di una cella o di tutto, ricerche recenti, e la ricerca si ripiega dopo un risultato.
+- **Indexes:** gli indici con le colonne in ordine; si legge solo la tabella chiesta (non tutto il database come JCTNT).
+- **Differenze da JCTNT (volute):** per un nome logico esatto si mostrano solo i campi di quel descrittore (JCTNT li mischiava tutti quelli della tabella fisica); una tabella fisica con piu' nomi logici compare una volta tra i suggerimenti e non cinque; i 129 descrittori senza tabella fisica (`-`) non si fondono in uno solo.
+- **Finestra:** si ridimensiona e va a schermo intero (il contenuto cresce, divisore tra Query e Result, barre di scorrimento nei campi di testo).
+- **Simulatore con dati veri:** `--fw` carica anche gli indici veri (76.000 indici, 237.000 colonne nel Jflex provato).
+
 (scrivi qui le altre decisioni passo per passo e cio' che si scopre)

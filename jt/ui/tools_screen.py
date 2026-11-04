@@ -147,6 +147,9 @@ class ToolsScreen(ttk.Frame):
         self.built[name].pack(fill='both', expand=True)
         self.selected = name
         self.menu.set_selected(name, self.tool(name).title)
+        on_show = getattr(self.built[name], 'on_show', None)          # lo strumento puo' aggiornarsi quando si apre
+        if on_show:
+            on_show()
         if notify:
             self.app.fit_window()
 

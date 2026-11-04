@@ -53,5 +53,27 @@ class Settings:
             data['level'] = level
         write_json(self._paths.query, data)
 
+    MAX_SEARCHES = 50
+
+    def search_history(self):
+        """Le tabelle cercate di recente, ordinate per nome fisico: [{'fisico': ..., 'logico': ...}]."""
+        try:
+            data = read_json(self._paths.searches)
+        except (OSError, ValueError):
+            return []
+        if not isinstance(data, list):
+            return []
+        return [item for item in data if isinstance(item, dict) and item.get('fisico')]
+
+    def add_search(self, physical, logical):
+        """Ricorda una tabella cercata (una volta sola, al massimo MAX_SEARCHES)."""
+        history = self.search_history()
+        entry = {'fisico': physical, 'logico': logical}
+        if entry in history:
+            return
+        history.append(entry)
+        history.sort(key=lambda item: item['fisico'].lower())
+        write_json(self._paths.searches, history[-self.MAX_SEARCHES:])
+
     def azure_credentials(self):
         return read_json(self._paths.azure)

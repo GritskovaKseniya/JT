@@ -155,6 +155,28 @@ class SimConnection:
         pass                     # il database e' uno solo e vive finche' vive il simulatore
 
 
+# Le viste del dizionario di Oracle che JT legge ma non crea (ALL_INDEXES, ALL_IND_COLUMNS): solo nel simulatore, non nello schema di
+# create_test_db (in un Oracle vero sarebbero tabelle che nascondono le viste). Righe di prova: un indice univoco e uno no per
+# GD_LIRIG, uno per MD_ARTI (e un altro in un altro schema: per provare la scelta dello schema), uno per FW_STRINGS.
+SIM_SCHEMA = {
+    'ALL_INDEXES': 'table_owner TEXT, table_name TEXT, index_name TEXT, uniqueness TEXT, owner TEXT',
+    'ALL_IND_COLUMNS': 'table_owner TEXT, table_name TEXT, index_owner TEXT, index_name TEXT, column_name TEXT, '
+                       'column_position INTEGER',
+}
+SIM_DATA = {
+    'ALL_INDEXES': [('JFLEX', 'GD_LIRIG', 'IDX_GD_LIRIG_1', 'UNIQUE', 'JFLEX'), ('JFLEX', 'GD_LIRIG', 'IDX_GD_LIRIG_2', 'NONUNIQUE', 'JFLEX'),
+                    ('JFLEX', 'MD_ARTI', 'IDX_MD_ARTI_1', 'UNIQUE', 'JFLEX'), ('OTHER', 'MD_ARTI', 'IDX_OTHER_ARTI', 'NONUNIQUE', 'OTHER'),
+                    ('JFLEX', 'FW_STRINGS', 'IDX_FW_STRINGS_1', 'UNIQUE', 'JFLEX')],
+    'ALL_IND_COLUMNS': [('JFLEX', 'GD_LIRIG', 'JFLEX', 'IDX_GD_LIRIG_1', 'LIRIG_LICOD', 1),
+                        ('JFLEX', 'GD_LIRIG', 'JFLEX', 'IDX_GD_LIRIG_1', 'LIRIG_ARTCO', 2),
+                        ('JFLEX', 'GD_LIRIG', 'JFLEX', 'IDX_GD_LIRIG_2', 'LIRIG_CATLI', 1),
+                        ('JFLEX', 'MD_ARTI', 'JFLEX', 'IDX_MD_ARTI_1', 'ARTI_ARTCO', 1),
+                        ('OTHER', 'MD_ARTI', 'OTHER', 'IDX_OTHER_ARTI', 'ARTI_DESCR', 1),
+                        ('JFLEX', 'FW_STRINGS', 'JFLEX', 'IDX_FW_STRINGS_1', 'LANGUAGE', 1),
+                        ('JFLEX', 'FW_STRINGS', 'JFLEX', 'IDX_FW_STRINGS_1', 'CODE', 2)],
+}
+
+
 class Simulator:
     """Il database simulato. Si usa al posto di cx_Oracle: `Database(driver=Simulator())`."""
 
@@ -169,6 +191,11 @@ class Simulator:
         for name in tool.SCHEMA:
             cursor.execute(self._ddl(name))
         tool.fill_tables(cursor, tool.with_sample(tool.DATA, sample) if sample else tool.DATA)
+        for name, columns in SIM_SCHEMA.items():                 # le viste del dizionario: righe di prova (o quelle vere del campione)
+            cursor.execute(f'CREATE TABLE {name} ({columns})')
+            real = ((sample or {}).get('tables', {}).get(name) or {}).get('rows')
+            rows = SIM_DATA[name] + [tuple(r) for r in (real or [])]
+            cursor.executemany(f"INSERT INTO {name} VALUES ({', '.join('?' * len(rows[0]))})", rows)
         cursor.execute("UPDATE FW_STRINGS SET dt = CURRENT_TIMESTAMP WHERE usr = 'SEED'")
         self.raw.commit()
 
@@ -622,19 +649,9 @@ def real_azure_available(credentials_path):
 
 
 def demo_tools():
-    """Gli strumenti veri (Strings, SQL <> TecSQL) e uno finto spento (richiede una tabella che non c'e'): per vedere come
-    appare uno strumento che non puo' funzionare su questo database."""
-    import tkinter as tk
-    from tkinter import ttk
-    from jt.tools import Tool
+    """Gli strumenti veri di JTools (Strings, SQL <> TecSQL, Names, Indexes)."""
     from jt.ui.app import default_tools
-
-    def demo(parent, app):
-        frame = ttk.Frame(parent)
-        tk.Label(frame, text='Demo tool (it is always off here).', pady=40).pack()
-        return frame
-
-    return default_tools() + [Tool('names', 'Names', demo, requires=('FW_TABLES_MISSING',))]
+    return default_tools()
 
 
 def run_gui(sample=None, azure=False, nokey=False, demo=True):

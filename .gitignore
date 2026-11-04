@@ -2,6 +2,7 @@
 Data/azure_services.json
 Data/connection_data.json
 Data/query_data.json
+Data/search_history.json
 Logs/
 *.csv
 
