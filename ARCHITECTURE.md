@@ -54,6 +54,13 @@ apre `ConfirmDialog`. La finestra si apre solo con un ambiente prod o non impost
 dati di connessione (`Settings.environment` / `save_environment`) e vive in `JTApp.environment` e `db.info['environment']`. Nei
 test `JTApp.confirm_write` e' sostituito da una risposta automatica (`UiCase`).
 
+**Table e Level su una riga.** `TranslationScreen._arrange_selection` dispone i campi su una riga se ci stanno i nomi veri
+(`_measure_selection` calcola la soglia dai testi delle tabelle e dei livelli: il caso peggiore e' "tabella con livelli piu' lunga +
+livello piu' lungo" oppure "tabella senza livelli piu' lunga + `All levels`", non la coppia impossibile "Object descriptions + CT -
+Customizations") e su due altrimenti (con un po' d'isteresi); `_on_card_resize` lo decide dall'ampiezza vera della scheda. Su una
+riga ogni colonna ha la larghezza minima di quello che mostra (`_size_selection_columns`) e i menu dichiarano `width=1` (senza,
+pretenderebbero 20 caratteri e taglierebbero il nome piu' lungo).
+
 **Sezioni che si aprono e si chiudono.** I blocchi del passo 2 (LANGUAGES, WHAT TO TRANSLATE, PROGRESS) e "Advanced" (Max rows,
 Update by keys) e "Details" (tempi) sono `Collapsible` (`ui/widgets.py`): chiuse mostrano solo la riga con un riassunto
 (`TranslationScreen._update_summaries`). Nel passo 1 il banner (`StatusBar(closable=True)`) compare solo quando succede qualcosa. Ogni apertura o chiusura fa riadattare la

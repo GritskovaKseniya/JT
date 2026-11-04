@@ -2,6 +2,7 @@
 import os
 import re
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import ttk
 
 from .. import environments
@@ -43,6 +44,7 @@ LEVEL_HINT = {
               'translate everything.',
 }
 
+COMBO_EXTRA = 28                # spazio che un menu a tendina vuole oltre al testo (freccia, margini): pixel a scala 100%
 MAX_PREVIEW_ROWS = 500          # righe mostrate nella tabella dell'anteprima (si scrivono tutte, anche le altre)
 
 PREVIEW_HINT = {
@@ -177,17 +179,17 @@ class TranslationScreen(ttk.Frame):
 
     def _build_selection(self, descriptions):
         self.selection_section, card = self._section('WHAT TO TRANSLATE')
+        self._selection_card, self._one_row = card, False
         card.columnconfigure(1, weight=1)
 
-        ttk.Label(card, text='Table').grid(row=0, column=0, sticky='w', padx=(0, px(14)), pady=px(3))
-        self.cmb_table = ttk.Combobox(card, textvariable=self.var_table, values=descriptions, state='readonly')
-        self.cmb_table.grid(row=0, column=1, sticky='ew', pady=px(3))
+        self.label_table = ttk.Label(card, text='Table')
+        # width=1: il menu non pretende i suoi 20 caratteri, la larghezza la decidono le colonne (_size_selection_columns)
+        self.cmb_table = ttk.Combobox(card, textvariable=self.var_table, values=descriptions, state='readonly', width=1)
         self.cmb_table.bind('<<ComboboxSelected>>', self.on_table_selected)
 
-        label_level = ttk.Label(card, text='Level  (?)')
-        label_level.grid(row=1, column=0, sticky='w', padx=(0, px(14)), pady=px(3))
-        self.cmb_level = ttk.Combobox(card, textvariable=self.var_level, values=list(LEVEL_CHOICES), state='readonly')
-        self.cmb_level.grid(row=1, column=1, sticky='ew', pady=px(3))
+        self.label_level = label_level = ttk.Label(card, text='Level  (?)')
+        self.cmb_level = ttk.Combobox(card, textvariable=self.var_level, values=list(LEVEL_CHOICES), state='readonly',
+                                      width=1)
         self.cmb_level.bind('<<ComboboxSelected>>', self.refresh_missing)
         self.level_tip = ToolTip(label_level, LEVEL_HINT, self.cmb_level)
         for event in ('<ButtonPress-1>', '<<ComboboxSelected>>'):      # il suggerimento non sta sopra l'elenco aperto
@@ -196,14 +198,12 @@ class TranslationScreen(ttk.Frame):
         self.label_missing = tk.Label(card, text='Counting missing translations...', bg=PALETTE['bg'],
                                       fg=PALETTE['muted'], font=(FONT, 9), wraplength=px(340), justify='left',
                                       anchor='nw')
-        self.label_missing.grid(row=2, column=0, columnspan=2, sticky='w', pady=(0, px(4)))
         self.wrap.add(self.label_missing, 80)
         ToolTip(self.label_missing, self.missing_hint)
 
         # "Advanced": Max rows e Update by keys. Aperta all'inizio; chiusa dice cosa c'e' dentro e si riapre da sola se
         # servono (chiavi, errore)
         self.advanced = Collapsible(card, 'Advanced', expanded=True, on_toggle=self.app.fit_window)
-        self.advanced.grid(row=3, column=0, columnspan=2, sticky='ew')
         body = self.advanced.body
         body.columnconfigure(3, weight=1)                   # una riga sola: Max rows [..]  Update by keys (?) [........]
         ttk.Label(body, text='Max rows').grid(row=0, column=0, sticky='w', padx=(0, px(8)), pady=px(3))
@@ -220,6 +220,64 @@ class TranslationScreen(ttk.Frame):
         ToolTip(self.entry_keys, KEYS_HINT)
         for entry in (self.entry_max, self.entry_keys):
             entry.bind('<Return>', lambda _e: self.load())
+        self._measure_selection()
+        self._arrange_selection(False)
+        card.bind('<Configure>', self._on_card_resize)
+
+    def _measure_selection(self):
+        """Quanta larghezza serve a Table e Level su una riga, dai nomi veri delle tabelle e dei livelli. Le tabelle senza livelli
+        mostrano 'All levels' (non il nome piu' lungo), quindi il caso peggiore non e' 'tabella piu' lunga + livello piu' lungo'."""
+        font = self._font = tkfont.Font(root=self, family=FONT, size=10)
+        extra = px(COMBO_EXTRA)
+        self._level_need = {True: max(font.measure(title) for title in LEVEL_CHOICES) + extra,       # tabella con livelli
+                            False: font.measure(LEVEL_ALL) + extra}                                    # senza: All levels
+        worst = 0
+        for entry in self.entries:
+            layered = get_table(entry['table']).supports_levels
+            worst = max(worst, font.measure(entry['description']) + extra + self._level_need[layered])
+        self._gaps = (px(10), px(14), px(6))                  # tra Table e il suo menu, prima di Level, tra Level e il suo menu
+        labels = font.measure('Table') + font.measure('Level  (?)')
+        card_padding = px(22)                                 # margine interno e bordo della scheda
+        self._one_row_threshold = worst + labels + sum(self._gaps) + card_padding + px(6)
+
+    def _size_selection_columns(self):
+        """Su una riga ogni menu e' largo almeno quanto serve a quello che mostra (la tabella scelta, un nome di livello o
+        'All levels'); il resto della riga va a Table. Su due righe la colonna si allarga da sola."""
+        card = self._selection_card
+        if self._one_row:
+            card.columnconfigure(1, weight=1, minsize=self._font.measure(self.var_table.get()) + px(COMBO_EXTRA))
+            card.columnconfigure(3, weight=0, minsize=self._level_need[not self._levelless])
+        else:
+            card.columnconfigure(1, weight=1, minsize=0)
+            card.columnconfigure(3, weight=0, minsize=0)
+
+    def _arrange_selection(self, one_row):
+        """Table e Level su due righe (finestra stretta) oppure su una riga sola (finestra larga)."""
+        card = self._selection_card
+        self._one_row = one_row
+        gap_table, gap_before_level, gap_after_level = self._gaps
+        self.label_table.grid(row=0, column=0, sticky='w', padx=(0, gap_table), pady=px(3))
+        self.cmb_table.grid(row=0, column=1, sticky='ew', pady=px(3))
+        if one_row:
+            self.label_level.grid(row=0, column=2, sticky='w', padx=(gap_before_level, gap_after_level), pady=px(3))
+            self.cmb_level.grid(row=0, column=3, sticky='ew', pady=px(3))
+        else:
+            self.label_level.grid(row=1, column=0, sticky='w', padx=(0, gap_table), pady=px(3))
+            self.cmb_level.grid(row=1, column=1, sticky='ew', pady=px(3))
+        self._size_selection_columns()
+        below = 1 if one_row else 2                          # il resto della scheda sta sotto
+        self.label_missing.grid(row=below, column=0, columnspan=4, sticky='w', pady=(0, px(4)))
+        self.advanced.grid(row=below + 1, column=0, columnspan=4, sticky='ew')
+
+    def _on_card_resize(self, event):
+        """Se i due menu ci stanno, Table e Level vanno su una riga; torna a due se la scheda si restringe (con un po' d'isteresi)."""
+        wide, narrow = self._one_row_threshold, self._one_row_threshold - px(20)
+        if not self._one_row and event.width >= wide:
+            self._arrange_selection(True)
+            self.app.fit_window()
+        elif self._one_row and event.width < narrow:
+            self._arrange_selection(False)
+            self.app.fit_window()
 
     @staticmethod
     def _digits_only(proposed):
@@ -374,6 +432,7 @@ class TranslationScreen(ttk.Frame):
         elif self._levelless and not levelless:
             self.var_level.set(self._level_before if self._level_before in LEVEL_CHOICES else DEFAULT_LEVEL)
         self._levelless = levelless
+        self._size_selection_columns()
         self.cmb_level.config(state='disabled' if levelless or self.running else 'readonly')
         return self.var_level.get() != before
 

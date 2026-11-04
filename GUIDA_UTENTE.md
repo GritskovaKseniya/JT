@@ -60,7 +60,8 @@ del mouse scorre, tranne sopra i menu a tendina.
 ### Cosa tradurre
 
 - **Table**: la tabella da tradurre (stringhe, campi, le quattro tabelle delle opzioni, nodi di documentazione, descrizioni
-  oggetti).
+  oggetti). **Table** e **Level** stanno sulla stessa riga (se la finestra fosse cosi' stretta da non far leggere i nomi, passano su due righe).
+  Per le tabelle senza livelli il campo Level e' spento e dice `All levels`.
 - **Level**: quale livello di Jflex tradurre. Passa il mouse sul campo per il dettaglio. **All levels** = tutti, senza filtro;
   **Standard** = il prodotto standard; **CW - Integrations** = integrazioni; **CT - Customizations** = personalizzazioni Tecnest.
   All'inizio e' **Standard** (e' cambiato rispetto alla versione 3.0, che traduceva tutto insieme): per tradurre anche le righe

@@ -2308,6 +2308,166 @@ class UndoLinkTests(UiCase):
         start.assert_not_called()
 
 
+class OneRowSelectionTests(UiCase):
+    """Se i due menu ci stanno, Table e Level stanno su una riga sola; se no, su due."""
+
+    def setUp(self):
+        super().setUp()
+        # senza adattare la finestra non arrivano i veri <Configure> della scheda a rimettere la disposizione com'era:
+        # l'ampiezza si dice a mano. Il test della finestra vera riattiva l'adattamento.
+        self.fit_patch = patch.object(JTApp, 'fit_window')
+        self.fit = self.fit_patch.start()
+        self.addCleanup(self.stop_fit_patch)
+
+    def stop_fit_patch(self):
+        with contextlib.suppress(RuntimeError):
+            self.fit_patch.stop()
+
+    def manual_screen(self):
+        """Il passo 2 senza i veri <Configure> della scheda (arriverebbero a rimettere la disposizione secondo la finestra
+        nascosta): l'ampiezza della scheda la dice il test con resize()."""
+        screen = self.step2()
+        screen._selection_card.unbind('<Configure>')
+        return screen
+
+    def grid(self, widget):
+        info = widget.grid_info()
+        return int(info['row']), int(info['column'])
+
+    def resize(self, screen, width):
+        screen._on_card_resize(SimpleNamespace(width=width))
+
+    def test_a_narrow_card_keeps_table_and_level_on_two_rows(self):
+        screen = self.manual_screen()
+        self.assertFalse(screen._one_row)
+        self.assertEqual((self.grid(screen.cmb_table), self.grid(screen.cmb_level)), ((0, 1), (1, 1)))
+        self.assertEqual(self.grid(screen.label_missing)[0], 2)
+        self.assertEqual(self.grid(screen.advanced)[0], 3)
+
+    def test_a_wide_card_puts_them_on_one_row_and_the_rest_moves_up(self):
+        screen = self.manual_screen()
+        self.resize(screen, screen._one_row_threshold + 20)
+        self.assertTrue(screen._one_row)
+        self.assertEqual([self.grid(w) for w in (screen.label_table, screen.cmb_table, screen.label_level, screen.cmb_level)],
+                         [(0, 0), (0, 1), (0, 2), (0, 3)])
+        self.assertEqual(self.grid(screen.label_missing)[0], 1)
+        self.assertEqual(self.grid(screen.advanced)[0], 2)
+        self.assertEqual(int(screen.advanced.grid_info()['columnspan']), 4)
+
+    def test_it_goes_back_to_two_rows_when_the_card_shrinks_with_a_little_hysteresis(self):
+        screen = self.manual_screen()
+        threshold = screen._one_row_threshold
+        self.resize(screen, threshold)
+        self.assertTrue(screen._one_row)
+        self.resize(screen, threshold - 10)                  # appena sotto: resta com'e' (niente sfarfallio)
+        self.assertTrue(screen._one_row)
+        self.resize(screen, threshold - 21)
+        self.assertFalse(screen._one_row)
+        self.assertEqual((self.grid(screen.cmb_table), self.grid(screen.cmb_level)), ((0, 1), (1, 1)))
+        self.resize(screen, threshold - 1)                   # sotto la soglia di salita: non risale
+        self.assertFalse(screen._one_row)
+
+    def test_the_window_refits_only_when_the_layout_really_changes(self):
+        screen = self.manual_screen()
+        threshold = screen._one_row_threshold
+        self.fit.reset_mock()
+        self.resize(screen, threshold - 100)
+        self.resize(screen, threshold - 60)
+        self.assertEqual(self.fit.call_count, 0)
+        self.resize(screen, threshold + 80)
+        self.resize(screen, threshold + 180)
+        self.assertEqual(self.fit.call_count, 1)
+        self.resize(screen, threshold - 60)
+        self.assertEqual(self.fit.call_count, 2)
+
+    def test_the_threshold_comes_from_the_real_names_not_from_an_impossible_pair(self):
+        screen = self.manual_screen()
+        font = screen._font
+        extra = scale.px(28)
+        longest_table = max(font.measure(e['description']) for e in screen.entries) + extra
+        longest_level = max(font.measure(t) for t in LEVEL_CHOICES) + extra
+        labels = font.measure('Table') + font.measure('Level  (?)')
+        impossible = longest_table + longest_level + labels + sum(screen._gaps)        # Object descriptions + CT - Customizations
+        self.assertEqual(screen._level_need, {True: longest_level, False: font.measure(L_ALL) + extra})
+        self.assertLess(screen._one_row_threshold, impossible + scale.px(22))
+        self.assertGreater(screen._one_row_threshold, screen._level_need[True] + labels)
+
+    def test_each_menu_gets_the_width_of_what_it_shows(self):
+        screen = self.manual_screen()
+        self.resize(screen, screen._one_row_threshold + 20)
+        card = screen._selection_card
+        extra = scale.px(28)
+        self.assertEqual(card.grid_columnconfigure(3)['minsize'], screen._level_need[True])
+        self.assertEqual(card.grid_columnconfigure(1)['minsize'], screen._font.measure('JFX: Strings') + extra)
+        screen.var_table.set('JFX: Object descriptions')
+        screen.cmb_table.event_generate('<<ComboboxSelected>>')                # senza livelli: Level dice 'All levels'
+        self.assertEqual(card.grid_columnconfigure(3)['minsize'], screen._level_need[False])
+        self.assertEqual(card.grid_columnconfigure(1)['minsize'],
+                         screen._font.measure('JFX: Object descriptions') + extra)
+        screen.var_table.set('JFX: Strings')
+        screen.cmb_table.event_generate('<<ComboboxSelected>>')
+        self.assertEqual(card.grid_columnconfigure(3)['minsize'], screen._level_need[True])
+
+    def test_on_two_rows_the_columns_have_no_minimum(self):
+        screen = self.manual_screen()
+        self.resize(screen, screen._one_row_threshold + 20)
+        self.resize(screen, screen._one_row_threshold - 30)
+        card = screen._selection_card
+        self.assertEqual((card.grid_columnconfigure(1)['minsize'], card.grid_columnconfigure(3)['minsize']), (0, 0))
+
+    def test_everything_keeps_working_on_one_row(self):
+        self.fake_db.missing = {'FW_STRINGS': 4}
+        screen = self.manual_screen()
+        self.resize(screen, screen._one_row_threshold + 80)
+        screen.var_level.set(L_CT)
+        screen.cmb_level.event_generate('<<ComboboxSelected>>')
+        self.assertIn('Missing in German (CT):', screen.label_missing.cget('text'))
+        screen.var_table.set('JFX: Docu nodes')
+        screen.cmb_table.event_generate('<<ComboboxSelected>>')
+        self.assertEqual(str(screen.cmb_level.cget('state')), 'disabled')
+        self.assertEqual(screen.var_level.get(), L_ALL)
+
+    def test_the_level_hint_is_still_attached_to_its_label_and_field(self):
+        screen = self.manual_screen()
+        self.resize(screen, screen._one_row_threshold + 80)
+        screen.level_tip.show()
+        self.assertIsNotNone(screen.level_tip.tip)
+        screen.level_tip.hide()
+
+    def test_in_a_real_window_nothing_is_cut_at_the_usual_width_and_when_it_grows(self):
+        self.stop_fit_patch()                                  # qui l'adattamento della finestra e' quello vero
+        screen = self.step2()
+        self.root.deiconify()
+        extra = scale.px(28)
+
+        def settle():
+            for _ in range(15):
+                self.root.update()
+
+        for width in (460, 700, 900):                           # 460: la larghezza della finestra al primo avvio
+            self.root.geometry(f'{width}x720')
+            settle()
+            self.assertTrue(screen._one_row, width)
+            for table in ('JFX: Object descriptions', 'JFX: Options three', 'JFX: Strings'):
+                screen.var_table.set(table)
+                screen.cmb_table.event_generate('<<ComboboxSelected>>')
+                settle()
+                self.assertGreaterEqual(screen.cmb_table.winfo_width(), screen._font.measure(table) + extra, (width, table))
+                self.assertGreaterEqual(screen.cmb_level.winfo_width(), screen._level_need[not screen._levelless],
+                                        (width, table))
+
+    def test_a_card_narrower_than_the_names_falls_back_to_two_rows_in_a_real_window(self):
+        self.stop_fit_patch()
+        screen = self.step2()
+        self.root.deiconify()
+        self.root.minsize(200, 200)                            # per provare una finestra piu' stretta del minimo di JT
+        self.root.geometry('380x720')
+        for _ in range(15):
+            self.root.update()
+        self.assertFalse(screen._one_row)
+        self.assertEqual(self.grid(screen.cmb_level), (1, 1))
+
+
 class StaleSelectionTests(UiCase):
     CHANGES = (('var_in', 'French'), ('var_out', 'Spanish'), ('var_table', 'JFX: Options'),
                ('var_max', '7'), ('var_keys', '100000'))
