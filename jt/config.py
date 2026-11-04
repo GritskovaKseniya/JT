@@ -5,7 +5,7 @@ import sys
 from dataclasses import dataclass
 
 APP_TITLE = 'JT - Jflex Translator'
-VERSION = '3.1'
+VERSION = '3.2'
 
 DB_MARKER = 'JT'            # scritto nella colonna "utente" delle righe inserite/aggiornate dal tool
 SECONDS_PER_ROW = 0.625     # stima della durata: una riga = una chiamata Azure + un INSERT
