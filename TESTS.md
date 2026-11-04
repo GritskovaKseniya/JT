@@ -18,7 +18,7 @@ nascosta e vengono saltati se non c'e' un display. Durata: circa 40 secondi.
 ## Risultato (2026-11-03)
 
 ```
-Ran 942 tests (2 "expected failures", vedi test_tecsql_sql_to_tecsql) in ~95 s
+Ran 947 tests (2 "expected failures", vedi test_tecsql_sql_to_tecsql) in ~95 s
 OK
 ```
 
@@ -33,6 +33,7 @@ Eseguiti anche con i `ResourceWarning` trattati come errori.
 | `test_tecsql_lookup.py` | 11 | (portati da JCTNT) mappe giuste dopo `update_mappings`, maiuscole originali conservate, `_find_matching_descriptors` (anche due descrittori per la stessa tabella fisica). |
 | `test_tecsql_sql_to_tecsql.py` | 13 | (portati da JCTNT) SQL -> TecSQL: campi qualificati e no, costanti del JAS senza avviso, refusi con avviso, subquery. **2 `expectedFailure`**: la subquery con una seconda tabella resta non tradotta (problema gia' in JCTNT). |
 | `test_tecsql_tecsql_to_sql.py` | 11 | (portati da JCTNT) TecSQL -> SQL: SELECT, alias, subquery, `strip_params`, ORDER BY. |
+| `test_orione_pairs.py` | 5 | Il traduttore TecSQL -> SQL contro le 79 coppie che Orione dichiara corrette (`orione_pairs.json`, dizionario `orione_dictionary.json`): ogni coppia combacia o e' una lacuna documentata con il motivo (`orione_known_gaps.json`, 56 lacune; **i file di dati sono solo in locale**, in `.gitignore`: senza, i test si saltano), e il controllo e' esatto (una lacuna corretta fa fallire il test finche' non si toglie dall'elenco). |
 | `test_azure_key.py` | 8 | Controllo della chiave Azure: file mancante, illeggibile o non un oggetto, campo mancante/vuoto/non testo, segnaposto del pacchetto, forma sbagliata (corta, spazi, trattini), endpoint non https, chiavi di 32 e 84 caratteri accettate, messaggio con motivo, referente e cartella. |
 | `test_database.py` | 27 | Connessione e chiusura (ricollegare chiude la precedente, chiusura ripetibile e tollerante agli errori); nomi colonna letti dal cursore e messi in cache; tabelle esistenti; cursori tracciati |
 | `test_service.py` | 112 | Selezione (righe mancanti e per chiavi, conteggio dei caratteri come somma, cursori vecchi chiusi); esecuzione in modalita' normale e per chiavi (INSERT oppure UPDATE), log, errore Azure = riga saltata, errore di INSERT = log errori e si prosegue, commit a ogni riga, avanzamento, arresto richiesto; log CSV; rollback dopo un errore di scrittura o di commit; righe saltate registrate in un log a parte; chiavi con zeri iniziali |

@@ -15,3 +15,8 @@ dist/
 
 # righe vere copiate da un database (tools/extract_sample.py): dati dell'azienda, non vanno su GitHub
 tools/sample_data.json
+
+# le coppie dei test di Orione e i descrittori che usano (tools/orione_pairs.py): codice e dati dell'azienda, il repository e' pubblico
+tests/orione_pairs.json
+tests/orione_dictionary.json
+tests/orione_known_gaps.json
