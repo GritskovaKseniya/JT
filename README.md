@@ -19,7 +19,7 @@ Serve Python 3.10 con `cx_Oracle` e `requests`, e un client Oracle a 64 bit sul 
 
 ```
 uv venv --python 3.10 .venv
-uv pip install --python .venv\Scripts\python.exe cx_Oracle requests
+uv pip install --python .venv\Scripts\python.exe cx_Oracle requests sqlparse==0.5.0
 copy Data\azure_services.example.json Data\azure_services.json     (poi scrivi la chiave Azure)
 .venv\Scripts\python.exe JT.py          oppure doppio clic su run_JT.bat
 ```

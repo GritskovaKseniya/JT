@@ -262,4 +262,11 @@ La fase A rende **piu' sicuro JT** e si usa subito; la B e' piccola; la C e' l'u
 - **Fatto:** registro (`jt/tools.py`), guscio con la griglia (`jt/ui/tools_screen.py`), strumenti spenti con il motivo (tabelle richieste mancanti), uno strumento alla volta costruito al primo uso, niente cambio durante una traduzione. Con **un solo** strumento (oggi) il guscio non compare e JT si vede come prima: si accende da solo quando arriva il secondo (SQL <-> TecSQL, passo 8). Provato con strumenti finti nei test.
 - **Ancora da fare in questo passo:** il caso 'chiave mancante' per uno strumento che scrive: oggi Strings resta aperto in sola lettura (decisione del passo 5); quando ci sara' lo strumento di sola lettura, si valutera' se spegnere Strings.
 
+### Passo 7 - Nucleo di JCTNT (fatto)
+
+- **Scelte di Kseniia:** portare il modulo **com'e'** e trasformarlo in classe `Dictionary` in un passo a parte; aggiungere **sqlparse 0.5.0** come dipendenza (README aggiornato; per l'exe si aggiunge a PyInstaller quando lo strumento lo usa, passo 8).
+- **Fatto:** `jt/tecsql_translator.py` (1452 righe, intestazione con l'origine), `jt/dictionary.py` (lettura con `Database`, cache per connessione), 42 test portati da pytest a unittest. Driver: resta `cx_Oracle` (il codice portato usa il `Database` di JT, nessun `oracledb`); il percorso del client Oracle di JCTNT non si porta.
+- **Scoperta: i test di JCTNT erano rotti.** Nel progetto originale **15 test su 33 falliscono** (stato di partenza): `translate_tecsql` ritorna il testo SQL ma i test aspettavano un dict con `success` (API piu' vecchia), `COUNT(*)` esce come `COUNT (*)`, e le chiavi dei campi non erano come attese. Li ho riscritti sul comportamento vero. **Bug vero rimasto:** SQL -> TecSQL non traduce la subquery con una seconda tabella e senza campi qualificati (`... IN (SELECT LITES_LICOD FROM GD_LITES ...)` resta com'e') e dice comunque *riuscito*: 2 test sono `expectedFailure`. Da correggere nel passo 8, con l'interfaccia.
+- **Ancora da fare:** la classe `Dictionary` senza stato globale, e i messaggi d'errore in italiano (UI in inglese).
+
 (scrivi qui le altre decisioni passo per passo e cio' che si scopre)
