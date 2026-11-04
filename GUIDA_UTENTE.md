@@ -63,7 +63,9 @@ del mouse scorre, tranne sopra i menu a tendina.
   oggetti). **Table** e **Level** stanno sulla stessa riga (se la finestra fosse cosi' stretta da non far leggere i nomi, passano su due righe).
   Per le tabelle senza livelli il campo Level e' spento e dice `All levels`.
 - **Level**: quale livello di Jflex tradurre. Passa il mouse sul campo per il dettaglio. **All levels** = tutti, senza filtro;
-  **Standard** = il prodotto standard; **CW - Integrations** = integrazioni; **CT - Customizations** = personalizzazioni Tecnest.
+  **Standard** = il prodotto standard; **CW - Integrations** = integrazioni; **CT - Customizations** = personalizzazioni Tecnest;
+  **CC - Client Customization** = personalizzazioni del cliente.
+  Il menu mostra i nomi interi; a scelta fatta il campo mostra solo la parte dopo il trattino (per esempio `Integrations`); lo stesso vale per **Table** (`Strings` invece di `JFX: Strings`).
   All'inizio e' **Standard** (e' cambiato rispetto alla versione 3.0, che traduceva tutto insieme): per tradurre anche le righe
   CT, CW o CC scegli quel livello oppure All levels. Il livello si riconosce dal codice della stringa (CW 4000000-4999999, CT
   3000000-3999999, CC da 9000000) o, per le opzioni, dal prefisso del nome (`Cw...`, `Ct...`, `Cc...`). Le tabelle dei nodi di documentazione e delle

@@ -84,6 +84,11 @@ def level_title(layer):
     return TITLES.get(layer.name, layer.name)
 
 
+def level_short_title(title):
+    """Quello che il campo Level mostra a scelta fatta: la parte dopo il trattino ('CW - Integrations' -> 'Integrations')."""
+    return title.split(' - ', 1)[-1]
+
+
 LEVEL_ALL = 'All levels'
 # scelte del campo Level: tutti i livelli (nessun filtro) e quelli visibili
 LEVEL_CHOICES = {LEVEL_ALL: None, **{level_title(BY_NAME[name]): BY_NAME[name] for name in VISIBLE}}

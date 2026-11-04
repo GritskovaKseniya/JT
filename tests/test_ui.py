@@ -1017,6 +1017,33 @@ class TranslationScreenBuildTests(UiCase):
 class LevelFieldTests(UiCase):
     """Il campo Level del passo 2: scelte, valore predefinito, tabelle senza livelli, conteggi e chiavi di altri livelli."""
 
+    def test_the_table_list_has_the_full_names_and_the_field_shows_only_the_part_after_the_colon(self):
+        screen = self.step2()
+        self.assertEqual(screen.cmb_table.get(), 'Strings')
+        screen.cmb_table.set('JFX: Triplets')                       # come scegliere dal menu
+        screen.cmb_table.event_generate('<<ComboboxSelected>>')
+        self.assertEqual(screen.var_table.get(), 'JFX: Triplets')   # la tabella resta quella intera
+        self.assertEqual(screen.cmb_table.get(), 'Triplets')
+        self.assertIn('JFX: Strings', list(screen.cmb_table.cget('values')))
+        screen.cmb_table.set('JFX: Triplets')                       # la stessa voce di nuovo
+        self.assertEqual(screen.cmb_table.get(), 'Triplets')
+
+    def test_the_list_has_the_full_titles_and_the_field_shows_only_the_part_after_the_dash(self):
+        screen = self.step2()
+        self.assertEqual(screen.cmb_level.get(), 'Standard')
+        screen.cmb_level.set(L_CW)                                  # come scegliere "CW - Integrations" dal menu
+        screen.cmb_level.event_generate('<<ComboboxSelected>>')
+        self.assertEqual(screen.var_level.get(), L_CW)              # il livello resta quello intero
+        self.assertEqual(screen.cmb_level.get(), 'Integrations')    # il campo mostra la parte corta
+        self.assertEqual(screen._level().name, 'CW')
+        self.assertEqual(list(screen.cmb_level.cget('values'))[2:], [L_CW, L_CT, L_CC])   # il menu resta intero
+        screen.cmb_level.set(L_CW)                                  # la stessa voce scelta di nuovo
+        self.assertEqual((screen.var_level.get(), screen.cmb_level.get()), (L_CW, 'Integrations'))
+        screen.var_level.set(L_CC)                                  # cambiato dal programma (es. tabella senza livelli)
+        self.assertEqual(screen.cmb_level.get(), 'Client Customization')
+        screen.var_level.set(L_ALL)
+        self.assertEqual(screen.cmb_level.get(), 'All levels')
+
     def test_default_is_standard_and_the_visible_levels_are_offered(self):
         screen = self.step2()
         self.assertEqual(screen.var_level.get(), L_STD)
@@ -2381,33 +2408,37 @@ class OneRowSelectionTests(UiCase):
         self.resize(screen, threshold - 60)
         self.assertEqual(self.fit.call_count, 2)
 
-    def test_the_threshold_comes_from_the_real_names_not_from_an_impossible_pair(self):
+    def test_a_tooltip_with_a_plain_text_shows_it(self):
+        screen = self.step2()
+        tip = ToolTip(screen.label_missing, 'C:\some\folder')
+        tip.show()
+        try:
+            self.assertIn('C:\some\folder', all_texts(tip.tip))
+        finally:
+            tip.hide()
+
+    def test_the_threshold_comes_from_the_short_names_the_fields_show(self):
         screen = self.manual_screen()
         font = screen._font
         extra = scale.px(28)
-        longest_table = max(font.measure(e['description']) for e in screen.entries) + extra
-        longest_level = max(font.measure(t) for t in LEVEL_CHOICES) + extra
+        longest_table = max(font.measure(e['description'].split(': ', 1)[-1]) for e in screen.entries) + extra
+        longest_level = max(font.measure(t.split(' - ', 1)[-1]) for t in LEVEL_CHOICES) + extra
         labels = font.measure('Table') + font.measure('Level  (?)')
-        impossible = longest_table + longest_level + labels + sum(screen._gaps)        # Object descriptions + CT - Customizations
-        self.assertEqual(screen._level_need, {True: longest_level, False: font.measure(L_ALL) + extra})
-        self.assertLess(screen._one_row_threshold, impossible + scale.px(22))
-        self.assertGreater(screen._one_row_threshold, screen._level_need[True] + labels)
+        self.assertEqual((screen._table_need, screen._level_need), (longest_table, longest_level))
+        menu = max(longest_table, longest_level)                          # i due menu sono larghi uguale
+        self.assertEqual(screen._menu_need, menu)
+        self.assertGreater(screen._one_row_threshold, 2 * menu + labels)
+        self.assertLess(screen._one_row_threshold, 2 * menu + labels + sum(screen._gaps) + scale.px(40))
 
-    def test_each_menu_gets_the_width_of_what_it_shows(self):
+    def test_the_columns_have_a_fixed_width_whatever_table_is_chosen(self):
         screen = self.manual_screen()
         self.resize(screen, screen._one_row_threshold + 20)
         card = screen._selection_card
-        extra = scale.px(28)
-        self.assertEqual(card.grid_columnconfigure(3)['minsize'], screen._level_need[True])
-        self.assertEqual(card.grid_columnconfigure(1)['minsize'], screen._font.measure('JFX: Strings') + extra)
-        screen.var_table.set('JFX: Object descriptions')
-        screen.cmb_table.event_generate('<<ComboboxSelected>>')                # senza livelli: Level dice 'All levels'
-        self.assertEqual(card.grid_columnconfigure(3)['minsize'], screen._level_need[False])
-        self.assertEqual(card.grid_columnconfigure(1)['minsize'],
-                         screen._font.measure('JFX: Object descriptions') + extra)
-        screen.var_table.set('JFX: Strings')
-        screen.cmb_table.event_generate('<<ComboboxSelected>>')
-        self.assertEqual(card.grid_columnconfigure(3)['minsize'], screen._level_need[True])
+        for table in ('JFX: Strings', 'JFX: Object descriptions', 'JFX: Options three'):
+            screen.var_table.set(table)
+            screen.cmb_table.event_generate('<<ComboboxSelected>>')            # Object descriptions: Level dice 'All levels'
+            self.assertEqual(card.grid_columnconfigure(1)['minsize'], screen._menu_need, table)
+            self.assertEqual(card.grid_columnconfigure(3)['minsize'], screen._menu_need, table)
 
     def test_on_two_rows_the_columns_have_no_minimum(self):
         screen = self.manual_screen()
@@ -2449,13 +2480,37 @@ class OneRowSelectionTests(UiCase):
             self.root.geometry(f'{width}x720')
             settle()
             self.assertTrue(screen._one_row, width)
+            widths = set()
             for table in ('JFX: Object descriptions', 'JFX: Options three', 'JFX: Strings'):
                 screen.var_table.set(table)
                 screen.cmb_table.event_generate('<<ComboboxSelected>>')
                 settle()
-                self.assertGreaterEqual(screen.cmb_table.winfo_width(), screen._font.measure(table) + extra, (width, table))
-                self.assertGreaterEqual(screen.cmb_level.winfo_width(), screen._level_need[not screen._levelless],
-                                        (width, table))
+                short = table.split(': ', 1)[-1]
+                self.assertGreaterEqual(screen.cmb_table.winfo_width(), screen._font.measure(short) + extra, (width, table))
+                self.assertGreaterEqual(screen.cmb_level.winfo_width(), screen._level_need, (width, table))
+                widths.add((screen.cmb_table.winfo_width(), screen.cmb_level.winfo_width()))
+                self.assertAlmostEqual(screen.cmb_table.winfo_width(), screen.cmb_level.winfo_width(), delta=1,
+                                       msg=(width, table))                # sempre pari (1 pixel di arrotondamento)
+            self.assertEqual(len(widths), 1, (width, widths))                  # scegliendo un'altra tabella nulla si muove
+
+    def test_the_open_list_is_wide_enough_for_the_full_names(self):
+        self.stop_fit_patch()
+        screen = self.step2()
+        self.root.deiconify()
+        for _ in range(15):
+            self.root.update()
+        extra = scale.px(28)
+        for combo, longest in ((screen.cmb_table, 'JFX: Object descriptions'), (screen.cmb_level, L_CC)):
+            popdown = f'{combo}.popdown'
+            self.root.tk.call('ttk::combobox::Post', combo)
+            for _ in range(15):
+                self.root.update()
+                time.sleep(0.005)
+            try:
+                width = int(self.root.tk.call('winfo', 'width', popdown))
+            finally:
+                self.root.tk.call('ttk::combobox::Unpost', combo)
+            self.assertGreaterEqual(width, screen._font.measure(longest) + extra, longest)
 
     def test_a_card_narrower_than_the_names_falls_back_to_two_rows_in_a_real_window(self):
         self.stop_fit_patch()

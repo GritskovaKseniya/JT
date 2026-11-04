@@ -6,7 +6,7 @@ import tkinter.font as tkfont
 from tkinter import ttk
 
 from .. import environments
-from ..layers import DEFAULT_LEVEL, LEVEL_ALL, LEVEL_CHOICES, level_label, users_written
+from ..layers import DEFAULT_LEVEL, LEVEL_ALL, LEVEL_CHOICES, level_label, level_short_title, users_written
 from ..logs import write_run_logs, write_undo_script
 from ..runner import DONE, ERROR, PROGRESS
 from ..tables import TooManyKeys, get_table
@@ -14,7 +14,7 @@ from .scale import pad, px
 from .secret import open_secret_panel
 from .texts import describe_duration, fmt_count, reason, rows, shorten
 from .theme import FONT, PALETTE
-from .widgets import Collapsible, StatusBar, ToolTip, WrapTracker
+from .widgets import Collapsible, StatusBar, ToolTip, WrapTracker, widen_dropdown
 
 POLL_MS = 100            # ogni quanto l'interfaccia legge gli avanzamenti del thread di traduzione
 
@@ -45,6 +45,11 @@ LEVEL_HINT = {
     'footer': 'FW_DOCU_NODES_T and FW_OBJ_DESCRS have no levels: the field is switched off for them and they '
               'translate everything.',
 }
+
+def table_short_name(description):
+    """Quello che il campo Table mostra a scelta fatta: 'JFX: Strings' -> 'Strings'."""
+    return description.split(': ', 1)[-1]
+
 
 COMBO_EXTRA = 28                # spazio che un menu a tendina vuole oltre al testo (freccia, margini): pixel a scala 100%
 MAX_PREVIEW_ROWS = 500          # righe mostrate nella tabella dell'anteprima (si scrivono tutte, anche le altre)
@@ -94,11 +99,20 @@ class TranslationScreen(ttk.Frame):
 
         languages = app.catalog.languages()
         descriptions = [entry['description'] for entry in self.entries]
+        self._descriptions = descriptions
         saved = app.settings.last_query()
         self.var_in = tk.StringVar(self, value=_pick(saved.get('linput'), languages))
         self.var_out = tk.StringVar(self, value=_pick(saved.get('loutput'), languages, 1))
         self.var_table = tk.StringVar(self, value=_pick(saved.get('table'), descriptions))
+        self.var_table_shown = tk.StringVar(self, value=table_short_name(self.var_table.get()))
+        self.var_table.trace_add('write', self._show_table_short)
+        self.var_table_shown.trace_add('write', self._table_picked)
         self.var_level = tk.StringVar(self, value=_pick(saved.get('level'), list(LEVEL_CHOICES), 1))     # Standard
+        # il menu elenca i titoli interi (CW - Integrations), a scelta fatta il campo mostra solo "Integrations":
+        # var_level tiene sempre il titolo intero, var_level_shown e' quello che si vede nel campo
+        self.var_level_shown = tk.StringVar(self, value=level_short_title(self.var_level.get()))
+        self.var_level.trace_add('write', self._show_level_short)
+        self.var_level_shown.trace_add('write', self._level_picked)
         self._levelless = False        # la tabella scelta non ha livelli: il campo Level e' spento (dice 'All levels')
         self._level_before = self.var_level.get()
         self.var_max = tk.StringVar(self, value='1')
@@ -186,11 +200,11 @@ class TranslationScreen(ttk.Frame):
 
         self.label_table = ttk.Label(card, text='Table')
         # width=1: il menu non pretende i suoi 20 caratteri, la larghezza la decidono le colonne (_size_selection_columns)
-        self.cmb_table = ttk.Combobox(card, textvariable=self.var_table, values=descriptions, state='readonly', width=1)
+        self.cmb_table = ttk.Combobox(card, textvariable=self.var_table_shown, values=descriptions, state='readonly', width=1)
         self.cmb_table.bind('<<ComboboxSelected>>', self.on_table_selected)
 
         self.label_level = label_level = ttk.Label(card, text='Level  (?)')
-        self.cmb_level = ttk.Combobox(card, textvariable=self.var_level, values=list(LEVEL_CHOICES), state='readonly',
+        self.cmb_level = ttk.Combobox(card, textvariable=self.var_level_shown, values=list(LEVEL_CHOICES), state='readonly',
                                       width=1)
         self.cmb_level.bind('<<ComboboxSelected>>', self.refresh_missing)
         self.level_tip = ToolTip(label_level, LEVEL_HINT, self.cmb_level)
@@ -227,31 +241,31 @@ class TranslationScreen(ttk.Frame):
         card.bind('<Configure>', self._on_card_resize)
 
     def _measure_selection(self):
-        """Quanta larghezza serve a Table e Level su una riga, dai nomi veri delle tabelle e dei livelli. Le tabelle senza livelli
-        mostrano 'All levels' (non il nome piu' lungo), quindi il caso peggiore non e' 'tabella piu' lunga + livello piu' lungo'."""
+        """Quanta larghezza serve a Table e Level su una riga. I campi mostrano solo il nome corto ('Strings', 'Integrations'),
+        quindi le due colonne hanno una larghezza fissa, dal nome corto piu' lungo: non cambia scegliendo un'altra tabella.
+        L'elenco a tendina, invece, ha i nomi interi e si allarga da solo quando si apre (`widen_dropdown`)."""
         font = self._font = tkfont.Font(root=self, family=FONT, size=10)
         extra = px(COMBO_EXTRA)
-        self._level_need = {True: max(font.measure(title) for title in LEVEL_CHOICES) + extra,       # tabella con livelli
-                            False: font.measure(LEVEL_ALL) + extra}                                    # senza: All levels
-        worst = 0
-        for entry in self.entries:
-            layered = get_table(entry['table']).supports_levels
-            worst = max(worst, font.measure(entry['description']) + extra + self._level_need[layered])
+        self._table_need = max((font.measure(table_short_name(e['description'])) for e in self.entries), default=0) + extra
+        self._level_need = max(font.measure(level_short_title(title)) for title in LEVEL_CHOICES) + extra
+        self._menu_need = max(self._table_need, self._level_need)       # i due menu sono sempre larghi uguale
+        worst = 2 * self._menu_need
+        widen_dropdown(self.cmb_table, max((font.measure(e['description']) for e in self.entries), default=0) + extra)
+        widen_dropdown(self.cmb_level, max(font.measure(title) for title in LEVEL_CHOICES) + extra)
         self._gaps = (px(10), px(14), px(6))                  # tra Table e il suo menu, prima di Level, tra Level e il suo menu
         labels = font.measure('Table') + font.measure('Level  (?)')
         card_padding = px(22)                                 # margine interno e bordo della scheda
         self._one_row_threshold = worst + labels + sum(self._gaps) + card_padding + px(6)
 
     def _size_selection_columns(self):
-        """Su una riga ogni menu e' largo almeno quanto serve a quello che mostra (la tabella scelta, un nome di livello o
-        'All levels'); il resto della riga va a Table. Su due righe la colonna si allarga da sola."""
+        """Su una riga ogni menu e' largo almeno quanto serve al suo nome corto piu' lungo; il resto della riga si divide in parti uguali. Su due righe la colonna si allarga da sola."""
         card = self._selection_card
         if self._one_row:
-            card.columnconfigure(1, weight=1, minsize=self._font.measure(self.var_table.get()) + px(COMBO_EXTRA))
-            card.columnconfigure(3, weight=0, minsize=self._level_need[not self._levelless])
+            card.columnconfigure(1, weight=1, minsize=self._menu_need, uniform='menus')       # uguali, anche allargando la finestra
+            card.columnconfigure(3, weight=1, minsize=self._menu_need, uniform='menus')
         else:
-            card.columnconfigure(1, weight=1, minsize=0)
-            card.columnconfigure(3, weight=0, minsize=0)
+            card.columnconfigure(1, weight=1, minsize=0, uniform='')
+            card.columnconfigure(3, weight=0, minsize=0, uniform='')
 
     def _arrange_selection(self, one_row):
         """Table e Level su due righe (finestra stretta) oppure su una riga sola (finestra larga)."""
@@ -418,6 +432,28 @@ class TranslationScreen(ttk.Frame):
     def _level(self):
         """Il Layer scelto nel campo Level (None = All, nessun filtro)."""
         return LEVEL_CHOICES.get(self.var_level.get())
+
+    def _show_table_short(self, *_):
+        self.var_table_shown.set(table_short_name(self.var_table.get()))
+
+    def _table_picked(self, *_):
+        """Come per Level: il menu scrive il nome intero (JFX: Strings), la tabella scelta e' quella e il campo mostra 'Strings'."""
+        picked = self.var_table_shown.get()
+        if picked in self._descriptions:
+            if picked != self.var_table.get():
+                self.var_table.set(picked)
+            self.var_table_shown.set(table_short_name(picked))
+
+    def _show_level_short(self, *_):
+        self.var_level_shown.set(level_short_title(self.var_level.get()))
+
+    def _level_picked(self, *_):
+        """Il menu ha scritto nel campo un titolo intero: diventa il livello scelto e il campo torna alla forma corta."""
+        picked = self.var_level_shown.get()
+        if picked in LEVEL_CHOICES:
+            if picked != self.var_level.get():
+                self.var_level.set(picked)
+            self.var_level_shown.set(level_short_title(picked))
 
     def _update_level_state(self):
         """Le tabelle senza livelli (FW_DOCU_NODES_T, FW_OBJ_DESCRS): il campo Level si spegne e dice 'All levels'; tornando a

@@ -25,9 +25,28 @@ def work_area_bottom(widget):
     return screen_height
 
 
+def widen_dropdown(combo, width):
+    """L'elenco di un Combobox e' largo come il campo e taglia i nomi lunghi: all'apertura lo si allarga a `width` pixel
+    (senza uscire dallo schermo). Serve quando il campo mostra solo la parte corta del nome."""
+    def widen():
+        popdown = f'{combo}.popdown'
+        try:
+            if not int(combo.tk.call('winfo', 'ismapped', popdown)):
+                return
+            wide = max(width, combo.winfo_width())
+            x, y = int(combo.tk.call('winfo', 'rootx', popdown)), int(combo.tk.call('winfo', 'rooty', popdown))
+            height = int(combo.tk.call('winfo', 'height', popdown))
+            x = max(0, min(x, combo.winfo_screenwidth() - wide))
+            combo.tk.call('wm', 'geometry', popdown, f'={wide}x{height}+{x}+{y}')
+        except tk.TclError:
+            pass                                   # l'elenco si e' gia' chiuso
+
+    combo.configure(postcommand=lambda: combo.after(1, widen))
+
+
 class ToolTip:
     """Suggerimento che compare passando il mouse sul widget (o su uno qualsiasi di quelli indicati: un solo riquadro).
-    content: dict (title, intro, rows, footer) oppure funzione che lo restituisce."""
+    content: dict (title, intro, rows, footer), un testo semplice oppure funzione che lo restituisce."""
 
     def __init__(self, widget, content, *more_widgets):
         self.widget = widget
@@ -42,6 +61,8 @@ class ToolTip:
         if self.tip:
             return
         data = self.content() if callable(self.content) else self.content
+        if isinstance(data, (str, os.PathLike)):
+            data = {'title': str(data)}                   # un testo semplice (es. il percorso della cartella dei log)
         c = PALETTE
         self.tip = tk.Toplevel(self.widget)
         self.tip.wm_overrideredirect(True)

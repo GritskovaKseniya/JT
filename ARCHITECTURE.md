@@ -55,11 +55,12 @@ dati di connessione (`Settings.environment` / `save_environment`) e vive in `JTA
 test `JTApp.confirm_write` e' sostituito da una risposta automatica (`UiCase`).
 
 **Table e Level su una riga.** `TranslationScreen._arrange_selection` dispone i campi su una riga se ci stanno i nomi veri
-(`_measure_selection` calcola la soglia dai testi delle tabelle e dei livelli: il caso peggiore e' "tabella con livelli piu' lunga +
-livello piu' lungo" oppure "tabella senza livelli piu' lunga + `All levels`", non la coppia impossibile "Object descriptions + CT -
-Customizations") e su due altrimenti (con un po' d'isteresi); `_on_card_resize` lo decide dall'ampiezza vera della scheda. Su una
-riga ogni colonna ha la larghezza minima di quello che mostra (`_size_selection_columns`) e i menu dichiarano `width=1` (senza,
-pretenderebbero 20 caratteri e taglierebbero il nome piu' lungo).
+(`_measure_selection` calcola la soglia dai nomi corti che i campi mostrano: `Object descriptions`, `Client Customization`) e su due altrimenti (con un po' d'isteresi); `_on_card_resize` lo decide dall'ampiezza vera della scheda. Su una
+riga le due colonne sono sempre larghe uguale (`_size_selection_columns`: `uniform`, minimo = il nome corto piu' lungo; allargando la
+finestra si dividono il resto a meta'; non cambia scegliendo un'altra tabella) e i menu dichiarano `width=1` (senza, pretenderebbero 20 caratteri). **Nome corto nel campo:** il menu elenca i nomi interi
+(`JFX: Strings`, `CW - Integrations`), a scelta fatta il campo mostra solo la parte dopo i due punti o il trattino: `var_table` e
+`var_level` tengono il nome intero, i campi usano `var_table_shown` / `var_level_shown` (allineati da due trace). L'elenco di un
+Combobox e' largo come il campo e taglierebbe i nomi interi: `widen_dropdown` (`widgets.py`) lo allarga all'apertura.
 
 **Sezioni che si aprono e si chiudono.** I blocchi del passo 2 (LANGUAGES, WHAT TO TRANSLATE, PROGRESS) e "Advanced" (Max rows,
 Update by keys) e "Details" (tempi) sono `Collapsible` (`ui/widgets.py`): chiuse mostrano solo la riga con un riassunto
