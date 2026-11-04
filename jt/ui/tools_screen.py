@@ -122,7 +122,7 @@ class ToolsScreen(ttk.Frame):
         self.selected = None               # il nome dello strumento mostrato
         self.wrap = _WrapAll(self)
         self.menu = ToolBar(self, self.tools, self.problems, self.select, lambda: app.fit_window())
-        self.menu.pack(fill='x', pady=(0, px(6)))
+        self.menu.pack(fill='x', padx=px(20), pady=(0, px(6)))          # lo stesso margine ai lati delle schermate
         self.content = ttk.Frame(self)
         self.content.pack(fill='both', expand=True)
         first = next((tool for tool in self.tools if not self.problems[tool.name]), None)

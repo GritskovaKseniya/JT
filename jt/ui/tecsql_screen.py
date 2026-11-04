@@ -5,9 +5,9 @@ from tkinter import ttk
 
 from .. import dictionary
 from ..tecsql_translator import normalize_query_text
-from .scale import px
+from .scale import pad, px
 from .theme import FONT, PALETTE
-from .widgets import StatusBar, ToolTip, WrapTracker
+from .widgets import Collapsible, StatusBar, ToolTip, WrapTracker
 
 MONO = ('Consolas', 10)
 EMPTY_HINT = 'Paste a query: with a $ it is TecSQL (to SQL), without it is SQL (to TecSQL).'
@@ -15,7 +15,7 @@ EMPTY_HINT = 'Paste a query: with a $ it is TecSQL (to SQL), without it is SQL (
 
 class TecsqlScreen(ttk.Frame):
     def __init__(self, parent, app):
-        super().__init__(parent)
+        super().__init__(parent, padding=pad(20, 4, 20, 6))           # come le altre schermate: 20 di margine ai lati
         self.app = app
         self.wrap = WrapTracker()
         self.dictionary = None              # il Dictionary del database collegato
@@ -26,27 +26,23 @@ class TecsqlScreen(ttk.Frame):
 
         # il dizionario: quanti nomi, e per rileggerlo
         top = tk.Frame(self, bg=PALETTE['bg'])
-        top.pack(fill='x')
+        top.pack(fill='x', pady=(0, px(6)))
         self.label_dictionary = ttk.Label(top, text='', style='Muted.TLabel')
         self.label_dictionary.pack(side='left')
-        self.reload_button = ttk.Button(top, text='Reload dictionary', style='Secondary.TButton', command=self.reload)
+        self.reload_button = ttk.Button(top, text='Reload', style='Secondary.TButton', command=self.reload)
         self.reload_button.pack(side='right')
         ToolTip(self.reload_button, {'title': 'Reload dictionary',
                                      'intro': 'The names are read from the database once. Reload them if they changed.'})
 
-        tk.Label(self, text='Query', bg=PALETTE['bg'], fg=PALETTE['text'], font=(FONT, 9, 'bold'), anchor='w').pack(
-            fill='x', pady=(px(8), px(2)))
-        self.input = self._text(height=7)
+        # --- la query
+        self.query_section, card = self._section('QUERY', first=True)
+        self.input = self._text(card, height=6)
         self.input.pack(fill='x')
         self.input.bind('<Control-Return>', lambda _e: (self.translate(), 'break')[1])
-
-        buttons = tk.Frame(self, bg=PALETTE['bg'])
+        buttons = tk.Frame(card, bg=PALETTE['bg'])
         buttons.pack(fill='x', pady=(px(8), 0))
         self.translate_button = ttk.Button(buttons, text='Translate', style='Primary.TButton', command=self.translate)
         self.translate_button.pack(side='left', padx=(0, px(6)))
-        self.swap_button = ttk.Button(buttons, text='Use result as query', style='Secondary.TButton', command=self.swap,
-                                      state='disabled')
-        self.swap_button.pack(side='left', padx=(0, px(6)))
         self.clear_button = ttk.Button(buttons, text='Clear', style='Secondary.TButton', command=self.clear)
         self.clear_button.pack(side='left')
         self.check_strip = ttk.Checkbutton(buttons, text='Remove ?parameters', variable=self.var_strip)
@@ -63,17 +59,23 @@ class TecsqlScreen(ttk.Frame):
         self.choice_box = ttk.Combobox(self.choice_row, textvariable=self.var_choice, state='readonly', width=1)
         self.choice_box.pack(fill='x', pady=(px(2), 0))
         self.choice_box.bind('<<ComboboxSelected>>', self._chosen)
-        self.wrap.add(self.choice_label, 40)
+        self.wrap.add(self.choice_label, 60)
 
-        self.head = head = tk.Frame(self, bg=PALETTE['bg'])
-        head.pack(fill='x', pady=(px(10), px(2)))
-        self.label_result = tk.Label(head, text='Result', bg=PALETTE['bg'], fg=PALETTE['text'], font=(FONT, 9, 'bold'))
-        self.label_result.pack(side='left')
-        self.label_direction = ttk.Label(head, text='', style='Muted.TLabel')
-        self.label_direction.pack(side='left', padx=(px(8), 0))
-        self.copy_button = ttk.Button(head, text='Copy', style='Secondary.TButton', command=self.copy, state='disabled')
+        # --- il risultato
+        self.result_section, card = self._section('RESULT')
+        self.head = self.result_section                           # la domanda dei nomi si mette prima di questa sezione
+        top_row = tk.Frame(card, bg=PALETTE['bg'])
+        top_row.pack(fill='x', pady=(0, px(4)))
+        self.label_direction = ttk.Label(top_row, text='', style='Muted.TLabel')
+        self.label_direction.pack(side='left')
+        self.copy_button = ttk.Button(top_row, text='Copy', style='Secondary.TButton', command=self.copy, state='disabled')
         self.copy_button.pack(side='right')
-        self.output = self._text(height=7, readonly=True)
+        self.swap_button = ttk.Button(top_row, text='Use as query', style='Secondary.TButton', command=self.swap,
+                                      state='disabled')
+        self.swap_button.pack(side='right', padx=(0, px(6)))
+        ToolTip(self.swap_button, {'title': 'Use as query',
+                                   'intro': 'Puts the result in the query box, to translate it back to the other form.'})
+        self.output = self._text(card, height=6, readonly=True)
         self.output.pack(fill='x')
 
         self.status = StatusBar(self, EMPTY_HINT, on_change=lambda: app.fit_window())
@@ -82,8 +84,17 @@ class TecsqlScreen(ttk.Frame):
 
         self.load_dictionary()
 
-    def _text(self, height, readonly=False):
-        text = tk.Text(self, height=height, width=1, wrap='word', font=MONO, bg='white', fg=PALETTE['text'], undo=not readonly,
+    def _section(self, title, first=False):
+        """Un blocco con titolo che si chiude, come nel passo di Strings. Ritorna (la sezione, la scheda per i campi)."""
+        section = Collapsible(self, title, expanded=True, on_toggle=lambda: self.app.fit_window())
+        section.pack(fill='x', pady=(0 if first else px(8), 0))
+        card = tk.Frame(section.body, bg=PALETTE['bg'], highlightthickness=1, highlightbackground=PALETTE['border'],
+                        padx=px(10), pady=px(8))
+        card.pack(fill='x', pady=(px(2), 0))
+        return section, card
+
+    def _text(self, parent, height, readonly=False):
+        text = tk.Text(parent, height=height, width=1, wrap='word', font=MONO, bg='white', fg=PALETTE['text'], undo=not readonly,
                        relief='flat', highlightthickness=1, highlightbackground=PALETTE['field_border'],
                        highlightcolor=PALETTE['accent'], padx=px(6), pady=px(4))
         if readonly:
@@ -208,6 +219,7 @@ class TecsqlScreen(ttk.Frame):
         self.output.delete('1.0', 'end')
         self.output.config(state='disabled')
         self.label_direction.config(text='')
+        self.result_section.set_summary('')
         for button in (self.copy_button, self.swap_button):
             button.config(state='disabled')
 
