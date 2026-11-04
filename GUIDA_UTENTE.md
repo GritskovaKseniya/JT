@@ -133,6 +133,10 @@ c'e' qualcosa da guardare; se ci sono errori il messaggio mostra anche il primo 
 Nella riga **Details** sotto la barra di avanzamento c'e' sempre il link **Open the logs folder**, che apre la cartella dei
 log; cliccando su **Details** si vedono anche i tempi (trascorso e previsto).
 
+**Chiudere JT.** Se non sta traducendo, JT si chiude subito (anche dal pannello di Windows) e chiude la connessione al database,
+senza domande. Se sta traducendo chiede conferma (**Stop and quit** / **Keep translating**): le righe gia' scritte restano nel
+database e la riga in corso viene finita prima di uscire. Un'anteprima pronta ma non ancora scritta si perde alla chiusura.
+
 ## 5. "Update by keys": rifare traduzioni specifiche
 
 Serve quando una stringa e' cambiata e vuoi rigenerare la traduzione, oppure vuoi tradurre solo alcune voci.

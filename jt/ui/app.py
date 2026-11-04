@@ -193,8 +193,7 @@ class JTApp:
                 else:
                     self.finish_close()
             return
-        if self.confirm('Quit JT?', 'The database connection will be closed.', 'Quit', 'Stay'):
-            self.finish_close()
+        self.finish_close()                  # niente in corso: si chiude subito (anche dal pannello di Windows)
 
     def finish_close(self):
         self.db.close()

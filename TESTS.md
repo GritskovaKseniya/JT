@@ -45,9 +45,9 @@ Eseguiti anche con i `ResourceWarning` trattati come errori.
 Passo 1 (connessione, Invio, "Connecting...", errore con motivo accorciato, password nascosta, modifica dei campi dopo la connessione) e riga del database in basso; pannello dei passi
 (pallini a immagine, scelti in base alla scala); passo 2 (tabella salvata ma disabilitata non selezionata, conteggi con avvisi, suggerimenti); **selezione obsoleta** (ogni modifica
 ai campi disabilita Translate: non si scrive mai nella tabella sbagliata); "Max rows" (solo cifre, minimo 1); Load (righe mancanti e chiavi); traduzione dall'interfaccia con
-esecuzione sincrona **e con un vero thread** (la finestra resta viva, avanzamento, **pulsante Stop**, campi bloccati, log nella cartella `Logs`, riepilogo); chiusura (conferma, annulla,
-errore in `close()`, durante una traduzione, una sola conferma alla volta, traduzione che continua mentre la conferma e' aperta); finestra di conferma compatta, senza logo, con lo stesso
-titolo della finestra principale, Invio sul pulsante con il focus ("Stay" di default), Esc/X = annulla; finestra ridimensionabile, mai in primo piano, mai oltre il bordo basso; testi che
+esecuzione sincrona **e con un vero thread** (la finestra resta viva, avanzamento, **pulsante Stop**, campi bloccati, log nella cartella `Logs`, riepilogo); chiusura (da fermo chiude subito senza chiedere, anche dalla X o dal pannello di Windows; durante una traduzione
+chiede conferma; errore in `close()`, una sola conferma alla volta, traduzione che continua mentre la conferma e' aperta); finestra di conferma compatta, senza logo, con lo stesso
+titolo della finestra principale, Invio sul pulsante con il focus ("Keep translating" di default), Esc/X = annulla; finestra ridimensionabile, mai in primo piano, mai oltre il bordo basso; testi che
 vanno a capo; banner che cresce col testo; contrasti WCAG; scala dello schermo a 100/125/150/200%; messaggio nascosto non bloccante; i loghi (tre scelte, quella configurata esiste,
 tutte le dimensioni, ogni voce `.ico` e' un PNG della propria dimensione) e la cartella `Graphics` con solo i file usati; **ordine delle lingue** (italiano, inglese, poi A-Z; da = italiano, a = inglese; scelta salvata
 che vince); testi ("1 row", "less than a minute"); **passaggi fra i passi senza scatti** (Next e New connection: una sola misura finale, la finestra non si sposta di lato, il passo nuovo si

@@ -3194,25 +3194,16 @@ class ClosingTests(UiCase):
         self.addCleanup(patcher.stop)
         return mock
 
-    def test_confirmed_quit_closes_the_connection_and_the_window(self):
+    def test_closing_when_idle_asks_nothing_and_closes_the_connection_and_the_window(self):
         self.step2()
         destroy = self.watch_destroy()
-        with patch.object(JTApp, 'confirm', return_value=True):
+        with patch.object(JTApp, 'confirm', return_value=False) as confirm:
             self.app.on_closing()
+        confirm.assert_not_called()                  # niente in corso: si chiude subito, senza domande
         self.assertTrue(self.fake_db.conns[0].closed)
         destroy.assert_called_once()
         with self.assertRaises(tk.TclError):
             self.root.winfo_exists()
-
-    def test_cancelled_quit_keeps_everything_open(self):
-        self.step2()
-        destroy = self.watch_destroy()
-        with patch.object(JTApp, 'confirm', return_value=False):
-            self.app.on_closing()
-        self.assertFalse(self.fake_db.conns[0].closed)
-        self.assertTrue(self.db.connected)
-        destroy.assert_not_called()
-        self.assertTrue(self.root.winfo_exists())
 
     def test_error_in_close_does_not_prevent_quitting(self):
         self.fake_db.close_error = True
@@ -3232,9 +3223,9 @@ class ClosingTests(UiCase):
     def test_the_window_close_button_is_wired_to_on_closing(self):
         script = self.root.protocol('WM_DELETE_WINDOW')
         self.assertTrue(script)
-        with patch.object(JTApp, 'confirm', return_value=False) as confirm:
-            self.root.tk.eval(script)
-        confirm.assert_called_once()
+        with patch.object(JTApp, 'finish_close') as finish:
+            self.root.tk.eval(script)                # la X o "Chiudi" dal pannello di Windows: da fermo chiude
+        finish.assert_called_once()
 
     def test_shutdown_closes_the_connection_only(self):
         self.step2()
@@ -3243,7 +3234,11 @@ class ClosingTests(UiCase):
         self.assertTrue(self.root.winfo_exists())
         self.app.shutdown()                         # ripetibile
 
-    # ---- dialogo reale
+    # ---- dialogo reale (quello che si apre solo durante una traduzione)
+
+    def ask_quit(self):
+        return self.app.confirm('Stop the translation and quit?', 'Rows already written stay in the database.',
+                                'Stop and quit', 'Keep translating')
 
     def test_real_dialog_has_the_same_title_as_the_main_window(self):
         self.step2()
@@ -3252,11 +3247,11 @@ class ClosingTests(UiCase):
             seen['title'] = dialog.top.title()
             dialog.cancel_button.invoke()
 
-        _, seen = self.drive_dialog(self.app.on_closing, look)
+        _, seen = self.drive_dialog(self.ask_quit, look)
         self.assertEqual(seen['title'], self.root.title())
         self.assertEqual(seen['title'], f'{APP_TITLE} v{VERSION}')            # la versione cambia a ogni rilascio
 
-    def test_real_dialog_buttons_are_labelled_quit_and_stay(self):
+    def test_real_dialog_buttons_are_labelled_stop_and_quit_and_keep_translating(self):
         self.step2()
 
         def look(dialog, seen):
@@ -3266,9 +3261,9 @@ class ClosingTests(UiCase):
             dialog.cancel_button.invoke()
 
         with patch.object(JTApp, 'finish_close') as finish:
-            _, seen = self.drive_dialog(self.app.on_closing, look)
-        self.assertEqual((seen['ok'], seen['cancel']), ('Quit', 'Stay'))
-        for text in ('Quit JT?', 'The database connection will be closed.'):
+            _, seen = self.drive_dialog(self.ask_quit, look)
+        self.assertEqual((seen['ok'], seen['cancel']), ('Stop and quit', 'Keep translating'))
+        for text in ('Stop the translation and quit?', 'Rows already written stay in the database.'):
             self.assertIn(text, seen['texts'])
         finish.assert_not_called()
         self.assertTrue(self.db.connected)
@@ -3276,14 +3271,13 @@ class ClosingTests(UiCase):
 
     def test_real_dialog_quit_button_confirms(self):
         self.step2()
-        with patch.object(JTApp, 'finish_close') as finish:
-            self.drive_dialog(self.app.on_closing, lambda d, s: d.ok_button.invoke())
-        finish.assert_called_once()
+        value, _ = self.drive_dialog(self.ask_quit, lambda d, s: d.ok_button.invoke())
+        self.assertIs(value, True)
 
     def test_real_dialog_escape_means_cancel(self):
         self.step2()
         with patch.object(JTApp, 'finish_close') as finish:
-            self.drive_dialog(self.app.on_closing, lambda d, s: fire(d.top, '<Escape>'))
+            self.drive_dialog(self.ask_quit, lambda d, s: fire(d.top, '<Escape>'))
         finish.assert_not_called()
         self.assertTrue(self.db.connected)
 
@@ -3294,14 +3288,14 @@ class ClosingTests(UiCase):
             dialog.top.tk.eval(dialog.top.protocol('WM_DELETE_WINDOW'))
 
         with patch.object(JTApp, 'finish_close') as finish:
-            self.drive_dialog(self.app.on_closing, press_x)
+            self.drive_dialog(self.ask_quit, press_x)
         finish.assert_not_called()
         self.assertTrue(self.db.connected)
 
     def test_real_dialog_enter_activates_the_focused_button_and_by_default_that_is_stay(self):
         self.step2()
         with patch.object(JTApp, 'finish_close') as finish:             # Invio senza toccare il focus: "Stay"
-            value, _ = self.drive_dialog(self.app.on_closing, lambda d, s: fire(d.top, '<Return>'))
+            value, _ = self.drive_dialog(self.ask_quit, lambda d, s: fire(d.top, '<Return>'))
         finish.assert_not_called()
         self.assertTrue(self.db.connected)
 
@@ -3312,9 +3306,8 @@ class ClosingTests(UiCase):
             with patch.object(dialog.top, 'focus_get', return_value=dialog.ok_button):
                 fire(dialog.top, '<Return>')
 
-        with patch.object(JTApp, 'finish_close') as finish:
-            self.drive_dialog(self.app.on_closing, enter_on_quit)
-        finish.assert_called_once()
+        value, _ = self.drive_dialog(self.ask_quit, enter_on_quit)
+        self.assertIs(value, True)
 
     def test_real_dialog_enter_on_the_focused_stay_button_cancels(self):
         self.step2()
@@ -3324,7 +3317,7 @@ class ClosingTests(UiCase):
                 fire(dialog.top, '<Return>')
 
         with patch.object(JTApp, 'finish_close') as finish:
-            self.drive_dialog(self.app.on_closing, enter_on_stay)
+            self.drive_dialog(self.ask_quit, enter_on_stay)
         finish.assert_not_called()
 
     def test_real_dialog_enter_with_the_focus_somewhere_else_means_cancel(self):
@@ -3367,14 +3360,12 @@ class ClosingTests(UiCase):
         self.step2()
 
         def press_x_again(dialog, seen):
-            self.app.on_closing()
+            self.ask_quit()
             seen['windows'] = len([w for w in self.root.winfo_children() if isinstance(w, tk.Toplevel)])
             dialog.ok_button.invoke()
 
-        with patch.object(JTApp, 'finish_close') as finish:
-            _, seen = self.drive_dialog(self.app.on_closing, press_x_again)
+        _, seen = self.drive_dialog(self.ask_quit, press_x_again)
         self.assertEqual(seen['windows'], 1)
-        finish.assert_called_once()
 
     def test_a_dialog_is_not_a_nested_pause_of_the_application(self):
         ticks = []
