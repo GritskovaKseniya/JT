@@ -12,3 +12,6 @@ __pycache__/
 build/
 dist/
 *.spec
+
+# righe vere copiate da un database (tools/extract_sample.py): dati dell'azienda, non vanno su GitHub
+tools/sample_data.json

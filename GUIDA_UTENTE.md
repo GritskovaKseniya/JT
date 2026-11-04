@@ -29,13 +29,13 @@ Il programma ha due passi, in alto a sinistra: **1 Connection** e **2 Translatio
 ## 3. Passo 1 - Connessione
 
 1. Compila **Host name**, **Port**, **SID**, **Username**, **Password**. Dopo la prima volta i campi si ricordano.
-2. Premi **Connect** (o Invio). In basso compare "Connecting...", poi "Connection established" oppure il motivo
-   dell'errore.
+2. Premi **Connect** (o Invio). Sotto i pulsanti compare un avviso: "Connecting...", poi "Connection established" oppure il
+   motivo dell'errore. L'avviso si chiude con la crocetta a destra e ricompare al prossimo evento.
 3. Premi **Next** per passare alla traduzione. Se cambi un campo dopo essere collegata, la connessione si chiude e devi
    ricollegarti.
 
-In basso a sinistra una riga mostra sempre lo stato: `Connected to <database> - <host> - user <utente>`. Passa il mouse
-per vedere i dettagli.
+In basso a sinistra una riga mostra sempre lo stato: `Not connected - try the connection to continue` oppure
+`Connected to <database> - <host> - user <utente>`. Passa il mouse per vedere i dettagli.
 
 ## 4. Passo 2 - Traduzione
 
@@ -44,15 +44,33 @@ per vedere i dettagli.
 **From** e' la lingua da cui si traduce, **To** quella in cui si scrive. Italiano e inglese sono in cima all'elenco, poi
 tutte le altre in ordine alfabetico. All'inizio: Italian -> English. La scelta si ricorda.
 
+I blocchi **LANGUAGES**, **WHAT TO TRANSLATE** e **PROGRESS** si chiudono con un clic sul titolo (all'inizio sono aperti): chiusi
+restano una riga con il riassunto (`Italian -> French`, `JFX: Strings - Standard - 12 missing`, `10/10`), e la finestra si
+rimpicciolisce. Anche **Advanced** e **Details** si aprono con un clic.
+
+Se la finestra e' piu' bassa dello schermo (schermo piccolo, scala 150%) compare una barra di scorrimento a destra: la rotella
+del mouse scorre, tranne sopra i menu a tendina.
+
 ### Cosa tradurre
 
 - **Table**: la tabella da tradurre (stringhe, campi, le quattro tabelle delle opzioni, nodi di documentazione, descrizioni
   oggetti).
+- **Level**: quale livello di Jflex tradurre. Passa il mouse sul campo per il dettaglio. **All levels** = tutti, senza filtro;
+  **Standard** = il prodotto standard; **CW - Integrations** = integrazioni; **CT - Customizations** = personalizzazioni Tecnest.
+  All'inizio e' **Standard** (e' cambiato rispetto alla versione 3.0, che traduceva tutto insieme): per tradurre anche le righe
+  CT o CW scegli quel livello oppure All levels. Il livello si riconosce dal codice della stringa (CW 4000000-4999999, CT
+  3000000-3999999) o, per le opzioni, dal prefisso del nome (`Cw...`, `Ct...`). Le tabelle dei nodi di documentazione e delle
+  descrizioni oggetti non hanno livelli: per loro il campo e' spento (All levels) e si traduce sempre tutto. Dopo **Load** il
+  messaggio ricorda il livello se non e' Standard (`3 rows to translate (CT): ...`).
 - Sotto la tabella una riga dice **quante traduzioni mancano**, per questa tabella e per tutte
-  (`Missing in German: 21.053 in this table, 41.841 in all tables`). Passa il mouse: vedi il conteggio per ogni tabella.
+  (`Missing in German (Standard): 21.053 in this table, 41.841 in all tables`; tra parentesi il livello scelto, se non e' All levels). Passa il mouse:
+  vedi il conteggio per ogni tabella.
   Dopo ogni traduzione il conteggio si aggiorna da solo.
-- **Max rows**: quante righe tradurre al massimo in questa corsa (minimo 1). Utile per provare con poche righe.
-- **Update by keys**: vedi il capitolo 5. Se e' vuoto si traduce quello che manca.
+- **Advanced** (aperto all'inizio; un clic sul titolo lo chiude e allora dice cosa c'e' dentro, per esempio `Max rows 1`).
+  Sulla stessa riga:
+  - **Max rows**: quante righe tradurre al massimo in questa corsa (minimo 1). Utile per provare con poche righe.
+  - **Update by keys**: vedi il capitolo 5. Se e' vuoto si traduce quello che manca. Se la sezione e' chiusa, scrivendo delle
+    chiavi si riapre da sola.
 
 ### I tre pulsanti
 
@@ -72,7 +90,8 @@ Durante la traduzione i campi sono bloccati e la barra mostra l'avanzamento
 
 Un messaggio riassume il risultato (`Done: 98 inserted. 1 errors, 1 skipped. Log: Logs\...`). Verde = tutto bene, giallo =
 c'e' qualcosa da guardare; se ci sono errori il messaggio mostra anche il primo (`First error ...`).
-Sotto la barra di avanzamento il link **Open the logs folder** apre la cartella dei log.
+Nella riga **Details** sotto la barra di avanzamento c'e' sempre il link **Open the logs folder**, che apre la cartella dei
+log; cliccando su **Details** si vedono anche i tempi (trascorso e previsto).
 
 ## 5. "Update by keys": rifare traduzioni specifiche
 
@@ -89,6 +108,7 @@ Per ogni riga trovata, JT guarda se esiste gia' nella lingua **To**:
 | Esiste in From e in To | UPDATE: la traduzione viene rifatta e sostituita |
 | Esiste in From, non in To | INSERT: viene creata |
 | Non esiste in From | Non si fa nulla; Load la segnala nell'avviso giallo |
+| E' di un livello diverso da quello scelto in **Level** (per esempio la chiave 100000 con Level = CT) | Non si scrive: Load la segnala nell'avviso giallo (`Skipped, not CT: 100000 (Standard)`) e il motivo finisce nel log delle righe saltate. Con Level = All non si scarta nulla. |
 | Testo di partenza vuoto | Saltata (non c'e' niente da tradurre) |
 
 Il controllo e' fatto chiave per chiave: con `100000, 100001` la prima puo' essere aggiornata e la seconda inserita.
@@ -103,8 +123,8 @@ I testi passano da un glossario: **UMV** diventa **HU** nelle lingue diverse dal
 
 | Dove | Cosa |
 |---|---|
-| Nel database | Le traduzioni. Nella colonna "utente" delle righe inserite o aggiornate scrive la sigla `JT`, cosi' le riconosci. |
-| `%LOCALAPPDATA%\JT\Logs\JT_inserts_log_<data>.csv` | Una riga per ogni traduzione scritta (data, azione, codice, lingue, testo, traduzione). |
+| Nel database | Le traduzioni. Nella colonna "utente" delle righe inserite o aggiornate scrive la sigla `JT`, ma per le righe del livello CT scrive `ZFXCUSTOM` e per quelle del livello CW `ZFXINTEGR`. La categoria (il modulo: MES, WMS...) la copia dalla riga di partenza. |
+| `%LOCALAPPDATA%\JT\Logs\JT_inserts_log_<data>.csv` | Una riga per ogni traduzione scritta (data, azione, codice, livello, utente scritto, lingue, testo, traduzione). Le righe CT e CW si ritrovano da qui, non dalla sigla `JT`. |
 | `...\Logs\JT_errors_log_<data>.csv` | Le righe che il database ha rifiutato, con il motivo (colonna `reason`). |
 | `...\Logs\JT_skipped_log_<data>.csv` | Le righe non tradotte perche' Azure ha dato errore, con il motivo. |
 

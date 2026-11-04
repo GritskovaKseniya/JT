@@ -1,6 +1,6 @@
 # JT - Jflex Translator: test
 
-Ultimo aggiornamento: 2026-11-02 (dopo Stop/thread, riga del database, scala dello schermo, nuovo logo)
+Ultimo aggiornamento: 2026-11-03 (livelli CT/CW, utente e categoria, log con livello e utente, simulatore di Oracle)
 
 ## Come eseguire i test automatici
 
@@ -15,10 +15,10 @@ credenziale reale. Ogni test lavora su una copia temporanea di `Data` (con crede
 temporanea: i file del progetto non vengono toccati. I test dell'interfaccia (`test_ui.py`) usano una vera finestra Tk
 nascosta e vengono saltati se non c'e' un display. Durata: circa 40 secondi.
 
-## Risultato (2026-11-02)
+## Risultato (2026-11-03)
 
 ```
-Ran 542 tests in ~40 s
+Ran 670 tests in ~65 s
 OK
 ```
 
@@ -27,14 +27,16 @@ Eseguiti anche con i `ResourceWarning` trattati come errori.
 | File | Test | Cosa verifica |
 |---|---|---|
 | `test_glossary.py` | 27 | Termini sostituiti (UMV -> HU) e non tradotti; termine da solo senza chiamare Azure; termine dentro una frase protetto e poi ripristinato (`& < >` compresi); solo parola intera; qualsiasi lingua sorgente (anche de -> es); verso l'italiano UMV resta; file mancante/rotto tollerato; regole del `glossary.json` consegnato |
-| `test_tables.py` | 57 | `Catalog` (tabelle abilitate, FWK disabilitata); chiavi di "Update by keys" per ogni tabella; per **ogni** tabella SQL di selezione/conteggio/chiavi (lingue e limiti sempre come bind variable), traduzione di una riga, INSERT e UPDATE esatti (campo vuoto = `NULL`, apici nei bind, marcatore `JT`, colonne utente/data solo se la tabella ha la forma attesa); `Settings`, `Paths` |
-| `test_database.py` | 26 | Connessione e chiusura (ricollegare chiude la precedente, chiusura ripetibile e tollerante agli errori); nomi colonna letti dal cursore e messi in cache; tabelle esistenti; cursori tracciati |
-| `test_service.py` | 64 | Selezione (righe mancanti e per chiavi, conteggio dei caratteri come somma, cursori vecchi chiusi); esecuzione in modalita' normale e per chiavi (INSERT oppure UPDATE), log, errore Azure = riga saltata, errore di INSERT = log errori e si prosegue, commit a ogni riga, avanzamento, arresto richiesto; log CSV; rollback dopo un errore di scrittura o di commit; righe saltate registrate in un log a parte; chiavi con zeri iniziali |
+| `test_tables.py` | 72 | `Catalog` (tabelle abilitate, FWK disabilitata); chiavi di "Update by keys" per ogni tabella; per **ogni** tabella SQL di selezione/conteggio/chiavi (lingue e limiti sempre come bind variable), traduzione di una riga, INSERT e UPDATE esatti (campo vuoto = `NULL`, apici nei bind, marcatore `JT`, colonne utente/data solo se la tabella ha la forma attesa); `Settings`, `Paths` |
+| `test_database.py` | 27 | Connessione e chiusura (ricollegare chiude la precedente, chiusura ripetibile e tollerante agli errori); nomi colonna letti dal cursore e messi in cache; tabelle esistenti; cursori tracciati |
+| `test_service.py` | 77 | Selezione (righe mancanti e per chiavi, conteggio dei caratteri come somma, cursori vecchi chiusi); esecuzione in modalita' normale e per chiavi (INSERT oppure UPDATE), log, errore Azure = riga saltata, errore di INSERT = log errori e si prosegue, commit a ogni riga, avanzamento, arresto richiesto; log CSV; rollback dopo un errore di scrittura o di commit; righe saltate registrate in un log a parte; chiavi con zeri iniziali |
 | `test_support.py` | 40 | Esecuzione in un thread (`BackgroundRunner`, `InlineRunner`: eventi, errori, Stop, un solo lavoro alla volta); testi (`fmt_count`, `shorten` mai oltre il limite, `reason`); informazioni sulla connessione (nome del database dichiarato dal server, password mai conservata); limite delle chiavi; timeout di Azure; cartella dei log creata e nomi unici; `JT.py` dichiara la scala dello schermo prima di aprire la finestra e chiude la connessione anche in caso di errore |
 | `test_regressions.py` | 6 | Cifre simili a numeri (`²`) rifiutate, JSON che non e' un oggetto tollerato, log con caption se manca la descrizione, testo di soli spazi non inviato ad Azure |
-| `test_ui.py` | 293 |
+| `test_ui.py` | 358
+| `test_layers.py` | 8 | Livelli: confini degli intervalli dei codici (2999999 Standard, 3000000 CT, 4999999 CW...), codice fuori livello = errore, nome dell'opzione dal prefisso (maiuscole contano, prefisso scritto male = nessun livello), livelli visibili |
+| `test_simulator.py` | 16 | Simulatore di Oracle: riscrittura SQL (sysdate, ROWNUM, COUNT con limite), `LIKE` che distingue le maiuscole, `ORA-12899`, `ORA-01400`, righe lette che sopravvivono a un rollback, e tutti gli scenari (livelli, utente, categoria, Update by keys, errori) |
 | `test_release.py` | 11 | Procedura di rilascio: controllo dello .zip (file mancanti, dati personali, README/TestDB che non devono esserci, chiave Azure vera o segnaposto), cambio versione |
-| `test_testdb.py` | 13 | Database di prova: ogni tabella abilitata ha schema e righe, una riga ha tanti valori quante colonne, c'e' sempre qualcosa da tradurre (verificato con le query di JT su SQLite) e qualcosa gia' tradotto, casi particolari presenti; non tocca tabelle esistenti, `--recreate` solo su un suo database, crea `JTTEST` solo con l'amministratore, connessioni sempre chiuse, nomi non validi rifiutati | Vedi sotto |
+| `test_testdb.py` | 28 | Database di prova: ogni tabella abilitata ha schema e righe, una riga ha tanti valori quante colonne, c'e' sempre qualcosa da tradurre (verificato con le query di JT su SQLite) e qualcosa gia' tradotto, casi particolari presenti; non tocca tabelle esistenti, `--recreate` solo su un suo database, crea `JTTEST` solo con l'amministratore, connessioni sempre chiuse, nomi non validi rifiutati; righe di prova per i livelli; **righe vere** copiate da un database (`with_sample`: righe aggiunte, chiavi duplicate saltate, date riconvertite, tabelle di forma diversa ignorate, simulatore e JT che funzionano sulle righe vere); `extract_sample.py` (valori puliti, solo `SELECT`, una tabella illeggibile non ferma le altre, il file dei dati e' in `.gitignore`)
 
 ### Cosa copre `test_ui.py`
 

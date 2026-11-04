@@ -25,9 +25,11 @@ class Settings:
     def last_query(self):
         return self._read_optional(self._paths.query)
 
-    def save_last_query(self, language_in, language_out, table_description):
+    def save_last_query(self, language_in, language_out, table_description, level=None):
         data = self._read_optional(self._paths.query)
         data.update(linput=language_in, loutput=language_out, table=table_description)
+        if level is not None:
+            data['level'] = level
         write_json(self._paths.query, data)
 
     def azure_credentials(self):

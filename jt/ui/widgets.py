@@ -87,7 +87,7 @@ class StatusBar(tk.Frame):
     BY_COLOR = {PALETTE['ok']: 'ok', 'green': 'ok', PALETTE['error']: 'error', 'red': 'error',
                 PALETTE['warn']: 'warn', 'orange': 'warn'}
 
-    def __init__(self, parent, text, on_change=None):
+    def __init__(self, parent, text, on_change=None, closable=False):
         super().__init__(parent, bd=0, highlightthickness=0)
         self.on_change = on_change
         self._idle_job = None
@@ -100,6 +100,11 @@ class StatusBar(tk.Frame):
         self.message = tk.Label(self, text=text, anchor='w', justify='left', font=(FONT, 9),
                                 wraplength=px(320), pady=px(6))
         self.message.grid(row=0, column=2, sticky='ew')
+        self.close_button = None
+        if closable:                 # con la crocetta il banner si toglie; chi lo usa lo rimette quando serve (pack)
+            self.close_button = tk.Label(self, text='\u2715', font=(FONT_SYMBOL, 9), cursor='hand2', padx=px(10))
+            self.close_button.grid(row=0, column=3)
+            self.close_button.bind('<Button-1>', self.dismiss)
         self.state = 'info'
         self.set_state('info')
 
@@ -110,6 +115,13 @@ class StatusBar(tk.Frame):
         self.bar.configure(bg=bar)
         self.icon.configure(bg=bg, fg=icon, text=glyph)
         self.message.configure(bg=bg, fg=fg)
+        if self.close_button is not None:
+            self.close_button.configure(bg=bg, fg=fg)
+
+    def dismiss(self, _event=None):
+        """Toglie il banner dalla finestra (che si adatta)."""
+        self.pack_forget()
+        self._notify()
 
     def show(self, state, text):
         self.message.configure(text=text)
@@ -149,6 +161,9 @@ class StatusBar(tk.Frame):
         super().destroy()
 
 
+NOT_CONNECTED = 'Not connected   \u00b7   try the connection to continue'
+
+
 class InfoBar(tk.Frame):
     """Riga in basso, sempre visibile e a bassa enfasi: a quale database si e' collegati.
     Mostra il nome del database dichiarato dal server (se lo da') altrimenti l'SID digitato; il dettaglio e' nel suggerimento."""
@@ -176,7 +191,7 @@ class InfoBar(tk.Frame):
     def set_disconnected(self):
         self.info = None
         self.dot.configure(fg='#8a94a6')
-        self.label.configure(text='Not connected')
+        self.label.configure(text=NOT_CONNECTED)
 
     def _hint(self):
         if not self.info:
@@ -294,3 +309,106 @@ class Stepper(tk.Frame):
             self.link.grid()
         else:
             self.link.grid_remove()
+
+
+class ScrollArea(tk.Frame):
+    """Contenitore che mostra una barra di scorrimento verticale solo se il contenuto non entra: una finestra piu' bassa
+    del suo contenuto (schermo piccolo, scala 150%) non lo taglia in silenzio. I passi si costruiscono dentro `inner`."""
+
+    def __init__(self, parent):
+        super().__init__(parent, bg=PALETTE['bg'])
+        self.canvas = tk.Canvas(self, bg=PALETTE['bg'], highlightthickness=0, bd=0, width=1, height=1)
+        self.bar = ttk.Scrollbar(self, orient='vertical', command=self.canvas.yview)
+        self.canvas.configure(yscrollcommand=self.bar.set)
+        self.canvas.pack(side='left', fill='both', expand=True)
+        self.inner = tk.Frame(self.canvas, bg=PALETTE['bg'])
+        self._window = self.canvas.create_window((0, 0), window=self.inner, anchor='nw')
+        self.inner.bind('<Configure>', self._sync)
+        self.canvas.bind('<Configure>', self._fit_width)
+        self.bind_all('<MouseWheel>', self._wheel, add='+')
+
+    @property
+    def scrolling(self):
+        """True se il contenuto e' piu' alto dell'area visibile (e quindi c'e' la barra)."""
+        return self.bar.winfo_manager() != ''
+
+    def _fit_width(self, event):
+        self.canvas.itemconfigure(self._window, width=event.width)
+        self._sync()
+
+    def _sync(self, _event=None):
+        self.canvas.configure(scrollregion=(0, 0, self.inner.winfo_reqwidth(), self.inner.winfo_reqheight()))
+        needed = self.inner.winfo_reqheight() > self.canvas.winfo_height() > 1
+        if needed and not self.scrolling:
+            self.bar.pack(side='right', fill='y', before=self.canvas)
+        elif not needed and self.scrolling:
+            self.bar.pack_forget()
+            self.canvas.yview_moveto(0)
+
+    def to_top(self):
+        self.canvas.yview_moveto(0)
+
+    def _wheel(self, event):
+        """La rotella scorre il contenuto, ma non quando il mouse e' su un menu a tendina (lo cambierebbe)."""
+        if not self.scrolling:
+            return
+        widget = event.widget
+        if not str(widget).startswith(str(self.inner)) or isinstance(widget, ttk.Combobox):
+            return
+        self.canvas.yview_scroll(-1 if event.delta > 0 else 1, 'units')
+
+
+class Collapsible(tk.Frame):
+    """Sezione comprimibile: una riga con freccia, titolo e un riassunto; un clic (o Invio/Spazio) apre o chiude il corpo
+    (`body`). Chiusa mostra solo la riga: il riassunto dice cosa c'e' dentro. A destra della riga c'e' `extra`, per un
+    elemento che deve restare visibile anche a sezione chiusa. `on_toggle` viene chiamata dopo ogni cambio (la finestra
+    si adatta)."""
+
+    OPEN, CLOSED = '\u25be', '\u25b8'
+
+    def __init__(self, parent, title, summary='', expanded=False, on_toggle=None):
+        super().__init__(parent, bg=PALETTE['bg'])
+        self.on_toggle = on_toggle
+        self.expanded = False
+        self.header = tk.Frame(self, bg=PALETTE['bg'], cursor='hand2', takefocus=True, highlightthickness=1,
+                               highlightbackground=PALETTE['bg'], highlightcolor=PALETTE['accent'])
+        self.header.pack(fill='x')
+        self.arrow = tk.Label(self.header, text=self.CLOSED, font=(FONT_SYMBOL, 9), fg=PALETTE['accent'], bg=PALETTE['bg'])
+        self.title = tk.Label(self.header, text=title, font=(FONT, 9, 'bold'), fg=PALETTE['accent'], bg=PALETTE['bg'])
+        self.summary = tk.Label(self.header, text=summary, font=(FONT, 9), fg=PALETTE['muted'], bg=PALETTE['bg'], anchor='w')
+        self.extra = tk.Frame(self.header, bg=PALETTE['bg'])
+        self.arrow.pack(side='left')
+        self.title.pack(side='left', padx=(px(4), 0))
+        self.summary.pack(side='left', padx=(px(10), 0))
+        self.extra.pack(side='right')
+        for widget in (self.header, self.arrow, self.title, self.summary):
+            widget.bind('<Button-1>', self.toggle, add='+')
+        for key in ('<Return>', '<space>'):
+            self.header.bind(key, self.toggle, add='+')
+        self.body = tk.Frame(self, bg=PALETTE['bg'])
+        if expanded:
+            self.expand(notify=False)
+
+    def set_summary(self, text):
+        self.summary.config(text=text)
+
+    def expand(self, _event=None, notify=True):
+        if self.expanded:
+            return
+        self.expanded = True
+        self.arrow.config(text=self.OPEN)
+        self.body.pack(fill='x')
+        if notify and self.on_toggle:
+            self.on_toggle()
+
+    def collapse(self, _event=None, notify=True):
+        if not self.expanded:
+            return
+        self.expanded = False
+        self.arrow.config(text=self.CLOSED)
+        self.body.pack_forget()
+        if notify and self.on_toggle:
+            self.on_toggle()
+
+    def toggle(self, _event=None):
+        (self.collapse if self.expanded else self.expand)()

@@ -18,6 +18,7 @@ Firma (--sign): il certificato si cerca in questo ordine
 La marca temporale (JT_SIGN_TIMESTAMP, predefinito DigiCert) tiene valida la firma anche dopo la scadenza del certificato.
 """
 import argparse
+import fnmatch
 import os
 import shutil
 import subprocess
@@ -42,12 +43,18 @@ def run(*args):
     subprocess.run(args, cwd=ROOT, check=True)
 
 
-def empty_folder(folder):
+# Le versioni gia' pronte (JT-3.0.zip, JT-Setup-3.0.exe) restano in dist: costruirne una nuova non le cancella.
+KEEP_IN_DIST = ('JT-*.zip', 'JT-Setup-*.exe')
+
+
+def empty_folder(folder, keep=()):
     """Svuota la cartella senza cancellare la cartella stessa: se e' aperta in Esplora file o in un terminale
-    Windows non la lascia rimuovere, ma il contenuto si puo' sostituire."""
+    Windows non la lascia rimuovere, ma il contenuto si puo' sostituire. I nomi che combaciano con `keep` restano."""
     if not os.path.isdir(folder):
         return
     for name in os.listdir(folder):
+        if any(fnmatch.fnmatch(name, pattern) for pattern in keep):
+            continue
         path = os.path.join(folder, name)
         if os.path.isdir(path):
             shutil.rmtree(path)
@@ -69,8 +76,8 @@ def check_not_running():
 def build_exe(with_testdb=True):
     check_not_running()
     step('PyInstaller')
-    for folder in (BUILD, DIST):
-        empty_folder(folder)
+    for folder, keep in ((BUILD, ()), (DIST, KEEP_IN_DIST)):
+        empty_folder(folder, keep)
     icon = os.path.join(ROOT, 'Graphics', 'icons', f'{ICON_NAME}.ico')
     run(sys.executable, '-m', 'PyInstaller', '--noconfirm', '--clean', '--noupx', '--windowed', '--name', 'JT',
         '--icon', icon, '--hidden-import', 'cx_Oracle', '--distpath', DIST, '--workpath', BUILD, '--specpath', BUILD,

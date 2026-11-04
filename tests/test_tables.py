@@ -9,6 +9,7 @@ import helpers
 from helpers import COLUMNS, JtCase, read_json, write_json, write_text
 from jt.catalog import Catalog
 from jt.config import MAX_KEYS, Paths
+from jt.layers import BY_NAME
 from jt.settings import Settings
 from jt.tables import (MARK, TABLES, EmptySourceText, SchemaError, Translated, UpdateTarget, generate_id,
                        get_table)
@@ -239,6 +240,96 @@ class SelectionSqlTests(unittest.TestCase):
             self.assertEqual(binds, {'li': 'de', 'lo': 'fr'}, name)
             self.assertNotIn(':n', sql)
 
+    def test_level_none_changes_nothing(self):
+        for name in EXPECTED:
+            spec = resolved(name)
+            self.assertEqual(spec.read_missing('de', 'fr', 5, level=None), spec.read_missing('de', 'fr', 5), name)
+            self.assertEqual(spec.count_all('de', 'fr', level=None), spec.count_all('de', 'fr'), name)
+
+    def test_code_range_level_for_strings_and_triplets(self):
+        for name in ('FW_STRINGS', 'FW_FIELD_STRINGS'):
+            sql, binds = resolved(name).read_missing('de', 'fr', 50, level=BY_NAME['CT'])
+            self.assertIn('X.language = :li AND X.code BETWEEN :lvl_lo AND :lvl_hi AND ROWNUM <= :n', sql, name)
+            self.assertEqual(binds, {'li': 'de', 'lo': 'fr', 'lvl_lo': 3000000, 'lvl_hi': 3999999, 'n': 50}, name)
+            self.assertNotIn('3000000', sql, name)
+
+    def test_standard_range_for_strings_is_ap(self):
+        sql, binds = resolved('FW_STRINGS').count_all('de', 'fr', level=BY_NAME['AP'])
+        self.assertEqual((binds['lvl_lo'], binds['lvl_hi']), (100000, 2999999))
+        self.assertNotIn(':n', sql)
+
+    def test_level_applies_to_count_batch_and_count_all(self):
+        spec = resolved('FW_STRINGS')
+        for sql, binds in list(spec.count_batch('de', 'fr', 5, level=BY_NAME['CW'])) + [
+                spec.count_all('de', 'fr', level=BY_NAME['CW'])]:
+            self.assertIn('BETWEEN :lvl_lo AND :lvl_hi', sql)
+            self.assertEqual((binds['lvl_lo'], binds['lvl_hi']), (4000000, 4999999))
+
+    def test_options_level_with_prefix_is_exact_like(self):
+        for name in OPTION_NAMES:
+            sql, binds = resolved(name).read_missing('de', 'fr', 5, level=BY_NAME['CT'])
+            self.assertIn('X.lingua = :li AND X.tipo LIKE :lvl_p AND ROWNUM <= :n', sql, name)
+            self.assertEqual(binds, {'li': 'de', 'lo': 'fr', 'lvl_p': 'Ct%', 'n': 5}, name)
+
+    def test_options_standard_excludes_every_prefix_ignoring_case(self):
+        sql, binds = resolved('FW_OPZIONI').count_all('de', 'fr', level=BY_NAME['AP'])
+        self.assertEqual({k: v for k, v in binds.items() if k.startswith('lvl')},
+                         {'lvl_p0': 'FW%', 'lvl_p1': 'CT%', 'lvl_p2': 'CW%', 'lvl_p3': 'CK%', 'lvl_p4': 'CC%'})
+        for i in range(5):
+            self.assertIn(f'UPPER(X.tipo) NOT LIKE :lvl_p{i}', sql)
+        self.assertNotIn('CT%', sql)
+
+    def test_layer_of_row_for_codes(self):
+        for name in ('FW_STRINGS', 'FW_FIELD_STRINGS'):
+            spec = get_table(name)
+            for code, expected in ((50000, 'FW'), (100000, 'AP'), (2999999, 'AP'), (3000000, 'CT'), (4500000, 'CW'),
+                                   (5000000, 'CK'), (9000000, 'CC')):
+                self.assertEqual(spec.layer_of_row(('it', code, 'x')).name, expected, (name, code))
+            self.assertIsNone(spec.layer_of_row(('it', 7000000, 'x')), name)       # in nessun livello
+            self.assertIsNone(spec.layer_of_row(('it', 5, 'x')), name)
+
+    def test_layer_of_row_for_options(self):
+        for name in OPTION_NAMES:
+            spec = get_table(name)
+            for tipo, expected in (('CtOpz', 'CT'), ('CwOpz', 'CW'), ('ProcessiLunghi', 'AP')):
+                self.assertEqual(spec.layer_of_row(('it', tipo, '0')).name, expected, (name, tipo))
+            self.assertIsNone(spec.layer_of_row(('it', 'ctOpz', '0')), name)      # maiuscole sbagliate
+            self.assertIsNone(spec.layer_of_row(('it', None, '0')), name)
+
+    def test_user_written_follows_the_layer_of_the_row(self):
+        cases = ((100000, 'JT'), (3000001, 'ZFXCUSTOM'), (4000001, 'ZFXINTEGR'), (5000001, 'JT'), (9000001, 'JT'),
+                 (7000000, 'JT'))                        # AP, CT, CW, CK, CC e un codice fuori livello: solo CT e CW cambiano
+        for name in ('FW_STRINGS', 'FW_FIELD_STRINGS'):
+            spec = get_table(name)
+            for code, user in cases:
+                row = ('it', code, 'x', 'y', 'z', None, None, None)
+                self.assertEqual(spec.user_sql(row), f"'{user}'", (name, code))
+                self.assertIn(f"'{user}', sysdate", spec.insert(row, 'fr', spec.translate_row(row, fake_tr).values)[0])
+
+    def test_user_written_for_options_follows_the_name_prefix(self):
+        spec = get_table('FW_OPZIONI')
+        for tipo, user in (('Processi', 'JT'), ('CtOpz', 'ZFXCUSTOM'), ('CwOpz', 'ZFXINTEGR'), ('ctOpz', 'JT')):
+            row = ('it', tipo, '0', 'Si', 1, 2, None, None)
+            sql, binds = spec.insert(row, 'fr', {'description': 'T:Si'})
+            self.assertIn(f"'{user}', sysdate", sql, tipo)
+            self.assertNotIn(user, ''.join(map(str, binds)), tipo)             # l'utente non passa dai dati
+
+    def test_tables_without_layers_always_write_the_tool_marker(self):
+        for name in ('FW_DOCU_NODES_T', 'FW_OBJ_DESCRS', 'FWK_STRINGS'):
+            self.assertEqual(get_table(name).user_sql((3000001, 'it', 'x')), MARK, name)
+
+    def test_tables_without_levels_have_no_layer_of_row(self):
+        for name in ('FW_DOCU_NODES_T', 'FW_OBJ_DESCRS'):
+            self.assertIsNone(get_table(name).layer_of_row((100000, 'it', 'x')), name)
+
+    def test_tables_without_levels_ignore_the_level(self):
+        for name in ('FW_DOCU_NODES_T', 'FW_OBJ_DESCRS'):
+            spec = resolved(name)
+            self.assertFalse(spec.supports_levels, name)
+            self.assertEqual(spec.read_missing('de', 'fr', 5, level=BY_NAME['CT']), spec.read_missing('de', 'fr', 5), name)
+        for name in ('FW_STRINGS', 'FW_FIELD_STRINGS') + tuple(OPTION_NAMES):
+            self.assertTrue(get_table(name).supports_levels, name)
+
     def test_languages_never_in_sql_text(self):
         for name in EXPECTED:
             spec = resolved(name)
@@ -335,8 +426,8 @@ class RowWritingTests(unittest.TestCase):
         translated = spec.translate_row(row, fake_tr)
         self.assertEqual(translated, Translated({'value': "T:l'ordine & 100% 'x'"}, "T:l'ordine & 100% 'x'"))
         sql, binds = spec.insert(row, 'fr', translated.values)
-        self.assertEqual(sql, "INSERT INTO FW_STRINGS VALUES (:1, :2, :3, NULL, 'JT', sysdate)")
-        self.assertEqual(binds, ['fr', 100000, "T:l'ordine & 100% 'x'"])
+        self.assertEqual(sql, "INSERT INTO FW_STRINGS VALUES (:1, :2, :3, :4, 'JT', sysdate)")
+        self.assertEqual(binds, ['fr', 100000, "T:l'ordine & 100% 'x'", None])
         self.check_no_literals(sql, "l'ordine", '&', '%', 'fr')
         self.assertEqual(spec.log_info(row), (100000, "l'ordine & 100% 'x'"))
 
@@ -364,8 +455,8 @@ class RowWritingTests(unittest.TestCase):
                                              'tip': 'T:Tip 100%'})
         self.assertEqual(translated.primary, 'T:Desc & more')
         sql, binds = spec.insert(row, 'fr', translated.values)
-        self.assertEqual(sql, "INSERT INTO FW_FIELD_STRINGS VALUES (:1, :2, :3, :4, :5, NULL, 'JT', sysdate)")
-        self.assertEqual(binds, ['fr', 10, "T:Cap's", 'T:Desc & more', 'T:Tip 100%'])
+        self.assertEqual(sql, "INSERT INTO FW_FIELD_STRINGS VALUES (:1, :2, :3, :4, :5, :6, 'JT', sysdate)")
+        self.assertEqual(binds, ['fr', 10, "T:Cap's", 'T:Desc & more', 'T:Tip 100%', None])
         self.check_no_literals(sql, "Cap's", '&', '%')
 
     def test_field_strings_empty_optional_fields_are_null(self):
@@ -373,8 +464,24 @@ class RowWritingTests(unittest.TestCase):
         row = ('it', 10, 'Cap', None, None, None, None, None)
         translated = spec.translate_row(row, fake_tr)
         sql, binds = spec.insert(row, 'fr', translated.values)
-        self.assertEqual(binds, ['fr', 10, 'T:Cap', None, None])
+        self.assertEqual(binds, ['fr', 10, 'T:Cap', None, None, None])
         self.assertNotIn('None', [b for b in binds if isinstance(b, str)])
+
+    def test_category_is_copied_from_the_source_row(self):
+        for category in ('MES', ' ', None):                 # un modulo, "nessuna categoria" (un blank) o NULL: identico
+            strings = get_table('FW_STRINGS')
+            row = ('it', 100000, 'Ordine', category, None, None)
+            self.assertEqual(strings.insert(row, 'fr', {'value': 'T:Ordine'})[1], ['fr', 100000, 'T:Ordine', category])
+            fields = get_table('FW_FIELD_STRINGS')
+            row = ('it', 10, 'Cap', None, None, category, None, None)
+            self.assertEqual(fields.insert(row, 'fr', {'caption': 'T:Cap', 'description': None, 'tip': None})[1],
+                             ['fr', 10, 'T:Cap', None, None, category])
+
+    def test_the_category_is_a_bind_never_text_in_the_sql(self):
+        row = ('it', 100000, 'Ordine', "M'ES", None, None)
+        sql, binds = get_table('FW_STRINGS').insert(row, 'fr', {'value': 'T:Ordine'})
+        self.assertNotIn("M'ES", sql)
+        self.assertEqual(binds[3], "M'ES")
 
     def test_field_strings_update_target(self):
         spec = get_table('FW_FIELD_STRINGS')

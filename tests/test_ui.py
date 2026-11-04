@@ -20,8 +20,15 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import helpers  # noqa: E402
+
+sys.path.insert(0, os.path.join(helpers.ROOT, 'tools'))
+import simulate  # noqa: E402
+from jt.layers import LEVEL_CHOICES  # noqa: E402
+
+L_ALL, L_STD, L_CW, L_CT = LEVEL_CHOICES          # i nomi del campo Level, nell'ordine
 from helpers import FAKE_AZURE, FAKE_CONNECTION, FakeAzure, FakeDB, FakeDriver, JtCase, read_json, write_json  # noqa: E402
 from jt.azure import AzureTranslator  # noqa: E402
+from jt.config import APP_TITLE, VERSION  # noqa: E402
 from jt.db import Database  # noqa: E402
 from jt.glossary import Glossary  # noqa: E402
 from jt.runner import BackgroundRunner, InlineRunner  # noqa: E402
@@ -30,6 +37,7 @@ from jt.tables import get_table  # noqa: E402
 from jt.ui import scale  # noqa: E402
 from jt.ui.app import JTApp  # noqa: E402
 from jt.ui.connection_screen import ConnectionScreen  # noqa: E402
+from jt.ui.widgets import NOT_CONNECTED, Collapsible, StatusBar  # noqa: E402
 from jt.ui.dpi import enable_dpi_awareness  # noqa: E402
 from jt.ui.secret import MESSAGE, open_secret_panel  # noqa: E402
 from jt.ui.texts import fmt_count, reason, shorten  # noqa: E402
@@ -427,7 +435,7 @@ class ConnectionScreenTests(UiCase):
                 self.assertEqual(self.screen.status.state, 'info')
                 self.assertEqual(self.screen.status.message.cget('text'),
                                  'Connection settings changed. Press Connect to use the new ones.')
-                self.assertEqual(self.app.infobar.label.cget('text'), 'Not connected')
+                self.assertEqual(self.app.infobar.label.cget('text'), NOT_CONNECTED)
 
     def test_editing_a_field_without_a_connection_changes_nothing(self):
         self.screen.status.show('error', 'previous')
@@ -452,7 +460,7 @@ class ConnectionScreenTests(UiCase):
     def test_connect_does_not_touch_the_infobar_on_failure(self):
         self.fake_db.fail_connect = True
         self.screen.connect()
-        self.assertEqual(self.app.infobar.label.cget('text'), 'Not connected')
+        self.assertEqual(self.app.infobar.label.cget('text'), NOT_CONNECTED)
 
 
 # ===================================================================== barra della connessione
@@ -466,7 +474,7 @@ class InfoBarTests(UiCase):
 
     def test_starts_not_connected_with_a_grey_dot(self):
         self.assertIsInstance(self.app.infobar, InfoBar)
-        self.assertEqual(self.text(), 'Not connected')
+        self.assertEqual(self.text(), NOT_CONNECTED)
         self.assertNotIn(self.dot(), (PALETTE['ok'], PALETTE['error'], PALETTE['warn']))
         self.assertEqual(self.dot(), '#8a94a6')
 
@@ -495,7 +503,7 @@ class InfoBarTests(UiCase):
     def test_failed_first_connection_keeps_it_not_connected(self):
         self.fake_db.fail_connect = True
         self.screen.connect()
-        self.assertEqual(self.text(), 'Not connected')
+        self.assertEqual(self.text(), NOT_CONNECTED)
         self.assertNotEqual(self.dot(), PALETTE['ok'])
 
     def test_failed_reconnection_must_not_leave_the_old_database_on_display(self):
@@ -505,13 +513,13 @@ class InfoBarTests(UiCase):
         self.fake_db.fail_connect = True
         self.screen.connect()
         self.assertFalse(self.db.connected)
-        self.assertEqual(self.text(), 'Not connected')
+        self.assertEqual(self.text(), NOT_CONNECTED)
 
     def test_new_connection_goes_back_to_not_connected(self):
         self.step2()
         self.assertTrue(self.text().startswith('Connected to FAKEDB'))
         fire(self.app.stepper.link, '<Button-1>')
-        self.assertEqual(self.text(), 'Not connected')
+        self.assertEqual(self.text(), NOT_CONNECTED)
         self.assertEqual(self.dot(), '#8a94a6')
         self.assertIsNone(self.app.infobar.info)
 
@@ -532,10 +540,10 @@ class InfoBarTests(UiCase):
     def test_disconnect_resets_the_infobar_and_the_database_info(self):
         self.step2()
         self.app.disconnect()
-        self.assertEqual(self.text(), 'Not connected')
+        self.assertEqual(self.text(), NOT_CONNECTED)
         self.assertIsNone(self.db.info)
         self.app.disconnect()                      # ripetibile
-        self.assertEqual(self.text(), 'Not connected')
+        self.assertEqual(self.text(), NOT_CONNECTED)
 
     def test_long_text_is_shortened(self):
         self.app.infobar.set_connected({'db_name': 'D' * 10, 'host': 'h ' * 100, 'port': 1, 'sid': 's', 'user': 'u'})
@@ -840,7 +848,7 @@ class TranslationScreenBuildTests(UiCase):
         screen = self.step2()
         screen.refresh_missing()
         self.assertEqual(screen.label_missing.cget('text'),
-                         'Missing in German: 1.234 in this table, 21.239 in all tables')
+                         'Missing in German (Standard): 1.234 in this table, 21.239 in all tables')
         self.assertEqual(str(screen.label_missing.cget('fg')), PALETTE['accent'])
         self.assertEqual(screen.counts['FW_FIELD_STRINGS'], 5)
 
@@ -851,7 +859,7 @@ class TranslationScreenBuildTests(UiCase):
         screen.var_table.set('JFX: Triplets')
         screen.cmb_table.event_generate('<<ComboboxSelected>>')
         self.assertEqual(screen.label_missing.cget('text'),
-                         'Missing in German: 5 in this table, 1.239 in all tables')
+                         'Missing in German (Standard): 5 in this table, 1.239 in all tables')
         screen.var_table.set('JFX: Options')                    # nessun conteggio > 0: "0"
         screen.update_missing_label()
         self.assertIn('0 in this table', screen.label_missing.cget('text'))
@@ -861,15 +869,15 @@ class TranslationScreenBuildTests(UiCase):
         screen = self.step2()
         screen.var_out.set('French')
         screen.cmb_out.event_generate('<<ComboboxSelected>>')
-        self.assertIn('Missing in French: 3 in this table', screen.label_missing.cget('text'))
+        self.assertIn('Missing in French (Standard): 3 in this table', screen.label_missing.cget('text'))
         binds = [b for s, b in self.fake_db.log if s.startswith('SELECT COUNT(*)')]
-        self.assertTrue(binds and all(b == {'li': 'it', 'lo': 'fr'} for b in binds[-9:]))
+        self.assertTrue(binds and all((b['li'], b['lo']) == ('it', 'fr') for b in binds[-9:]))     # + filtro Standard
 
     def test_nothing_missing_anywhere_is_shown_in_the_ok_colour(self):
         screen = self.step2()
         screen.refresh_missing()
         self.assertEqual(screen.label_missing.cget('text'),
-                         'Missing in German: 0 in this table, 0 in all tables')
+                         'Missing in German (Standard): 0 in this table, 0 in all tables')
         self.assertEqual(str(screen.label_missing.cget('fg')), PALETTE['ok'])
 
     def test_same_language_message_and_counts_cleared(self):
@@ -935,7 +943,7 @@ class TranslationScreenBuildTests(UiCase):
         self.assertEqual(screen.missing_hint()['rows'], [('-', 'not counted yet')])
         screen.refresh_missing()
         hint = screen.missing_hint()
-        self.assertEqual(hint['title'], 'Missing translations: Italian → German')
+        self.assertEqual(hint['title'], 'Missing translations: Italian → German [Standard]')
         self.assertNotIn('intro', hint)
         self.assertEqual(hint['rows'][0], ('JFX: Strings', '1.234'))
         self.assertEqual(hint['rows'][1], ('JFX: Triplets', '5'))
@@ -986,6 +994,594 @@ class TranslationScreenBuildTests(UiCase):
 
 
 # ===================================================================== stale selection
+
+class LevelFieldTests(UiCase):
+    """Il campo Level del passo 2: scelte, valore predefinito, tabelle senza livelli, conteggi e chiavi di altri livelli."""
+
+    def test_default_is_standard_and_the_visible_levels_are_offered(self):
+        screen = self.step2()
+        self.assertEqual(screen.var_level.get(), L_STD)
+        self.assertEqual(list(screen.cmb_level.cget('values')), ['All levels', 'Standard', 'CW - Integrations',
+                                                                  'CT - Customizations'])
+        self.assertEqual(str(screen.cmb_level.cget('state')), 'readonly')
+
+    def test_the_saved_level_is_restored_and_an_unknown_one_ignored(self):
+        self.assertEqual(self.step2({'level': L_CT}).var_level.get(), L_CT)
+        self.assertEqual(self.step2({'level': 'CK'}).var_level.get(), L_STD)      # nascosto: non e' una scelta
+        self.assertEqual(self.step2({'level': 'CT'}).var_level.get(), L_STD)      # il vecchio nome breve non vale piu'
+
+    def test_changing_the_level_recounts_and_invalidates_the_selection(self):
+        screen = self.step2()
+        self.fake_db.missing = {'FW_STRINGS': 3}
+        screen.refresh_missing()
+        screen.load()
+        self.assertIsNotNone(screen.selection)
+        self.fake_db.log.clear()
+        screen.var_level.set(L_CW)
+        screen.cmb_level.event_generate('<<ComboboxSelected>>')
+        self.assertIsNone(screen.selection)
+        self.assertEqual(state(screen.translate_button), 'disabled')
+        counts = [b for s, b in self.fake_db.log if s.startswith('SELECT COUNT(*) FROM FW_STRINGS X')]
+        self.assertEqual(counts[-1]['lvl_lo'], 4000000)
+        self.assertIn('Missing in German (CW):', screen.label_missing.cget('text'))
+
+    def test_all_levels_means_no_filter(self):
+        screen = self.step2()
+        screen.var_level.set(L_ALL)
+        screen.cmb_level.event_generate('<<ComboboxSelected>>')
+        counts = [b for s, b in self.fake_db.log if s.startswith('SELECT COUNT(*) FROM FW_STRINGS X')]
+        self.assertNotIn('lvl_lo', counts[-1])
+        self.assertIn('Missing in German:', screen.label_missing.cget('text'))
+
+    def test_tables_without_levels_switch_the_field_off_and_restore_it_afterwards(self):
+        screen = self.step2({'level': L_CT})
+        screen.var_table.set('JFX: Docu nodes')
+        screen.cmb_table.event_generate('<<ComboboxSelected>>')
+        self.assertEqual(str(screen.cmb_level.cget('state')), 'disabled')
+        self.assertEqual(screen.var_level.get(), L_ALL)
+        self.assertNotIn('(', screen.label_missing.cget('text'))                  # il livello non filtra nulla qui
+        screen.var_table.set('JFX: Strings')
+        screen.cmb_table.event_generate('<<ComboboxSelected>>')
+        self.assertEqual(str(screen.cmb_level.cget('state')), 'readonly')
+        self.assertEqual(screen.var_level.get(), L_CT)                            # la scelta di prima e' tornata
+        self.assertIn('(CT)', screen.label_missing.cget('text'))
+
+    def test_a_switched_off_field_stays_off_after_a_translation_unlocks_the_fields(self):
+        screen = self.step2()
+        screen.var_table.set('JFX: Object descriptions')
+        screen.cmb_table.event_generate('<<ComboboxSelected>>')
+        screen._lock(True)
+        screen._lock(False)
+        self.assertEqual(str(screen.cmb_level.cget('state')), 'disabled')
+
+    def test_the_hint_does_not_stay_on_top_of_the_open_list(self):
+        screen = self.step2()
+        screen.level_tip.show()
+        self.assertIsNotNone(screen.level_tip.tip)
+        screen.cmb_level.event_generate('<<ComboboxSelected>>')
+        self.assertIsNone(screen.level_tip.tip)
+
+    def test_the_hint_names_every_level_in_full(self):
+        from jt.ui.translation_screen import LEVEL_HINT
+        self.assertEqual([name for name, _ in LEVEL_HINT['rows']], list(LEVEL_CHOICES))
+
+    def test_load_says_the_level_when_it_is_not_standard(self):
+        self.fake_db.missing = {'FW_STRINGS': 4}
+        self.fake_db.source['FW_STRINGS'] = plain_rows(2)
+        screen = self.step2()
+        self.choose(screen, max_rows='5')
+        for level, note in ((L_STD, ''), (L_CT, ' (CT)'), (L_CW, ' (CW)'), (L_ALL, ' (all levels)')):
+            screen.var_level.set(level)
+            screen.load()
+            self.assertIn(f'to translate{note}: ', screen.status.message.cget('text'), level)
+        screen.var_table.set('JFX: Docu nodes')
+        screen.cmb_table.event_generate('<<ComboboxSelected>>')
+        self.fake_db.missing = {'FW_DOCU_NODES_T': 2}
+        screen.load()
+        self.assertNotIn('(', screen.status.message.cget('text'))
+
+    def test_update_by_keys_says_the_level_too(self):
+        self.fake_db.source['FW_STRINGS'] = [('it', 3000001, 'Testo CT', None, None, None)]
+        screen = self.step2()
+        screen.var_level.set(L_CT)
+        screen.var_keys.set('3000001')
+        screen.load()
+        self.assertTrue(screen.status.message.cget('text').startswith('Update mode (CT): 1 row'),
+                        screen.status.message.cget('text'))
+
+    def test_the_logs_link_is_always_visible_and_the_times_open_on_request(self):
+        screen = self.step2()
+        self.assertIs(screen.link_logs.master, screen.details.extra)           # sulla riga di "Details", sempre visibile
+        self.assertFalse(screen.details.expanded)
+        self.assertFalse(screen.label_time.winfo_ismapped())
+        screen.details.toggle()
+        self.assertTrue(screen.details.expanded)
+        self.assertEqual(screen.label_time.master, screen.details.body)
+
+    def test_the_level_is_locked_while_translating(self):
+        screen = self.step2()
+        screen._lock(True)
+        self.assertEqual(str(screen.cmb_level.cget('state')), 'disabled')
+        screen._lock(False)
+        self.assertEqual(str(screen.cmb_level.cget('state')), 'readonly')
+
+    def test_update_by_keys_skips_keys_of_another_level_with_a_warning(self):
+        self.fake_db.source['FW_STRINGS'] = [('it', 100000, 'Standard', None, None, None),
+                                             ('it', 3000001, 'Testo CT', None, None, None)]
+        screen = self.step2()
+        screen.var_level.set(L_CT)
+        screen.var_keys.set('100000, 3000001')
+        screen.load()
+        self.assertEqual(screen.status.state, 'warn')
+        text = screen.status.message.cget('text')
+        self.assertIn('Update mode (CT): 1 row', text)
+        self.assertIn('Skipped, not CT: 100000 (Standard)', text)
+        self.assertEqual(state(screen.translate_button), 'normal')
+
+    def test_update_by_keys_with_only_other_level_keys_loads_nothing(self):
+        self.fake_db.source['FW_STRINGS'] = [('it', 100000, 'Standard', None, None, None)]
+        screen = self.step2()
+        screen.var_level.set(L_CT)
+        screen.var_keys.set('100000')
+        screen.load()
+        self.assertEqual(screen.status.state, 'warn')
+        self.assertIn('Nothing to translate: Skipped, not CT: 100000 (Standard)', screen.status.message.cget('text'))
+        self.assertIsNone(screen.selection)
+        self.assertEqual(state(screen.translate_button), 'disabled')
+
+    def test_update_by_keys_of_the_chosen_level_has_no_warning(self):
+        self.fake_db.source['FW_STRINGS'] = [('it', 100000, 'Standard', None, None, None)]
+        screen = self.step2()
+        screen.var_keys.set('100000')
+        screen.load()
+        self.assertEqual(screen.status.state, 'ok')
+        self.assertNotIn('Skipped', screen.status.message.cget('text'))
+
+
+class SimulatedOracleWindowTests(UiCase):
+    """La finestra vera di JT sul database Oracle simulato (tools/simulate.py): dal clic su Load al contenuto delle tabelle."""
+
+    def setUp(self):
+        super().setUp()
+        self.oracle = simulate.Simulator()
+        self.db._driver = self.oracle                       # al posto del finto database dei test normali
+        patcher = patch.object(JTApp, 'make_translator', lambda _self: simulate.SimTranslator())
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def rows(self, sql):
+        return self.oracle.query(sql)
+
+    def test_translating_the_ct_level_writes_only_ct_rows_with_their_user_and_category(self):
+        screen = self.step2()
+        self.choose(screen, lan_in='Italian', lan_out='French', table='JFX: Strings', max_rows='100')
+        screen.var_level.set(L_CT)
+        screen.load()
+        self.assertEqual(screen.status.state, 'ok')
+        screen.translate_button.invoke()
+        self.assertEqual(self.rows("SELECT code, usr, info FROM FW_STRINGS WHERE language = 'fr' ORDER BY code"),
+                         [(3000001, 'ZFXCUSTOM', 'MES'), (3000002, 'ZFXCUSTOM', None), (3000003, 'ZFXCUSTOM', ' ')])
+        self.assertTrue(screen.status.message.cget('text').startswith('Done: 3 inserted.'),
+                        screen.status.message.cget('text'))
+
+    def test_the_default_level_is_standard_and_leaves_ct_and_cw_alone(self):
+        screen = self.step2()
+        self.choose(screen, lan_in='Italian', lan_out='French', table='JFX: Strings', max_rows='100')
+        self.assertEqual(screen.var_level.get(), 'Standard')
+        screen.load()
+        screen.translate_button.invoke()
+        codes = [row[0] for row in self.rows("SELECT code FROM FW_STRINGS WHERE language = 'fr'")]
+        self.assertTrue(codes and all(100000 <= code <= 2999999 for code in codes), codes)
+        self.assertEqual(self.rows("SELECT DISTINCT usr FROM FW_STRINGS WHERE language = 'fr'"), [('JT',)])
+
+    def test_the_missing_counter_follows_the_level(self):
+        screen = self.step2()
+        self.choose(screen, lan_in='Italian', lan_out='French', table='JFX: Strings')
+        counts = {}
+        for label, title in (('Standard', L_STD), ('CW', L_CW), ('CT', L_CT), ('All', L_ALL)):
+            screen.var_level.set(title)
+            screen.cmb_level.event_generate('<<ComboboxSelected>>')
+            counts[label] = screen.counts['FW_STRINGS']
+        self.assertEqual((counts['CW'], counts['CT']), (2, 3))
+        self.assertEqual(counts['Standard'] + counts['CW'] + counts['CT'], counts['All'])
+
+    def test_update_by_keys_skips_another_level_and_the_skipped_log_says_why(self):
+        screen = self.step2()
+        self.choose(screen, lan_in='Italian', lan_out='German', table='JFX: Strings', keys='100000, 3000001, 3000003')
+        screen.var_level.set(L_CT)
+        screen.load()
+        self.assertEqual(screen.status.state, 'warn')
+        self.assertIn('Skipped, not CT: 100000 (Standard)', screen.status.message.cget('text'))
+        screen.translate_button.invoke()
+        self.assertEqual(self.rows("SELECT value FROM FW_STRINGS WHERE language = 'de' AND code = 100000"),
+                         [('Auftragsverwaltung',)])                                       # non toccata
+        self.assertEqual(self.rows("SELECT value, usr FROM FW_STRINGS WHERE language = 'de' AND code = 3000003"),
+                         [('[de] Campo extra del cliente', 'ZFXCUSTOM')])                 # UPDATE
+        skipped = glob.glob(os.path.join(self.paths.logs, 'JT_skipped_log_*.csv'))
+        self.assertEqual(len(skipped), 1)
+        with open(skipped[0], encoding='utf-8-sig') as f:
+            self.assertIn('key 100000 is level AP, selected level is CT', f.read())
+
+    def test_a_too_long_description_shows_the_oracle_error_in_the_summary(self):
+        screen = self.step2()
+        self.choose(screen, lan_in='Italian', lan_out='French', table='JFX: Object descriptions', max_rows='100')
+        screen.var_level.set(L_ALL)
+        screen.load()
+        screen.translate_button.invoke()
+        text = screen.status.message.cget('text')
+        self.assertIn('1 errors', text)
+        self.assertIn('ORA-12899', text)
+        self.assertEqual(self.rows("SELECT COUNT(*) FROM FW_OBJ_DESCRS WHERE language = 'fr'"), [(3,)])
+
+
+class ScrollAreaTests(UiCase):
+    """Se la finestra e' piu' bassa del passo, compare la barra di scorrimento (prima il fondo veniva tagliato in silenzio)."""
+
+    def fit_to(self, height):
+        """Dice al passo che lo schermo e' alto `height` pixel e lascia lavorare l'interfaccia."""
+        with patch.object(self.root, 'winfo_screenheight', return_value=height):
+            self.app.fit_window()
+            for _ in range(5):
+                self.root.update()
+
+    def test_no_scrollbar_when_the_step_fits(self):
+        self.step2()
+        self.root.deiconify()
+        self.fit_to(2000)
+        self.assertFalse(self.app.area.scrolling)
+
+    def test_scrollbar_appears_when_the_window_is_lower_than_the_step(self):
+        screen = self.step2()
+        self.root.deiconify()
+        self.fit_to(560)
+        self.assertTrue(self.app.area.scrolling)
+        self.assertGreater(screen.winfo_reqheight(), self.app.area.canvas.winfo_height())
+        region = [int(v) for v in self.app.area.canvas.cget('scrollregion').split()]
+        self.assertEqual(region[3], self.app.area.inner.winfo_reqheight())
+
+    def test_scrollbar_goes_away_when_there_is_room_again(self):
+        self.step2()
+        self.root.deiconify()
+        self.fit_to(560)
+        self.assertTrue(self.app.area.scrolling)
+        self.fit_to(2000)
+        self.assertFalse(self.app.area.scrolling)
+
+    def test_the_wheel_scrolls_only_when_there_is_a_bar(self):
+        screen = self.step2()
+        self.root.deiconify()
+        self.fit_to(560)
+        before = self.app.area.canvas.yview()[0]
+        self.app.area._wheel(SimpleNamespace(widget=screen.entry_max, delta=-120))
+        self.assertGreater(self.app.area.canvas.yview()[0], before)
+        self.app.area._wheel(SimpleNamespace(widget=screen.cmb_table, delta=-120))          # sul menu a tendina: no
+        position = self.app.area.canvas.yview()[0]
+        self.app.area._wheel(SimpleNamespace(widget=screen.cmb_table, delta=-120))
+        self.assertEqual(self.app.area.canvas.yview()[0], position)
+
+    def test_a_new_step_starts_at_the_top(self):
+        self.step2()
+        self.root.deiconify()
+        self.fit_to(560)
+        self.app.area.canvas.yview_moveto(1.0)
+        self.app.go_back()
+        self.assertEqual(self.app.area.canvas.yview()[0], 0.0)
+
+
+class CollapsibleTests(UiCase):
+    """La sezione comprimibile (freccia, titolo, riassunto, corpo che si apre)."""
+
+    def make(self, **kwargs):
+        calls = []
+        section = Collapsible(self.root, 'Advanced', summary='Max rows 1', on_toggle=lambda: calls.append(1), **kwargs)
+        section.pack()
+        ttk.Label(section.body, text='dentro').pack()
+        return section, calls
+
+    def test_it_starts_closed_and_shows_only_the_header(self):
+        section, calls = self.make()
+        self.assertFalse(section.expanded)
+        self.assertEqual(section.body.winfo_manager(), '')
+        self.assertEqual(section.arrow.cget('text'), Collapsible.CLOSED)
+        self.assertEqual(section.summary.cget('text'), 'Max rows 1')
+        self.assertEqual(calls, [])
+
+    def test_a_click_opens_and_closes_it_and_tells_the_window(self):
+        section, calls = self.make()
+        fire(section.title, '<Button-1>')
+        self.assertTrue(section.expanded)
+        self.assertEqual((section.body.winfo_manager(), section.arrow.cget('text')), ('pack', Collapsible.OPEN))
+        fire(section.arrow, '<Button-1>')
+        self.assertFalse(section.expanded)
+        self.assertEqual(calls, [1, 1])
+
+    def test_the_header_answers_to_enter_and_space(self):
+        section, _ = self.make()
+        fire(section.header, '<Return>')
+        self.assertTrue(section.expanded)
+        fire(section.header, '<space>')
+        self.assertFalse(section.expanded)
+
+    def test_expanding_twice_or_closing_twice_does_not_notify_again(self):
+        section, calls = self.make()
+        section.expand()
+        section.expand()
+        section.collapse()
+        section.collapse()
+        self.assertEqual(calls, [1, 1])
+
+    def test_it_can_start_open_without_notifying(self):
+        section, calls = self.make(expanded=True)
+        self.assertTrue(section.expanded)
+        self.assertEqual(calls, [])
+
+    def test_the_summary_changes_and_the_extra_slot_stays_on_the_header(self):
+        section, _ = self.make()
+        section.set_summary('Update by keys: 3')
+        self.assertEqual(section.summary.cget('text'), 'Update by keys: 3')
+        self.assertIs(section.extra.master, section.header)
+
+
+class AdvancedAndDetailsTests(UiCase):
+    """Max rows e Update by keys stanno in "Advanced"; i tempi in "Details". Chiusi, ma sempre al loro posto."""
+
+    def test_advanced_starts_open_and_closed_it_keeps_a_summary_of_what_is_inside(self):
+        screen = self.step2()
+        self.assertTrue(screen.advanced.expanded)
+        self.assertEqual(screen.advanced.summary.cget('text'), 'Max rows 1')
+        screen.advanced.collapse()
+        self.assertFalse(screen.entry_max.winfo_ismapped())
+        self.assertEqual(screen.advanced.summary.cget('text'), 'Max rows 1')
+
+    def test_max_rows_and_update_by_keys_share_one_line(self):
+        screen = self.step2()
+        self.assertEqual(screen.entry_max.grid_info()['row'], screen.entry_keys.grid_info()['row'])
+        self.assertLess(int(screen.entry_max.grid_info()['column']), int(screen.entry_keys.grid_info()['column']))
+
+    def test_the_fields_still_work_while_closed(self):
+        self.fake_db.missing = {'FW_STRINGS': 4}
+        screen = self.step2()
+        screen.advanced.collapse()
+        screen.var_max.set('25')
+        self.assertEqual(screen.advanced.summary.cget('text'), 'Max rows 25')
+        screen.load()
+        selects = [b for s, b in self.fake_db.log if s.startswith('SELECT * FROM FW_STRINGS')]
+        self.assertEqual(selects[-1]['n'], 25)
+
+    def test_keys_open_a_closed_section_and_the_summary_counts_them(self):
+        screen = self.step2()
+        screen.advanced.collapse()
+        screen.var_keys.set('100000, 100001; 100002')
+        self.assertTrue(screen.advanced.expanded)
+        self.assertEqual(screen.advanced.summary.cget('text'), 'Update by keys: 3')
+        screen.var_keys.set('')
+        self.assertEqual(screen.advanced.summary.cget('text'), 'Max rows 1')
+
+    def test_a_wrong_max_rows_opens_a_closed_section_so_the_field_is_visible(self):
+        screen = self.step2()
+        screen.advanced.collapse()
+        screen.var_max.set('')
+        self.assertEqual(screen.advanced.summary.cget('text'), 'Max rows -')
+        screen.load()
+        self.assertTrue(screen.advanced.expanded)
+        self.assertEqual(screen.status.state, 'error')
+
+    def test_opening_a_section_refits_the_window(self):
+        with patch.object(JTApp, 'fit_window') as fit:          # i pannelli la chiamano: va sostituita prima di costruirli
+            screen = self.step2()
+            fit.reset_mock()
+            screen.advanced.toggle()
+            screen.details.toggle()
+            self.assertEqual(fit.call_count, 2)
+
+    def test_the_fields_are_locked_during_a_translation_even_inside_the_closed_section(self):
+        screen = self.step2()
+        screen._lock(True)
+        self.assertEqual(str(screen.entry_max.cget('state')), 'disabled')
+        self.assertEqual(str(screen.entry_keys.cget('state')), 'disabled')
+        screen._lock(False)
+        self.assertEqual(str(screen.entry_max.cget('state')), 'normal')
+
+
+class WindowEdgeTests(UiCase):
+    def test_the_window_never_starts_beyond_the_right_edge(self):
+        self.app._placed = True
+        with patch.object(self.root, 'winfo_x', return_value=1200), \
+                patch.object(self.root, 'winfo_width', return_value=460):
+            w, h, x, y = self.geometry_for(self.app.show_translation)
+        self.assertLessEqual(x + w, self.root.winfo_screenwidth())
+
+
+class SectionsTests(UiCase):
+    """LANGUAGES, WHAT TO TRANSLATE e PROGRESS si chiudono (aperte all'inizio) e chiuse dicono cosa contengono."""
+
+    def sections(self, screen):
+        return screen.languages_section, screen.selection_section, screen.progress_section
+
+    def test_all_three_start_open(self):
+        screen = self.step2()
+        for section in self.sections(screen):
+            self.assertTrue(section.expanded)
+        self.assertEqual([s.title.cget('text') for s in self.sections(screen)],
+                         ['LANGUAGES', 'WHAT TO TRANSLATE', 'PROGRESS'])
+
+    def test_a_closed_section_hides_its_fields_and_the_window_refits(self):
+        with patch.object(JTApp, 'fit_window') as fit:
+            screen = self.step2()
+            fit.reset_mock()
+            screen.languages_section.collapse()
+            self.assertFalse(screen.cmb_in.winfo_ismapped())
+            self.assertEqual(fit.call_count, 1)
+            screen.languages_section.expand()
+        self.assertEqual(screen.var_in.get(), 'Italian')                           # i valori restano
+
+    def test_languages_summary_follows_the_choice(self):
+        screen = self.step2()
+        self.assertEqual(screen.languages_section.summary.cget('text'), 'Italian \u2192 German')
+        screen.var_out.set('French')
+        self.assertEqual(screen.languages_section.summary.cget('text'), 'Italian \u2192 French')
+
+    def test_selection_summary_has_table_level_and_missing_count(self):
+        self.fake_db.missing = {'FW_STRINGS': 5}
+        screen = self.step2()
+        screen.refresh_missing()
+        self.assertEqual(screen.selection_section.summary.cget('text'), 'JFX: Strings \u00b7 Standard \u00b7 5 missing')
+        screen.var_level.set(L_CT)
+        self.assertTrue(screen.selection_section.summary.cget('text').startswith('JFX: Strings \u00b7 CT'))
+        screen.var_level.set(L_ALL)
+        self.assertIn('all levels', screen.selection_section.summary.cget('text'))
+
+    def test_the_summary_of_a_table_without_levels_does_not_mention_a_level(self):
+        screen = self.step2()
+        screen.var_table.set('JFX: Docu nodes')
+        screen.cmb_table.event_generate('<<ComboboxSelected>>')
+        self.assertEqual(screen.selection_section.summary.cget('text').split(' \u00b7 ')[0], 'JFX: Docu nodes')
+        self.assertNotIn('all levels', screen.selection_section.summary.cget('text'))
+        self.assertNotIn('Standard', screen.selection_section.summary.cget('text'))
+
+    def test_progress_summary_follows_the_run(self):
+        self.fake_db.missing = {'FW_STRINGS': 2}
+        self.fake_db.source['FW_STRINGS'] = plain_rows(2)
+        self.use_azure()
+        screen = self.step2()
+        self.choose(screen, lan_out='English', max_rows='5')
+        screen.load()
+        self.assertEqual(screen.progress_section.summary.cget('text'), '')
+        screen.translate_button.invoke()
+        self.assertEqual(screen.progress_section.summary.cget('text'), '2/2')
+
+    def test_the_progress_bar_is_thin(self):
+        self.step2()
+        thickness = int(float(str(ttk.Style(self.root).lookup('Horizontal.TProgressbar', 'thickness'))))
+        self.assertEqual(thickness, scale.px(5))
+
+
+class ConnectionBannerTests(UiCase):
+    """Passo 1: il banner compare quando succede qualcosa e si chiude con la crocetta; il promemoria sta in basso."""
+
+    def test_no_banner_at_the_start_and_the_reminder_is_in_the_bottom_line(self):
+        screen = self.screen
+        self.assertEqual(screen.status.winfo_manager(), '')
+        self.assertEqual(self.app.infobar.label.cget('text'), NOT_CONNECTED)
+        self.assertIn('try the connection to continue', NOT_CONNECTED)
+
+    def test_a_connection_shows_the_banner_between_the_buttons_and_the_notice(self):
+        screen = self.screen
+        screen.connect()
+        self.assertEqual(screen.status.winfo_manager(), 'pack')
+        self.assertEqual((screen.status.state, screen.status.message.cget('text')), ('ok', 'Connection established.'))
+        order = screen.pack_slaves()
+        self.assertEqual(order.index(screen.status), order.index(screen.buttons) + 1)
+
+    def test_an_error_shows_the_banner_too(self):
+        self.fake_db.fail_connect = True
+        screen = self.screen
+        screen.connect()
+        self.assertEqual(screen.status.winfo_manager(), 'pack')
+        self.assertEqual(screen.status.state, 'error')
+
+    def test_the_cross_closes_it_and_the_next_event_brings_it_back(self):
+        screen = self.screen
+        screen.connect()
+        with patch.object(screen.status, 'on_change') as changed:
+            fire(screen.status.close_button, '<Button-1>')
+            self.root.update()                                         # la finestra si adatta quando l'interfaccia e' libera
+            self.assertEqual(screen.status.winfo_manager(), '')
+            self.assertEqual(changed.call_count, 1)
+        screen.vars['host'].set('altro-host')                        # cambiare i dati chiude la connessione: di nuovo un avviso
+        self.assertEqual(screen.status.winfo_manager(), 'pack')
+        self.assertEqual(screen.status.state, 'info')
+
+    def test_the_connect_and_next_buttons_are_unaffected(self):
+        screen = self.screen
+        self.assertEqual(state(screen.next_button), 'disabled')
+        screen.connect()
+        self.assertEqual(state(screen.next_button), 'normal')
+
+    def test_only_a_closable_banner_has_a_cross(self):
+        plain = StatusBar(self.root, 'x')
+        closable = StatusBar(self.root, 'x', closable=True)
+        self.assertIsNone(plain.close_button)
+        self.assertIsNotNone(closable.close_button)
+        self.assertEqual(str(closable.close_button.cget('bg')), str(closable.message.cget('bg')))
+        closable.show('error', 'boom')
+        self.assertEqual(str(closable.close_button.cget('bg')), str(closable.message.cget('bg')))
+
+
+class StaleLoadMessageTests(UiCase):
+    """Dopo un Load fallito il messaggio d'errore parla del valore di prima: se si cambia il campo, torna il messaggio normale."""
+
+    NEUTRAL = 'Load the data for the translation.'
+
+    def test_a_bad_key_error_goes_away_when_the_keys_change(self):
+        screen = self.step2()
+        screen.var_keys.set('ttt')
+        screen.load()
+        self.assertEqual((screen.status.state, screen.status.message.cget('text')), ('error', 'Not a valid key: ttt'))
+        screen.var_keys.set('')
+        self.assertEqual((screen.status.state, screen.status.message.cget('text')), ('info', self.NEUTRAL))
+
+    def test_a_wrong_max_rows_error_goes_away_when_it_is_fixed(self):
+        screen = self.step2()
+        screen.var_max.set('')
+        screen.load()
+        self.assertEqual(screen.status.state, 'error')
+        screen.var_max.set('5')
+        self.assertEqual((screen.status.state, screen.status.message.cget('text')), ('info', self.NEUTRAL))
+
+    def test_no_rows_found_is_stale_too(self):
+        self.fake_db.source['FW_STRINGS'] = []
+        screen = self.step2()
+        screen.var_keys.set('999')
+        screen.load()
+        self.assertEqual(screen.status.state, 'error')
+        screen.var_keys.set('998')
+        self.assertEqual(screen.status.message.cget('text'), self.NEUTRAL)
+
+    def test_a_database_error_while_loading_is_stale_too(self):
+        screen = self.step2()
+        self.fake_db.fail_sql = ['FROM FW_STRINGS X']
+        screen.load()
+        self.assertEqual(screen.status.state, 'error')
+        screen.var_level.set(L_CT)
+        self.assertEqual(screen.status.message.cget('text'), self.NEUTRAL)
+
+    def test_the_message_is_reset_only_once(self):
+        screen = self.step2()
+        screen.var_keys.set('ttt')
+        screen.load()
+        screen.var_keys.set('tt')
+        screen.status.show('warn', 'qualcos\'altro')
+        screen.var_keys.set('t')
+        self.assertEqual(screen.status.message.cget('text'), 'qualcos\'altro')       # non si tocca un messaggio nuovo
+
+    def test_a_loaded_selection_still_says_selection_changed(self):
+        screen = self.loaded_strings(2)
+        screen.var_keys.set('1')
+        self.assertEqual(screen.status.message.cget('text'), 'Selection changed. Press Load to prepare it again.')
+
+    def test_the_summary_of_a_run_is_not_wiped_by_a_change(self):
+        self.use_azure()
+        screen = self.loaded_strings(2)
+        screen.translate_button.invoke()
+        summary = screen.status.message.cget('text')
+        self.assertTrue(summary.startswith('Done'), summary)
+        screen.var_max.set('9')
+        self.assertEqual(screen.status.message.cget('text'), summary)
+
+    def test_a_successful_load_after_an_error_is_not_stale(self):
+        self.fake_db.missing = {'FW_STRINGS': 2}
+        self.fake_db.source['FW_STRINGS'] = plain_rows(2)
+        screen = self.step2()
+        screen.var_keys.set('ttt')
+        screen.load()
+        screen.var_keys.set('')
+        screen.var_max.set('3')
+        screen.load()
+        self.assertEqual(screen.status.state, 'ok')
+        screen.var_max.set('4')
+        self.assertEqual(screen.status.message.cget('text'), 'Selection changed. Press Load to prepare it again.')
+
 
 class StaleSelectionTests(UiCase):
     CHANGES = (('var_in', 'French'), ('var_out', 'Spanish'), ('var_table', 'JFX: Options'),
@@ -1103,7 +1699,17 @@ class LoadTests(UiCase):
         screen = self.open(max_rows='25')
         screen.load()
         selects = [b for s, b in self.fake_db.log if s.startswith('SELECT * FROM FW_STRINGS')]
-        self.assertEqual(selects[-1], {'li': 'it', 'lo': 'en', 'n': 25})
+        self.assertEqual(selects[-1], {'li': 'it', 'lo': 'en', 'lvl_lo': 100000, 'lvl_hi': 2999999, 'n': 25})
+
+    def test_level_goes_to_the_query_and_is_saved(self):
+        self.fake_db.missing = {'FW_STRINGS': 4}
+        screen = self.open(max_rows='25')
+        screen.var_level.set(L_CT)
+        screen.load()
+        selects = [b for s, b in self.fake_db.log if s.startswith('SELECT * FROM FW_STRINGS')]
+        self.assertEqual((selects[-1]['lvl_lo'], selects[-1]['lvl_hi']), (3000000, 3999999))
+        self.assertEqual(screen.selection.level.name, 'CT')
+        self.assertEqual(read_json(self.paths.query)['level'], L_CT)
 
     def test_max_rows_must_be_a_whole_number_of_at_least_one(self):
         self.fake_db.missing = {'FW_STRINGS': 4}
@@ -1332,7 +1938,7 @@ class TranslateTests(UiCase):
         inserts = self.fake_db.inserts()
         self.assertEqual(len(inserts), 2)
         for (sql, binds), code in zip(inserts, (100000, 100001)):
-            self.assertEqual(sql, "INSERT INTO FW_STRINGS VALUES (:1, :2, :3, NULL, 'JT', sysdate)")
+            self.assertEqual(sql, "INSERT INTO FW_STRINGS VALUES (:1, :2, :3, :4, 'JT', sysdate)")
             self.assertEqual(binds[:2], ['en', code])
             self.assertNotIn('Testo', sql)
         self.assertEqual(inserts[0][1][2], 'T:Testo 0')
@@ -1615,7 +2221,7 @@ class TranslateTests(UiCase):
         self.hook_progress(screen, lambda p: self.fake_db.missing.update(FW_STRINGS=0) if p.done == 2 else None)
         screen.translate()
         self.assertEqual(screen.label_missing.cget('text'),
-                         'Missing in English: 0 in this table, 0 in all tables')
+                         'Missing in English (Standard): 0 in this table, 0 in all tables')
 
     def test_keys_mode_updates_existing_rows_and_inserts_the_missing_ones(self):
         self.use_azure()
@@ -1763,7 +2369,7 @@ class ClosingTests(UiCase):
 
         _, seen = self.drive_dialog(self.app.on_closing, look)
         self.assertEqual(seen['title'], self.root.title())
-        self.assertEqual(seen['title'], 'JT - Jflex Translator v3.0')
+        self.assertEqual(seen['title'], f'{APP_TITLE} v{VERSION}')            # la versione cambia a ogni rilascio
 
     def test_real_dialog_buttons_are_labelled_quit_and_stay(self):
         self.step2()
@@ -2124,14 +2730,11 @@ class WindowTests(UiCase):
     def test_texts_wrap_with_the_screen_width_through_the_tracker(self):
         screen = self.step2()
         screen.refresh_missing()
-        soon = next(w for w in all_widgets(screen) if 'text' in w.keys()
-                    and str(w.cget('text')).startswith('Translation of the CT'))
         self.app._on_screen_resize(SimpleNamespace(widget=screen, width=700))
         self.assertEqual(wraplength(screen.status.message), 700 - 95)
         self.assertEqual(wraplength(screen.label_missing), 700 - 80)
-        self.assertEqual(wraplength(soon), 700 - 150)
         self.app._on_screen_resize(SimpleNamespace(widget=screen, width=100))      # mai sotto il minimo leggibile
-        for widget in (screen.status.message, screen.label_missing, soon):
+        for widget in (screen.status.message, screen.label_missing):
             self.assertEqual(wraplength(widget), 180)
 
     def test_step_one_texts_wrap_too(self):
@@ -2176,17 +2779,15 @@ class WindowTests(UiCase):
         first = self.screen
         self.app.show_translation()
         self.assertFalse(first.winfo_exists())
-        self.assertEqual(len([w for w in self.root.winfo_children() if isinstance(w, (ConnectionScreen,
-                                                                                         TranslationScreen))]), 1)
+        self.assertEqual(len([w for w in self.app.area.inner.winfo_children() if isinstance(w, (ConnectionScreen,
+                                                                                                 TranslationScreen))]), 1)
 
     def test_coming_soon_notices_on_both_screens(self):
         step1 = ' '.join(all_texts(self.screen))
         self.assertIn('COMING SOON', step1)
         self.assertIn('Microsoft SQL Server (MSS)', step1)
         step2 = ' '.join(all_texts(self.step2()))
-        self.assertIn('COMING SOON', step2)
-        for level in ('CT (customizations)', 'CW (cross-cutting integrations)', 'CC (customer descriptor changes)'):
-            self.assertIn(level, step2)
+        self.assertNotIn('COMING SOON', step2)      # i livelli CK e CC nascosti non si annunciano: serve spazio alla finestra
 
     def test_hidden_button_blends_with_the_background(self):
         screen = self.step2()
@@ -2738,6 +3339,8 @@ class ScaleUnitTests(unittest.TestCase):
             self.skipTest(f'nessun display: {e}')
         self.addCleanup(root.destroy)
         root.withdraw()
+        previous = root.tk.call('tk', 'scaling')
+        self.addCleanup(root.tk.call, 'tk', 'scaling', previous)  # vale per tutto il processo: va rimessa
         root.tk.call('tk', 'scaling', 1.5 * 96 / 72)
         scale.init(root)
         self.assertAlmostEqual(scale.factor(), 1.5, places=2)
@@ -2754,6 +3357,8 @@ class ScaleWindowTests(UiCase):
         root.report_callback_exception = lambda *exc: self.callback_errors.append(exc)
         db = Database(driver=FakeDriver(FakeDB()))
         self.addCleanup(self._destroy, root, db)
+        previous = root.tk.call('tk', 'scaling')
+        self.addCleanup(root.tk.call, 'tk', 'scaling', previous)  # vale per tutto il processo: va rimessa (prima di distruggere)
         root.tk.call('tk', 'scaling', factor * 96 / 72)           # i font scalano prima che nasca l'applicazione
         original = root.geometry
         root._geometries = []
@@ -3292,7 +3897,7 @@ class StepTransitionTests(UiCase):
         return geometry.split('+', 1)[1]
 
     def screens(self):
-        return [w for w in self.root.winfo_children() if isinstance(w, ttk.Frame)]
+        return [w for w in self.app.area.inner.winfo_children() if isinstance(w, ttk.Frame)]
 
     def test_next_resizes_the_window_once_and_leaves_it_alone_afterwards(self):
         self.screen.next_button.invoke()

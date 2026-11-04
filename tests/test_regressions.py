@@ -68,7 +68,7 @@ class BlankTextTests(JtCase):
         self.assertEqual([call['text'] for call in azure.calls], ['Ciao'])      # lo spazio non va ad Azure
         self.assertEqual(result.inserts, 2)
         self.assertEqual(result.skipped, 0)
-        self.assertEqual(driver.db.inserts()[0][1], ['en', 1, '   '])
+        self.assertEqual(driver.db.inserts()[0][1], ['en', 1, '   ', None])
 
 
 if __name__ == '__main__':

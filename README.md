@@ -1,7 +1,7 @@
 # JT - Jflex Translator
 
 Programma Windows (Tkinter) che traduce con **Azure Translator** i testi di un database **Jflex su Oracle**:
-`FW_STRINGS`, `FW_FIELD_STRINGS`, le tabelle `FW_OPZIONI*`, `FW_DOCU_NODES_T`, `FW_OBJ_DESCRS`. Versione 3.0
+`FW_STRINGS`, `FW_FIELD_STRINGS`, le tabelle `FW_OPZIONI*`, `FW_DOCU_NODES_T`, `FW_OBJ_DESCRS`. Versione 3.1
 (erede di JCT 2.2.2).
 
 - Guida per chi lo usa: [GUIDA_UTENTE.md](GUIDA_UTENTE.md)
@@ -88,6 +88,32 @@ JT tiene **separati il programma e i dati dell'utente**:
 Alla prima partenza JT copia il modello della chiave Azure in `%LOCALAPPDATA%\JT`. Da sorgente (`JT.py`) non cambia nulla:
 tutto resta nella cartella del progetto (`Data\`, `Logs\`). La scelta e' in `Paths` (`jt\config.py`).
 
+## Simulatore di Oracle
+
+Per provare tutto senza un database vero (anche senza rete e senza client Oracle). Il database e' SQLite in memoria con le
+tabelle e le righe di `tools\create_test_db.py`, corretto per comportarsi come Oracle dove conta per JT (`LIKE` che distingue
+maiuscole e minuscole, `ROWNUM`, `sysdate`, `NVL`, `ORA-12899` per i testi troppo lunghi, `ORA-01400`); Azure e' finto
+(risponde `[lingua] testo`). Il codice di JT e' quello vero.
+
+```
+run_simulator.bat                    esegue gli scenari (livelli, utente, categoria, Update by keys, errori) e dice cosa non va
+run_simulator.bat --gui              apre la finestra di JT collegata al database simulato: si prova con il mouse
+```
+
+**Con righe vere.** `tools\extract_sample.py` copia da un Oracle vero (solo `SELECT`) una piccola selezione di righe in
+`tools\sample_data.json`: tutte le stringhe e triplette CT/CW, una parte di FW, AP e CC con le loro traduzioni, le opzioni `Fw...`
+e un campione degli altri tipi, un campione dei nodi di documentazione. Il file e' in `.gitignore` (dati di un database vero: non
+va su GitHub). Poi `run_simulator.bat --gui --sample tools\sample_data.json` apre JT sul simulatore con le righe di prova **piu'**
+quelle vere, e `create_test_db.py --sample tools\sample_data.json` fa lo stesso in un Oracle di prova.
+
+```
+.venv\Scripts\python.exe tools\extract_sample.py --host <server> --sid <sid> --user <utente>    (la password si chiede)
+```
+
+Alla fine della prova con `--gui` elenca le righe scritte (lingua, codice, utente). I file dell'utente (connessione, log) non si
+toccano: la prova lavora in una cartella temporanea. Non sostituisce una prova su un Oracle vero: non conosce PL/SQL, la
+lunghezza in byte invece che in caratteri, gli indici, ecc.
+
 ## Database di prova
 
 `tools\create_test_db.py` (nel pacchetto: `JT-TestDB.exe`; l'installazione lo propone alla fine) crea in un Oracle
@@ -103,6 +129,9 @@ gia' tradotte (per provare Update by keys) e i casi particolari (testo vuoto, so
 - Senza amministratore crea le tabelle nello schema dell'utente con cui ti colleghi.
 - Non tocca mai tabelle esistenti: se nello schema c'e' gia' una tabella di JT e non e' un database di prova creato da
   questo strumento, si ferma. `--recreate` rifa' solo un database di prova creato da lui.
+- Le lunghezze delle colonne sono quelle di un database Jflex vero (lingua di 2 caratteri, `value` 255, `caption` 100, descrizione
+  delle opzioni 100, codice opzione `CHAR(1)`/2/3/`NUMBER(5)` nelle quattro tabelle). Con `--sample FILE` si aggiungono righe vere
+  (vedi "Simulatore di Oracle").
 
 Non puo' creare un server Oracle: serve un'istanza Oracle (anche quella di sviluppo). Le colonne sono quelle che JT usa
 (vedi `jt	ables.py`) ma non sono la copia esatta delle tabelle Jflex: per prove con i dati veri serve un DB demo.
@@ -117,11 +146,13 @@ Non puo' creare un server Oracle: serve un'istanza Oracle (anche quella di svilu
 | `Data\` | tabelle, lingue, glossario; impostazioni e chiave Azure |
 | `Graphics\` | icone e pallini dei passi (rigenerabili con `tools\make_icons.py` e `tools\make_step_badges.py`) |
 | `tests\` | test automatici |
-| `tools\` | strumenti: icone, `build.py`, `installer.iss`, `create_test_db.py` |
+| `tools\` | strumenti: icone, `build.py`, `installer.iss`, `create_test_db.py`, `simulate.py` (simulatore di Oracle) |
 
 ## Per modificare
 
 - Una tabella in piu': si aggiunge una classe in `jt\tables.py` e una voce in `Data\tables.json`.
+- I livelli Jflex (FW, AP, CW, CT, CK, CC): intervalli dei codici e prefissi dei nomi sono in `jt\layers.py`; quali livelli si
+  vedono nella finestra e' `VISIBLE` (per mostrare anche CK basta aggiungerlo).
 - Il logo: `ICON_NAME` in `jt\config.py` (`bubbles`, `pixel_cube`, `pixel_block`).
 - Le lingue fisse in cima ai menu: `PINNED_LANGUAGES` in `jt\config.py`.
 - La sigla scritta nel database: `DB_MARKER` in `jt\config.py` (`JT`).

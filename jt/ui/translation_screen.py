@@ -1,8 +1,10 @@
 """Passo 2: scelta di tabella e lingue, caricamento della selezione e traduzione."""
 import os
+import re
 import tkinter as tk
 from tkinter import ttk
 
+from ..layers import DEFAULT_LEVEL, LEVEL_ALL, LEVEL_CHOICES, level_label
 from ..logs import write_run_logs
 from ..runner import DONE, ERROR, PROGRESS
 from ..tables import TooManyKeys, get_table
@@ -10,7 +12,7 @@ from .scale import pad, px
 from .secret import open_secret_panel
 from .texts import describe_duration, fmt_count, reason, rows, shorten
 from .theme import FONT, PALETTE
-from .widgets import StatusBar, ToolTip, WrapTracker, coming_soon
+from .widgets import Collapsible, StatusBar, ToolTip, WrapTracker
 
 POLL_MS = 100            # ogni quanto l'interfaccia legge gli avanzamenti del thread di traduzione
 
@@ -24,7 +26,20 @@ KEYS_HINT = {
         ('FW_OPZIONI, _DUE,\n_TRE, _INT', 'Option names, e.g. ProcessiLunghi (all their codes). Pick the table that holds them.'),
         ('FWK_STRINGS', 'String codes'),
     ],
-    'footer': 'Leave empty to translate the missing rows.',
+    'footer': 'Keys of a level other than the chosen one are skipped and written in the skipped log. '
+              'Leave empty to translate the missing rows.',
+}
+
+LEVEL_HINT = {
+    'title': 'Level',
+    'intro': 'Which layer of the Jflex data to translate.',
+    'rows': [('All levels', 'Every level: no filter.'),
+             ('Standard', 'The standard product: strings 100000-2999999, options without a Cw/Ct/... prefix.'),
+             ('CW - Integrations', 'Strings 4000000-4999999, options named Cw... Written with user ZFXINTEGR.'),
+             ('CT - Customizations', 'Tecnest customizations: strings 3000000-3999999, options named Ct... '
+                                     'Written with user ZFXCUSTOM.')],
+    'footer': 'FW_DOCU_NODES_T and FW_OBJ_DESCRS have no levels: the field is switched off for them and they '
+              'translate everything.',
 }
 
 PROGRESS_HINT = {
@@ -49,6 +64,7 @@ class TranslationScreen(ttk.Frame):
         self.app = app
         self.wrap = WrapTracker()
         self.selection = None          # selezione caricata con "Load": tabella e lingue sono salvate al suo interno
+        self._stale_message = False    # il banner dice com'e' finito un Load senza selezione (errore, nulla da tradurre)
         self.running = False
         self.counts = {}
         self._update_run = False
@@ -62,6 +78,9 @@ class TranslationScreen(ttk.Frame):
         self.var_in = tk.StringVar(self, value=_pick(saved.get('linput'), languages))
         self.var_out = tk.StringVar(self, value=_pick(saved.get('loutput'), languages, 1))
         self.var_table = tk.StringVar(self, value=_pick(saved.get('table'), descriptions))
+        self.var_level = tk.StringVar(self, value=_pick(saved.get('level'), list(LEVEL_CHOICES), 1))     # Standard
+        self._levelless = False        # la tabella scelta non ha livelli: il campo Level e' spento (dice 'All levels')
+        self._level_before = self.var_level.get()
         self.var_max = tk.StringVar(self, value='1')
         self.var_keys = tk.StringVar(self, value='')
 
@@ -69,13 +88,18 @@ class TranslationScreen(ttk.Frame):
         self._build_selection(descriptions)
         self._build_actions()
         self._build_progress()
-        coming_soon(self, 'Translation of the CT (customizations), CW (cross-cutting integrations) and '
-                          'CC (customer descriptor changes) levels.', self.wrap).pack(fill='x', pady=(px(10), 0))
         self._build_hidden_button()
+        self._update_level_state()
+        self._update_advanced_summary()
+        self._update_summaries()
 
         # qualsiasi modifica ai campi rende non valida la selezione gia' caricata
-        for var in (self.var_in, self.var_out, self.var_table, self.var_max, self.var_keys):
+        for var in (self.var_in, self.var_out, self.var_table, self.var_level, self.var_max, self.var_keys):
             var.trace_add('write', self._invalidate)
+        for var in (self.var_max, self.var_keys):
+            var.trace_add('write', self._update_advanced_summary)
+        for var in (self.var_in, self.var_out, self.var_table, self.var_level):
+            var.trace_add('write', self._update_summaries)
         if self.entries:
             self._counting_job = self.after(150, self.refresh_missing)
         else:
@@ -94,9 +118,34 @@ class TranslationScreen(ttk.Frame):
 
     # ------------------------------------------------------------------ costruzione
 
+    def _section(self, title, first=False):
+        """Un blocco con titolo che si chiude (aperto all'inizio). Chiuso resta una riga con un riassunto.
+        Ritorna (la sezione, la scheda dove mettere i campi)."""
+        section = Collapsible(self, title, expanded=True, on_toggle=self.app.fit_window)
+        section.pack(fill='x', pady=(0 if first else px(8), 0))
+        card = tk.Frame(section.body, bg=PALETTE['bg'], highlightthickness=1, highlightbackground=PALETTE['border'],
+                        padx=px(10), pady=px(5))
+        card.pack(fill='x', pady=(px(2), 0))
+        return section, card
+
+    def _update_summaries(self, *_):
+        """Il riassunto di ogni sezione (si vede anche a sezione chiusa)."""
+        self.languages_section.set_summary(f'{self.var_in.get()} \u2192 {self.var_out.get()}')
+        parts = [self.var_table.get()]
+        if not self._levelless and self._level() is not None:
+            parts.append(level_label(self._level()))
+        elif not self._levelless:
+            parts.append('all levels')
+        try:
+            missing = self.counts.get(self.app.catalog.table_name(self.var_table.get()))
+        except KeyError:
+            missing = None
+        if missing is not None:
+            parts.append(f'{fmt_count(missing)} missing')
+        self.selection_section.set_summary(' \u00b7 '.join(p for p in parts if p))
+
     def _build_languages(self, languages):
-        card = ttk.LabelFrame(self, text='LANGUAGES', style='Card.TLabelframe', padding=px(12))
-        card.pack(fill='x')
+        self.languages_section, card = self._section('LANGUAGES', first=True)
         card.columnconfigure(0, weight=1)
         card.columnconfigure(2, weight=1)
         ttk.Label(card, text='From', style='Muted.TLabel').grid(row=0, column=0, sticky='w')
@@ -110,32 +159,46 @@ class TranslationScreen(ttk.Frame):
         self.cmb_out.bind('<<ComboboxSelected>>', self.refresh_missing)
 
     def _build_selection(self, descriptions):
-        card = ttk.LabelFrame(self, text='WHAT TO TRANSLATE', style='Card.TLabelframe', padding=px(12))
-        card.pack(fill='x', pady=(px(10), 0))
+        self.selection_section, card = self._section('WHAT TO TRANSLATE')
         card.columnconfigure(1, weight=1)
 
-        ttk.Label(card, text='Table').grid(row=0, column=0, sticky='w', padx=(0, px(14)), pady=px(5))
+        ttk.Label(card, text='Table').grid(row=0, column=0, sticky='w', padx=(0, px(14)), pady=px(3))
         self.cmb_table = ttk.Combobox(card, textvariable=self.var_table, values=descriptions, state='readonly')
-        self.cmb_table.grid(row=0, column=1, sticky='ew', pady=px(5))
-        self.cmb_table.bind('<<ComboboxSelected>>', self.update_missing_label)
+        self.cmb_table.grid(row=0, column=1, sticky='ew', pady=px(3))
+        self.cmb_table.bind('<<ComboboxSelected>>', self.on_table_selected)
+
+        label_level = ttk.Label(card, text='Level  (?)')
+        label_level.grid(row=1, column=0, sticky='w', padx=(0, px(14)), pady=px(3))
+        self.cmb_level = ttk.Combobox(card, textvariable=self.var_level, values=list(LEVEL_CHOICES), state='readonly')
+        self.cmb_level.grid(row=1, column=1, sticky='ew', pady=px(3))
+        self.cmb_level.bind('<<ComboboxSelected>>', self.refresh_missing)
+        self.level_tip = ToolTip(label_level, LEVEL_HINT, self.cmb_level)
+        for event in ('<ButtonPress-1>', '<<ComboboxSelected>>'):      # il suggerimento non sta sopra l'elenco aperto
+            self.cmb_level.bind(event, self.level_tip.hide, add='+')
 
         self.label_missing = tk.Label(card, text='Counting missing translations...', bg=PALETTE['bg'],
                                       fg=PALETTE['muted'], font=(FONT, 9), wraplength=px(340), justify='left',
                                       anchor='nw')
-        self.label_missing.grid(row=1, column=0, columnspan=2, sticky='w', pady=(0, px(4)))
+        self.label_missing.grid(row=2, column=0, columnspan=2, sticky='w', pady=(0, px(4)))
         self.wrap.add(self.label_missing, 80)
         ToolTip(self.label_missing, self.missing_hint)
 
-        ttk.Label(card, text='Max rows').grid(row=2, column=0, sticky='w', padx=(0, px(14)), pady=px(5))
+        # "Advanced": Max rows e Update by keys. Aperta all'inizio; chiusa dice cosa c'e' dentro e si riapre da sola se
+        # servono (chiavi, errore)
+        self.advanced = Collapsible(card, 'Advanced', expanded=True, on_toggle=self.app.fit_window)
+        self.advanced.grid(row=3, column=0, columnspan=2, sticky='ew')
+        body = self.advanced.body
+        body.columnconfigure(3, weight=1)                   # una riga sola: Max rows [..]  Update by keys (?) [........]
+        ttk.Label(body, text='Max rows').grid(row=0, column=0, sticky='w', padx=(0, px(8)), pady=px(3))
         # solo cifre: non si puo' scrivere (ne' incollare) altro; 'Load' controlla che sia almeno 1
-        self.entry_max = ttk.Entry(card, width=10, textvariable=self.var_max, validate='key',
+        self.entry_max = ttk.Entry(body, width=6, textvariable=self.var_max, validate='key',
                                    validatecommand=(self.register(self._digits_only), '%P'))
-        self.entry_max.grid(row=2, column=1, sticky='w', pady=px(5))
+        self.entry_max.grid(row=0, column=1, sticky='w', padx=(0, px(10)), pady=px(3))
 
-        label_keys = ttk.Label(card, text='Update by keys  (?)')
-        label_keys.grid(row=3, column=0, sticky='w', padx=(0, px(14)), pady=px(5))
-        self.entry_keys = ttk.Entry(card, textvariable=self.var_keys)
-        self.entry_keys.grid(row=3, column=1, sticky='ew', pady=px(5))
+        label_keys = ttk.Label(body, text='Update by keys  (?)')
+        label_keys.grid(row=0, column=2, sticky='w', padx=(0, px(8)), pady=px(3))
+        self.entry_keys = ttk.Entry(body, textvariable=self.var_keys)
+        self.entry_keys.grid(row=0, column=3, sticky='ew', pady=px(3))
         ToolTip(label_keys, KEYS_HINT)
         ToolTip(self.entry_keys, KEYS_HINT)
         for entry in (self.entry_max, self.entry_keys):
@@ -145,9 +208,18 @@ class TranslationScreen(ttk.Frame):
     def _digits_only(proposed):
         return proposed == '' or (proposed.isascii() and proposed.isdigit())
 
+    def _update_advanced_summary(self, *_):
+        """Il riassunto di "Advanced" a sezione chiusa; con delle chiavi la sezione si apre (sono un'altra modalita')."""
+        keys = [k for k in re.split(r'[\s,;]+', self.var_keys.get().strip()) if k]
+        if keys:
+            self.advanced.set_summary(f'Update by keys: {len(keys)}')
+            self.advanced.expand()
+        else:
+            self.advanced.set_summary(f"Max rows {self.var_max.get().strip() or '-'}")
+
     def _build_actions(self):
         buttons = ttk.Frame(self)
-        buttons.pack(fill='x', pady=px(12))
+        buttons.pack(fill='x', pady=px(8))
         self.load_button = ttk.Button(buttons, text='Load', style='Secondary.TButton', command=self.load)
         self.load_button.pack(side='left', expand=True, fill='x', padx=(0, px(6)))
         self.translate_button = ttk.Button(buttons, text='Translate', style='Primary.TButton', state='disabled',
@@ -158,18 +230,20 @@ class TranslationScreen(ttk.Frame):
         self.wrap.add(self.status, 95)
 
     def _build_progress(self):
-        card = ttk.LabelFrame(self, text='PROGRESS', style='Card.TLabelframe', padding=px(12))
-        card.pack(fill='x', pady=(px(12), 0))
+        self.progress_section, card = self._section('PROGRESS')
         self.progress = ttk.Progressbar(card, mode='determinate', maximum=1, value=0)
         self.progress.pack(fill='x')
         self.label_bar = ttk.Label(card, text='Waiting to start', style='Muted.TLabel')
         self.label_bar.pack(anchor='w', pady=(px(8), 0))
-        self.label_time = ttk.Label(card, text='Elapsed time: --', style='Muted.TLabel')
-        self.label_time.pack(anchor='w')
         ToolTip(self.label_bar, PROGRESS_HINT)
-        self.link_logs = tk.Label(card, text='Open the logs folder', bg=PALETTE['bg'], fg=PALETTE['accent'],
+        # "Details" (i tempi) si apre a richiesta; il link ai log sta sulla stessa riga e si vede sempre
+        self.details = Collapsible(card, 'Details', on_toggle=self.app.fit_window)
+        self.details.pack(fill='x', pady=(px(2), 0))
+        self.label_time = ttk.Label(self.details.body, text='Elapsed time: --', style='Muted.TLabel')
+        self.label_time.pack(anchor='w', padx=(px(16), 0))
+        self.link_logs = tk.Label(self.details.extra, text='Open the logs folder', bg=PALETTE['bg'], fg=PALETTE['accent'],
                                   cursor='hand2', font=(FONT, 9, 'underline'))
-        self.link_logs.pack(anchor='w', pady=(px(6), 0))
+        self.link_logs.pack(side='right')
         self.link_logs.bind('<Button-1>', lambda _e: self.open_logs())
         ToolTip(self.link_logs, self.app.paths.logs)
 
@@ -196,14 +270,56 @@ class TranslationScreen(ttk.Frame):
         return (get_table(catalog.table_name(self.var_table.get())),
                 catalog.language_code(self.var_in.get()), catalog.language_code(self.var_out.get()))
 
+    def _level(self):
+        """Il Layer scelto nel campo Level (None = All, nessun filtro)."""
+        return LEVEL_CHOICES.get(self.var_level.get())
+
+    def _update_level_state(self):
+        """Le tabelle senza livelli (FW_DOCU_NODES_T, FW_OBJ_DESCRS): il campo Level si spegne e dice 'All levels'; tornando a
+        una tabella con livelli rimette la scelta di prima. Ritorna True se la scelta e' cambiata (i conteggi vanno rifatti)."""
+        try:
+            spec = get_table(self.app.catalog.table_name(self.var_table.get()))
+        except KeyError:
+            return False
+        levelless = not spec.supports_levels
+        before = self.var_level.get()
+        if levelless and not self._levelless:
+            self._level_before = before
+            self.var_level.set(LEVEL_ALL)
+        elif self._levelless and not levelless:
+            self.var_level.set(self._level_before if self._level_before in LEVEL_CHOICES else DEFAULT_LEVEL)
+        self._levelless = levelless
+        self.cmb_level.config(state='disabled' if levelless or self.running else 'readonly')
+        return self.var_level.get() != before
+
+    def _level_note(self, spec, level):
+        """' (CT)' dopo il numero di righe da tradurre: si vede su che livello si sta per scrivere. Standard non si scrive."""
+        if not spec.supports_levels:
+            return ''
+        if level is None:
+            return ' (all levels)'
+        return '' if level.name == 'AP' else f' ({level_label(level)})'
+
+    def on_table_selected(self, _event=None):
+        if self._update_level_state():
+            self.refresh_missing()               # la scelta e' cambiata: i conteggi vanno rifatti
+        else:
+            self.update_missing_label()
+
     def _invalidate(self, *_):
-        if self.running or self.selection is None:
+        if self.running:
+            return
+        if self.selection is None:
+            if self._stale_message:        # il messaggio d'errore del Load riguardava il valore di prima: non vale piu'
+                self._stale_message = False
+                self.status.show('info', 'Load the data for the translation.')
             return
         self.selection = None
         self.translate_button.config(state='disabled')
         self.status.show('info', 'Selection changed. Press Load to prepare it again.')
 
     def _reset_progress(self):
+        self.progress_section.set_summary('')
         self.progress.config(maximum=1, value=0)
         self.label_bar.config(text='Waiting to start')
         self.label_time.config(text='Elapsed time: --')
@@ -211,6 +327,12 @@ class TranslationScreen(ttk.Frame):
     def load(self):
         if self.running:
             return
+        try:
+            self._load()
+        finally:
+            self._stale_message = self.selection is None        # niente selezione: il banner e' un errore o un "niente da fare"
+
+    def _load(self):
         self.selection = None
         self.translate_button.config(state='disabled')
         self._reset_progress()
@@ -224,15 +346,17 @@ class TranslationScreen(ttk.Frame):
             return
         keys_text = self.var_keys.get().strip()
         if not keys_text and not self._max_rows_ok():
+            self.advanced.expand()                           # il campo da correggere si vede
             self.status.show('error', 'Max rows must be a whole number of at least 1.')
             return
         self.status.show('info', 'Loading...')
         self.app.set_busy(True)
+        level = self._level()
         try:
             if keys_text:
-                self._load_keys(spec, lan_in, lan_out, keys_text)
+                self._load_keys(spec, lan_in, lan_out, keys_text, level)
             else:
-                self._load_missing(spec, lan_in, lan_out)
+                self._load_missing(spec, lan_in, lan_out, level)
         except Exception as e:
             print(e)
             self.status.show('error', f'Could not load the rows: {reason(e)}')
@@ -243,15 +367,16 @@ class TranslationScreen(ttk.Frame):
         text = self.var_max.get().strip()
         return text.isascii() and text.isdigit() and int(text) >= 1
 
-    def _load_missing(self, spec, lan_in, lan_out):
-        selection = self.app.service.load_missing(spec, lan_in, lan_out, int(self.var_max.get()))
+    def _load_missing(self, spec, lan_in, lan_out, level):
+        selection = self.app.service.load_missing(spec, lan_in, lan_out, int(self.var_max.get()), level)
         if not selection.total:
             self.status.show('info', 'Nothing to translate: no missing rows for this selection.')
             return
-        self._accept(selection, 'ok', f'{rows(selection.total)} to translate: {describe_duration(selection.estimated_seconds)}, '
+        self._accept(selection, 'ok', f'{rows(selection.total)} to translate{self._level_note(spec, level)}: '
+                                      f'{describe_duration(selection.estimated_seconds)}, '
                                       f'{fmt_count(selection.chars)} characters.')
 
-    def _load_keys(self, spec, lan_in, lan_out, keys_text):
+    def _load_keys(self, spec, lan_in, lan_out, keys_text, level):
         try:
             keys = spec.parse_keys(keys_text)
         except TooManyKeys:
@@ -260,20 +385,39 @@ class TranslationScreen(ttk.Frame):
         except ValueError as e:
             self.status.show('error', f'Not a valid key: {e}')
             return
-        selection = self.app.service.load_keys(spec, lan_in, lan_out, keys)
+        selection = self.app.service.load_keys(spec, lan_in, lan_out, keys, level)
         if not selection.total:
-            self.status.show('error', f'No {self.var_in.get()} rows found for these keys.')
+            if selection.other_level:
+                self.status.show('warn', f'Nothing to translate: {self._other_level_text(selection)}')
+            else:
+                self.status.show('error', f'No {self.var_in.get()} rows found for these keys.')
             return
-        text = (f'Update mode: {rows(selection.total)}, {describe_duration(selection.estimated_seconds)} '
+        text = (f'Update mode{self._level_note(spec, level)}: {rows(selection.total)}, '
+                f'{describe_duration(selection.estimated_seconds)} '
                 f'for {fmt_count(selection.chars)} characters.')
         if selection.missing_keys:
             missing = selection.missing_keys
             text += f" Not found: {', '.join(missing[:5])}{'...' if len(missing) > 5 else ''}"
-        self._accept(selection, 'warn' if selection.missing_keys else 'ok', text)
+        if selection.other_level:
+            text += f' {self._other_level_text(selection)}'
+        self._accept(selection, 'warn' if selection.missing_keys or selection.other_level else 'ok', text)
+
+    @staticmethod
+    def _other_level_text(selection):
+        """'Skipped, not CT: 100000 (Standard), ...': chiavi trovate ma di un altro livello (non si scrivono)."""
+        spec, shown, seen = selection.spec, [], set()
+        for row, layer in selection.other_level:
+            key = spec.row_key(row, selection.columns)
+            if key not in seen:
+                seen.add(key)
+                shown.append(f"{key} ({level_label(layer) if layer else 'unknown level'})")
+        text = f"Skipped, not {level_label(selection.level)}: {', '.join(shown[:5])}"
+        return text + ('...' if len(shown) > 5 else '')
 
     def _accept(self, selection, state, text):
         self.selection = selection
-        self.app.settings.save_last_query(self.var_in.get(), self.var_out.get(), self.var_table.get())
+        self.app.settings.save_last_query(self.var_in.get(), self.var_out.get(), self.var_table.get(),
+                                          self.var_level.get())
         self.status.show(state, text)
         self.translate_button.config(state='normal')
 
@@ -296,6 +440,7 @@ class TranslationScreen(ttk.Frame):
         self._poll()
 
     def _begin_run(self, selection):
+        self._stale_message = False
         self.running = self.app.translating = True
         self._stopping = False
         if self._counting_job is not None:      # un conteggio ancora in attesa userebbe la connessione insieme al thread
@@ -343,9 +488,11 @@ class TranslationScreen(ttk.Frame):
         self.label_bar.config(text=f'Processed {p.done}/{p.total} · {done} · Errors {p.errors}{skipped}')
         self.label_time.config(text=f'Elapsed (min): {p.elapsed_min} · Expected (min): {p.expected_min}')
         self.progress.config(value=p.done)
+        self.progress_section.set_summary(f'{p.done}/{p.total}')
 
     def _finish(self, result, error):
         self.running = self.app.translating = False
+        self._stale_message = False                  # il riepilogo della corsa resta finche' non si fa un altro Load
         self.selection = None
         if error is not None:
             print(error)
@@ -389,6 +536,7 @@ class TranslationScreen(ttk.Frame):
             widget.config(state='disabled' if locked else 'normal')
         for combo in (self.cmb_in, self.cmb_out, self.cmb_table):
             combo.config(state='disabled' if locked else 'readonly')
+        self.cmb_level.config(state='disabled' if locked or self._levelless else 'readonly')
         self.hidden_button.config(state='disabled' if locked else 'normal')
         self.app.stepper.set_link_enabled(not locked)
 
@@ -410,7 +558,8 @@ class TranslationScreen(ttk.Frame):
                 return
             self.label_missing.config(text='Counting missing translations...')
             self.app.set_busy(True)
-            self.counts = self.app.service.missing_counts([get_table(e['table']) for e in self.entries], lan_in, lan_out)
+            self.counts = self.app.service.missing_counts([get_table(e['table']) for e in self.entries], lan_in, lan_out,
+                                                          self._level())
         except Exception as e:
             print(f'Count failed: {e}')
         finally:
@@ -430,14 +579,18 @@ class TranslationScreen(ttk.Frame):
                                       fg=PALETTE['warn'])
             return
         total = sum(n for n in self.counts.values() if n)
-        text = (f'Missing in {self.var_out.get()}: {fmt_count(self.counts.get(table))} in this table, '
+        level = (f' ({level_label(self._level())})' if self._level() is not None and get_table(table).supports_levels
+                 else '')
+        text = (f'Missing in {self.var_out.get()}{level}: {fmt_count(self.counts.get(table))} in this table, '
                 f'{fmt_count(total)} in all tables')
         if failed:
             text += ' (some tables could not be counted)'
         self.label_missing.config(text=text, fg=PALETTE['warn'] if failed else PALETTE['accent'] if total else PALETTE['ok'])
+        self._update_summaries()
 
     def missing_hint(self):
         rows = [(e['description'], fmt_count(self.counts.get(e['table']))) for e in self.entries
                 if e['table'] in self.counts]
-        return {'title': f'Missing translations: {self.var_in.get()} → {self.var_out.get()}',
+        level = f' [{level_label(self._level())}]' if self._level() is not None else ''
+        return {'title': f'Missing translations: {self.var_in.get()} → {self.var_out.get()}{level}',
                 'rows': rows or [('-', 'not counted yet')]}

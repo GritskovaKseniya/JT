@@ -16,7 +16,7 @@ from .scale import px
 from .theme import setup_style
 from .translation_screen import TranslationScreen
 from .winicon import set_window_icons
-from .widgets import InfoBar, Stepper
+from .widgets import InfoBar, ScrollArea, Stepper
 
 BOTTOM_MARGIN = 80        # spazio lasciato per la barra delle applicazioni
 
@@ -53,16 +53,19 @@ class JTApp:
         self.stepper.pack(side='top', fill='x')
         self.infobar = InfoBar(root)                    # in basso: a quale database si e' collegati
         self.infobar.pack(side='bottom', fill='x')
+        self.area = ScrollArea(root)                    # se la finestra non basta per il passo: barra di scorrimento
+        self.area.pack(side='top', fill='both', expand=True)
         self.show_connection()
         root.protocol('WM_DELETE_WINDOW', self.on_closing)
 
     # ------------------------------------------------------------------- passi
 
     def _show(self, screen_class, step):
-        new = screen_class(self.root, self)          # prima si costruisce il nuovo passo, poi si toglie il vecchio:
+        new = screen_class(self.area.inner, self)          # prima si costruisce il nuovo passo, poi si toglie il vecchio:
         if self.screen is not None:                  # nessun momento con la finestra vuota
             self.screen.destroy()
         self.screen = new
+        self.area.to_top()
         new.pack(fill='both', expand=True)
         new.bind('<Configure>', self._on_screen_resize)
         self.stepper.set_active(step)
@@ -128,6 +131,7 @@ class JTApp:
         self.root.minsize(needed_w, needed_h)
         if self._placed:
             x, y = self.root.winfo_x(), self.root.winfo_y()
+            x = max(0, min(x, screen_w - width))             # mai oltre il bordo destro
         else:
             x, y = (screen_w - width) // 2, max(20, (screen_h - needed_h) // 4)
             self._placed = True

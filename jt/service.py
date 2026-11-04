@@ -9,7 +9,8 @@ from datetime import datetime
 from typing import Any, List
 
 from .config import SECONDS_PER_ROW
-from .tables import MARK, EmptySourceText, SchemaError
+from .layers import level_label, user_of_layer
+from .tables import EmptySourceText, SchemaError
 
 
 @dataclass
@@ -23,6 +24,8 @@ class Selection:
     chars: int
     columns: List[str] = field(default_factory=list)
     missing_keys: List[str] = field(default_factory=list)
+    level: Any = None         # Layer scelto (None = tutti i livelli)
+    other_level: list = field(default_factory=list)    # (riga, Layer) delle righe per chiavi di un altro livello: non si scrivono
 
     @property
     def update_mode(self):
@@ -67,34 +70,51 @@ class TranslationService:
 
     # ------------------------------------------------------------------ selezione
 
-    def load_missing(self, spec, lan_in, lan_out, limit):
+    def load_missing(self, spec, lan_in, lan_out, limit, level=None):
         """Le prime `limit` righe in lan_in che non hanno ancora la traduzione in lan_out."""
         spec = self.db.resolve(spec)
         self.db.close_cursors()
         cursor = self.db.open_cursor()
-        cursor.execute(*spec.read_missing(lan_in, lan_out, limit))
-        count_query, chars_query = spec.count_batch(lan_in, lan_out, limit)
+        cursor.execute(*spec.read_missing(lan_in, lan_out, limit, level))
+        count_query, chars_query = spec.count_batch(lan_in, lan_out, limit, level)
         total = self.db.scalar(*count_query)
         chars = self.db.scalar(*chars_query) or 0
-        return Selection(spec, lan_in, lan_out, 'missing', cursor, total, chars)
+        return Selection(spec, lan_in, lan_out, 'missing', cursor, total, chars, level=level)
 
-    def load_keys(self, spec, lan_in, lan_out, keys):
-        """Le righe in lan_in con le chiavi indicate: il motore le inserira' o aggiornera' in lan_out."""
+    def load_keys(self, spec, lan_in, lan_out, keys, level=None):
+        """Le righe in lan_in con le chiavi indicate: il motore le inserira' o aggiornera' in lan_out.
+        Con un livello scelto, le righe di un altro livello restano fuori (in `other_level`)."""
         spec = self.db.resolve(spec)
         self.db.close_cursors()
         columns = self._columns(spec)
-        rows = self.db.fetch_all(*spec.read_keys(lan_in, keys))
-        found = {spec.row_key(row, columns) for row in rows}
+        all_rows = self.db.fetch_all(*spec.read_keys(lan_in, keys))
+        found = {spec.row_key(row, columns) for row in all_rows}
+        rows, other_level = self._split_by_level(spec, all_rows, level)
         chars = sum(len(v) for row in rows for v in row if isinstance(v, str))
         return Selection(spec, lan_in, lan_out, 'keys', rows, len(rows), chars, columns,
-                         [k for k in keys if (str(int(k)) if spec.numeric_keys else k) not in found])   # '007' = 7
+                         [k for k in keys if (str(int(k)) if spec.numeric_keys else k) not in found],   # '007' = 7
+                         level, other_level)
 
-    def missing_counts(self, specs, lan_in, lan_out):
+    @staticmethod
+    def _split_by_level(spec, rows, level):
+        """(righe del livello scelto, [(riga, Layer)] di un altro livello o di livello sconosciuto)."""
+        if level is None or not spec.supports_levels:
+            return rows, []
+        own, other = [], []
+        for row in rows:
+            layer = spec.layer_of_row(row)
+            if layer == level:
+                own.append(row)
+            else:
+                other.append((row, layer))
+        return own, other
+
+    def missing_counts(self, specs, lan_in, lan_out, level=None):
         """{tabella: righe mancanti in lan_out}; None per le tabelle che non si riescono a contare."""
         counts = {}
         for spec in specs:
             try:
-                counts[spec.name] = self.db.scalar(*self.db.resolve(spec).count_all(lan_in, lan_out))
+                counts[spec.name] = self.db.scalar(*self.db.resolve(spec).count_all(lan_in, lan_out, level=level))
             except Exception as e:
                 print(f'Count failed for {spec.name}: {e}')
                 counts[spec.name] = None
@@ -116,6 +136,9 @@ class TranslationService:
         result = RunResult()
         started = time.time()
         done = 0
+        for row, layer in selection.other_level:        # chiavi di un altro livello: non si toccano, si scrive il motivo
+            result.skipped += 1
+            result.skipped_rows.append(self._other_level_entry(selection, row, layer))
 
         def tr(text, required=False):
             if text is None:
@@ -132,7 +155,9 @@ class TranslationService:
                     result.stopped = True
                     break
                 code, source_text = spec.log_info(row)
-                base = {'date': None, 'code': code, 'lng_in': lan_in, 'lng_out': lan_out, 'input': source_text}
+                layer = spec.layer_of_row(row)       # livello e utente scritto: nei log si ritrovano le righe CT e CW
+                base = {'date': None, 'code': code, 'level': level_label(layer) if layer else '',
+                        'user': user_of_layer(layer), 'lng_in': lan_in, 'lng_out': lan_out, 'input': source_text}
                 try:
                     translated = spec.translate_row(row, tr)
                 except Exception as e:
@@ -149,6 +174,14 @@ class TranslationService:
             result.failure = e
         return result
 
+    @staticmethod
+    def _other_level_entry(selection, row, layer):
+        code, source_text = selection.spec.log_info(row)
+        actual = f'level {layer.name}' if layer else 'unknown level'
+        return {'date': datetime.now().isoformat(), 'code': code, 'level': level_label(layer) if layer else 'unknown',
+                'user': '', 'lng_in': selection.lan_in, 'lng_out': selection.lan_out, 'input': source_text,
+                'reason': f'key {code} is {actual}, selected level is {selection.level.name}'}
+
     def _write(self, selection, row, translated, base, result):
         spec, lan_out = selection.spec, selection.lan_out
         now = datetime.now().isoformat()
@@ -156,7 +189,7 @@ class TranslationService:
             action, statement = 'insert', None
             if selection.update_mode:
                 statement = self._update_statement(spec, spec.update_target(row, lan_out, translated.values,
-                                                                            selection.columns))
+                                                                            selection.columns), spec.user_sql(row))
             if statement:
                 self.db.execute(*statement)
                 action = 'update'
@@ -172,10 +205,11 @@ class TranslationService:
             result.updates += 1
         else:
             result.inserts += 1
-        result.successes.append({'date': now, 'action': action, 'code': base['code'], 'lng_in': base['lng_in'],
-                                 'lng_out': base['lng_out'], 'input': base['input'], 'output': translated.primary})
+        result.successes.append({'date': now, 'action': action, 'code': base['code'], 'level': base['level'],
+                                 'user': base['user'], 'lng_in': base['lng_in'], 'lng_out': base['lng_out'],
+                                 'input': base['input'], 'output': translated.primary})
 
-    def _update_statement(self, spec, target):
+    def _update_statement(self, spec, target, user_sql):
         """(sql, binds) dell'UPDATE se la riga esiste gia' in lingua di output, altrimenti None (-> INSERT)."""
         conditions = ' AND '.join(f'{col} = :w{i}' for i, col in enumerate(target.where))
         binds = {f'w{i}': value for i, value in enumerate(target.where.values())}
@@ -184,7 +218,7 @@ class TranslationService:
         parts = [f'{col} = :s{i}' for i, col in enumerate(target.sets)]
         binds.update({f's{i}': value for i, value in enumerate(target.sets.values())})
         if len(target.audit) == 2:
-            parts += [f'{target.audit[0]} = {MARK}', f'{target.audit[1]} = sysdate']
+            parts += [f'{target.audit[0]} = {user_sql}', f'{target.audit[1]} = sysdate']
         return f"UPDATE {spec.name} SET {', '.join(parts)} WHERE {conditions}", binds
 
     @staticmethod

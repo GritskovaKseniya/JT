@@ -12,6 +12,7 @@ from jt.azure import AzureTranslator
 from jt.config import SECONDS_PER_ROW
 from jt.db import Database
 from jt.glossary import Glossary
+from jt.layers import BY_NAME
 from jt.logs import write_run_logs
 from jt.service import Progress, RunResult, Selection, TranslationService
 from jt.tables import TABLES, SchemaError, get_table
@@ -20,10 +21,10 @@ ALL_NAMES = list(TABLES)
 
 # prima riga di helpers.SOURCE tradotta de -> fr con il traduttore finto ('T:' + testo)
 FIRST_INSERT = {
-    'FW_STRINGS': ("INSERT INTO FW_STRINGS VALUES (:1, :2, :3, NULL, 'JT', sysdate)",
-                   ['fr', 100000, 'T:Ordine UMV']),
-    'FW_FIELD_STRINGS': ("INSERT INTO FW_FIELD_STRINGS VALUES (:1, :2, :3, :4, :5, NULL, 'JT', sysdate)",
-                         ['fr', 10, 'T:Cod UMV', None, None]),
+    'FW_STRINGS': ("INSERT INTO FW_STRINGS VALUES (:1, :2, :3, :4, 'JT', sysdate)",
+                   ['fr', 100000, 'T:Ordine UMV', None]),
+    'FW_FIELD_STRINGS': ("INSERT INTO FW_FIELD_STRINGS VALUES (:1, :2, :3, :4, :5, :6, 'JT', sysdate)",
+                         ['fr', 10, 'T:Cod UMV', None, None, None]),
     'FW_OPZIONI': ("INSERT INTO FW_OPZIONI VALUES (:1, :2, :3, :4, :5, :6, 'JT', sysdate)",
                    ['fr', 'ProcessiLunghi', '0', 'T:Si', 1, 2]),
     'FW_OPZIONI_DUE': ("INSERT INTO FW_OPZIONI_DUE VALUES (:1, :2, :3, :4, :5, :6, 'JT', sysdate)",
@@ -90,6 +91,19 @@ class LoadMissingTests(ServiceCase):
         self.assertEqual(self.state.log[1], (count_sql, count_binds))
         self.assertEqual(self.state.log[2], (sum_sql, sum_binds))
         self.assertIn('SUM(LENGTH(value))', sum_sql)
+
+    def test_level_goes_to_the_queries_and_is_remembered(self):
+        self.state.missing['FW_STRINGS'] = 2
+        spec, ct = get_table('FW_STRINGS'), BY_NAME['CT']
+        selection = self.service.load_missing(spec, 'de', 'fr', 10, level=ct)
+        self.assertIs(selection.level, ct)
+        self.assertEqual(self.state.log[0], spec.read_missing('de', 'fr', 10, ct))
+        (count_query, sum_query) = spec.count_batch('de', 'fr', 10, ct)
+        self.assertEqual(self.state.log[1:3], [count_query, sum_query])
+        self.assertEqual(self.state.log[0][1]['lvl_lo'], 3000000)
+
+    def test_without_level_the_selection_has_none(self):
+        self.assertIsNone(self.missing_selection().level)
 
     def test_cursor_is_kept_open_and_yields_rows(self):
         selection = self.missing_selection()
@@ -182,6 +196,89 @@ class LoadKeysTests(ServiceCase):
         self.assertTrue(first.rows.closed)
 
 
+class LoadKeysByLevelTests(ServiceCase):
+    CT_ROW = ('it', 3000001, 'Testo CT', None, None, None)
+
+    def setUp(self):
+        super().setUp()
+        self.state.source['FW_STRINGS'].append(self.CT_ROW)
+        self.state.source['FW_OPZIONI'] += [('it', 'CtOpz', '0', 'Si', 1, 2, None, None),
+                                            ('it', 'ctOpz', '0', 'Si', 1, 2, None, None)]
+
+    def load(self, name, keys, level):
+        spec = get_table(name)
+        return self.service.load_keys(spec, 'it', 'de', spec.parse_keys(keys), level)
+
+    def test_rows_of_the_chosen_level_are_kept_and_the_others_set_aside(self):
+        selection = self.load('FW_STRINGS', '100000, 3000001', BY_NAME['CT'])
+        self.assertEqual(selection.rows, [self.CT_ROW])
+        self.assertEqual((selection.total, selection.chars), (1, len('it') + len('Testo CT')))
+        self.assertEqual([(row[1], layer.name) for row, layer in selection.other_level], [(100000, 'AP')])
+        self.assertIs(selection.level, BY_NAME['CT'])
+        self.assertEqual(selection.missing_keys, [])           # trovata, solo di un altro livello
+
+    def test_without_level_nothing_is_set_aside(self):
+        selection = self.load('FW_STRINGS', '100000, 3000001', None)
+        self.assertEqual((selection.total, selection.other_level, selection.level), (2, [], None))
+
+    def test_a_code_outside_every_range_is_set_aside_with_no_layer(self):
+        self.state.source['FW_STRINGS'].append(('it', 7000000, 'Fuori', None, None, None))
+        selection = self.load('FW_STRINGS', '7000000', BY_NAME['AP'])
+        self.assertEqual((selection.total, [layer for _, layer in selection.other_level]), (0, [None]))
+
+    def test_options_are_split_by_name_prefix(self):
+        selection = self.load('FW_OPZIONI', 'CtOpz, ctOpz, ProcessiLunghi', BY_NAME['CT'])
+        self.assertEqual([row[1] for row in selection.rows], ['CtOpz'])
+        self.assertEqual(sorted((row[1], layer.name if layer else None) for row, layer in selection.other_level),
+                         [('ProcessiLunghi', 'AP'), ('ProcessiLunghi', 'AP'), ('ctOpz', None)])
+
+    def test_tables_without_levels_keep_every_row(self):
+        selection = self.load('FW_DOCU_NODES_T', '100000', BY_NAME['CT'])
+        self.assertEqual((selection.total, selection.other_level), (1, []))
+
+    def test_run_skips_other_level_rows_and_writes_the_reason(self):
+        selection = self.load('FW_STRINGS', '100000, 3000001', BY_NAME['CT'])
+        result = self.service.run(selection, self.translator)
+        self.assertEqual(result.skipped, 1)
+        self.assertEqual(len(result.successes), 1)
+        self.assertEqual(result.successes[0]['code'], 3000001)
+        entry = result.skipped_rows[0]
+        self.assertEqual((entry['code'], entry['input']), (100000, 'Ordine UMV'))
+        self.assertEqual(entry['reason'], 'key 100000 is level AP, selected level is CT')
+        self.assertEqual(len(self.state.writes()), 1)
+
+    def test_run_writes_the_user_of_the_level_in_insert_and_update(self):
+        self.state.source['FW_STRINGS'].append(('it', 4000001, 'Testo CW', None, None, None))
+        self.state.existing.add(('FW_STRINGS', (('language', 'de'), ('code', 3000001))))      # CT gia' presente: UPDATE
+        self.service.run(self.load('FW_STRINGS', '3000001, 4000001, 100000', None), self.translator)
+        statements = [sql for sql, binds in self.state.writes()]
+        self.assertEqual(len(statements), 3)
+        self.assertTrue(any(s.startswith('UPDATE') and "= 'ZFXCUSTOM'" in s for s in statements), statements)
+        self.assertTrue(any(s.startswith('INSERT') and "'ZFXINTEGR', sysdate" in s for s in statements), statements)
+        self.assertTrue(any(s.startswith('INSERT') and "'JT', sysdate" in s for s in statements), statements)
+
+    def test_logs_say_the_level_and_the_user_written(self):
+        self.state.source['FW_STRINGS'].append(('it', 4000001, 'Testo CW', None, None, None))
+        # senza livello (All) ogni riga ha il suo
+        result = self.service.run(self.load('FW_STRINGS', '3000001, 4000001, 100000', None), self.translator)
+        seen = {entry['code']: (entry['level'], entry['user']) for entry in result.successes}
+        self.assertEqual(seen, {3000001: ('CT', 'ZFXCUSTOM'), 4000001: ('CW', 'ZFXINTEGR'), 100000: ('Standard', 'JT')})
+
+    def test_skipped_log_of_another_level_has_the_level_of_the_row_and_no_user(self):
+        selection = self.load('FW_STRINGS', '100000, 3000001', BY_NAME['CT'])
+        entry = self.service.run(selection, self.translator).skipped_rows[0]
+        self.assertEqual((entry['code'], entry['level'], entry['user']), (100000, 'Standard', ''))
+        selection = self.load('FW_OPZIONI', 'ctOpz', BY_NAME['CT'])
+        entry = self.service.run(selection, self.translator).skipped_rows[0]
+        self.assertEqual((entry['level'], entry['user']), ('unknown', ''))
+
+    def test_run_reason_for_a_row_with_no_layer(self):
+        selection = self.load('FW_OPZIONI', 'ctOpz', BY_NAME['CT'])
+        result = self.service.run(selection, self.translator)
+        self.assertEqual(result.skipped_rows[0]['reason'], 'key ctOpz is unknown level, selected level is CT')
+        self.assertEqual(self.state.writes(), [])
+
+
 class MissingCountsTests(ServiceCase):
     def test_counts_for_every_table(self):
         self.state.missing = {name: i + 1 for i, name in enumerate(ALL_NAMES)}
@@ -207,6 +304,14 @@ class MissingCountsTests(ServiceCase):
 
     def test_empty_list(self):
         self.assertEqual(self.service.missing_counts([], 'de', 'fr'), {})
+
+    def test_level_goes_to_every_count_query(self):
+        self.state.missing = {name: 2 for name in ALL_NAMES}
+        self.service.missing_counts([get_table('FW_STRINGS'), get_table('FW_OPZIONI')], 'de', 'fr', BY_NAME['CW'])
+        counts = [(sql, binds) for sql, binds in self.state.log if sql.startswith('SELECT COUNT(*)')]
+        self.assertEqual(len(counts), 2)
+        self.assertEqual(counts[0][1]['lvl_lo'], 4000000)
+        self.assertEqual(counts[1][1]['lvl_p'], 'Cw%')
 
 
 class RunMissingModeTests(ServiceCase):
@@ -238,10 +343,10 @@ class RunMissingModeTests(ServiceCase):
             dt.now.return_value.isoformat.return_value = '2026-01-02T03:04:05'
             result = self.service.run(selection, self.translator)
         self.assertEqual(result.successes[0], {'date': '2026-01-02T03:04:05', 'action': 'insert', 'code': 100000,
-                                               'lng_in': 'de', 'lng_out': 'fr', 'input': 'Ordine UMV',
-                                               'output': 'T:Ordine UMV'})
-        self.assertEqual(list(result.successes[0]), ['date', 'action', 'code', 'lng_in', 'lng_out', 'input',
-                                                     'output'])
+                                               'level': 'Standard', 'user': 'JT', 'lng_in': 'de', 'lng_out': 'fr',
+                                               'input': 'Ordine UMV', 'output': 'T:Ordine UMV'})
+        self.assertEqual(list(result.successes[0]), ['date', 'action', 'code', 'level', 'user', 'lng_in', 'lng_out',
+                                                     'input', 'output'])
         self.assertEqual(result.successes[1]['code'], 100001)
 
     def test_commit_per_row(self):
@@ -254,7 +359,7 @@ class RunMissingModeTests(ServiceCase):
         selection = self.missing_selection()
         self.service.run(selection, self.translator)
         sql, binds = self.state.inserts()[0]
-        self.assertEqual(binds, ['fr', 1, "T:l'ordine & 100% 'x'"])
+        self.assertEqual(binds, ['fr', 1, "T:l'ordine & 100% 'x'", None])
         for text in ("l'ordine", '&', '%'):
             self.assertNotIn(text, sql)
 
@@ -285,8 +390,9 @@ class RunMissingModeTests(ServiceCase):
             dt.now.return_value.isoformat.return_value = 'NOW'
             result = self.service.run(self.missing_selection(), self.translator)
         self.assertEqual((result.inserts, result.skipped), (1, 0))
-        self.assertEqual(result.errors, [{'date': 'NOW', 'code': 100000, 'lng_in': 'de', 'lng_out': 'fr',
-                                          'input': 'Ordine UMV', 'reason': 'simulated write error'}])
+        self.assertEqual(result.errors, [{'date': 'NOW', 'code': 100000, 'level': 'Standard', 'user': 'JT',
+                                          'lng_in': 'de', 'lng_out': 'fr', 'input': 'Ordine UMV',
+                                          'reason': 'simulated write error'}])
         self.assertEqual(self.conn.commits, 1)
         self.assertEqual([s['code'] for s in result.successes], [100001])
 
@@ -343,7 +449,7 @@ class RunMissingModeTests(ServiceCase):
     def test_field_strings_empty_optional_columns_are_null(self):
         self.service.run(self.missing_selection('FW_FIELD_STRINGS'), self.translator)
         binds = self.state.inserts()[0][1]
-        self.assertEqual(binds[3:], [None, None])
+        self.assertEqual(binds[3:], [None, None, None])
         self.assertEqual([c['text'] for c in self.azure.calls], ['Cod UMV'])
 
 
@@ -359,7 +465,7 @@ class RunKeysModeTests(ServiceCase):
             "UPDATE FW_STRINGS SET value = :s0, USR = 'JT', DT = sysdate WHERE language = :w0 AND code = :w1",
             {'w0': 'de', 'w1': 100000, 's0': 'T:Ordine UMV'})])
         self.assertEqual(self.state.inserts(), [(
-            "INSERT INTO FW_STRINGS VALUES (:1, :2, :3, NULL, 'JT', sysdate)", ['de', 100001, 'T:Nuovo testo'])])
+            "INSERT INTO FW_STRINGS VALUES (:1, :2, :3, :4, 'JT', sysdate)", ['de', 100001, 'T:Nuovo testo', None])])
         self.assertEqual([s['action'] for s in result.successes], ['update', 'insert'])
         self.assertEqual(self.conn.commits, 2)
 

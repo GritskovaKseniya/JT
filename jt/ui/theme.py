@@ -57,7 +57,7 @@ def setup_style(root):
     style.configure('Vertical.TScrollbar', background='#c9d3e3', troughcolor='#eef1f6', bordercolor=c['border'],
                     arrowcolor=c['accent'], relief='flat')
     style.configure('Horizontal.TProgressbar', troughcolor=c['trough'], background=c['accent'],
-                    bordercolor=c['border'], thickness=pad(10)[0])
+                    bordercolor=c['border'], thickness=pad(5)[0])
 
     # Pulsanti: Primary (azione principale, pieno), Secondary (bordo e testo blu su bianco), Danger (azione che ferma).
     # Il rettangolo tratteggiato di default e' nascosto (focuscolor = colore del pulsante).

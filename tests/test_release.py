@@ -8,6 +8,7 @@ import helpers
 from helpers import JtCase
 
 sys.path.insert(0, os.path.join(helpers.ROOT, 'tools'))
+import build  # noqa: E402
 import release  # noqa: E402
 
 GOOD = {name: b'x' for name in release.PACKAGE_FILES}
@@ -86,3 +87,47 @@ class BumpVersionTests(JtCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class CleaningDistTests(JtCase):
+    """Costruire una versione nuova non cancella gli .zip e i setup delle versioni precedenti."""
+
+    def make(self, *names):
+        folder = os.path.join(self.tmp, 'dist')
+        os.makedirs(folder)
+        for name in names:
+            path = os.path.join(folder, name)
+            if name.endswith('/'):
+                os.makedirs(path)
+                with open(os.path.join(path, 'JT.exe'), 'wb') as f:
+                    f.write(b'x')
+            else:
+                with open(path, 'wb') as f:
+                    f.write(b'x')
+        return folder
+
+    def test_previous_versions_stay_and_everything_else_goes(self):
+        folder = self.make('JT-3.0.zip', 'JT-Setup-3.0.exe', 'JT/', 'appunti.txt', 'altro.zip', 'JT-TestDB.exe')
+        build.empty_folder(folder, build.KEEP_IN_DIST)
+        self.assertEqual(sorted(os.listdir(folder)), ['JT-3.0.zip', 'JT-Setup-3.0.exe'])
+
+    def test_without_keep_it_empties_everything_like_before(self):
+        folder = self.make('JT-3.0.zip', 'JT/')
+        build.empty_folder(folder)
+        self.assertEqual(os.listdir(folder), [])
+        self.assertTrue(os.path.isdir(folder))
+
+    def test_a_missing_folder_is_fine(self):
+        build.empty_folder(os.path.join(self.tmp, 'non-c-e'), build.KEEP_IN_DIST)
+
+    def test_the_names_the_build_produces_match_what_is_kept(self):
+        import fnmatch
+        for name in (f'JT-{build.VERSION}.zip', f'JT-Setup-{build.VERSION}.exe', 'JT-3.0.zip', 'JT-10.2.zip'):
+            self.assertTrue(any(fnmatch.fnmatch(name, p) for p in build.KEEP_IN_DIST), name)
+        for name in ('JT', 'JT-TestDB.exe', 'JT.exe', 'JT-certificato.cer'):
+            self.assertFalse(any(fnmatch.fnmatch(name, p) for p in build.KEEP_IN_DIST), name)
+
+    def test_build_cleans_dist_with_the_keep_list(self):
+        import inspect
+        source = inspect.getsource(build.build_exe)
+        self.assertIn('KEEP_IN_DIST', source)

@@ -13,6 +13,7 @@ import string
 from collections import namedtuple
 
 from .config import DB_MARKER, MAX_KEYS
+from .layers import LAYERS, layer_of_code, layer_of_name, user_of_layer
 
 MARK = f"'{DB_MARKER}'"      # costante SQL scritta nella colonna "utente" insieme a sysdate
 
@@ -36,6 +37,21 @@ def generate_id(length=22):
     return ''.join(random.choices(string.ascii_letters + string.digits, k=length))
 
 
+def _code_range_condition(level):
+    """Livello di stringhe e triplette: intervallo del codice (colonna code)."""
+    if level is None:
+        return '', {}
+    return 'X.code BETWEEN :lvl_lo AND :lvl_hi', {'lvl_lo': level.first, 'lvl_hi': level.last}
+
+
+def _layer_of_code_column(code):
+    """Layer di un codice; None se il codice non cade in nessun livello."""
+    try:
+        return layer_of_code(int(code))
+    except ValueError:
+        return None
+
+
 class TableSpec:
     name = ''
     lang_col = ''            # colonna della lingua
@@ -45,39 +61,58 @@ class TableSpec:
     key_index = 0            # posizione della chiave nella riga letta
     char_expr = ''           # SQL: lunghezza dei testi sorgente (per la stima)
     needs_columns = False    # i nomi colonna vanno letti dal DB
+    supports_levels = True   # False: la tabella non ha livelli (il livello scelto non filtra nulla)
 
     def bind_columns(self, columns):
         """Ritorna la tabella con i nomi colonna reali (solo per le tabelle che li leggono dal DB)."""
         return self
 
+    def level_condition(self, level):
+        """(frammento SQL, bind) che limita le righe a un livello (Layer); level None = tutti i livelli.
+        Predefinito: nessuna condizione (tabelle senza livelli)."""
+        return '', {}
+
+    def layer_of_row(self, row):
+        """Il Layer di una riga letta; None se non si sa (o se la tabella non ha livelli)."""
+        return None
+
+    def user_sql(self, row):
+        """Costante SQL per la colonna utente della riga scritta: ZFXCUSTOM (CT), ZFXINTEGR (CW) o la sigla del tool.
+        Viene sempre da una tabella fissa (layers.py), mai dai dati: non e' una bind variable ma non si puo' iniettare."""
+        return f"'{user_of_layer(self.layer_of_row(row))}'"
+
     # ---------------------------------------------------------------- selezione (SQL)
 
-    def _predicate(self, limited):
+    def _predicate(self, limited, level=None):
         same_key = ' AND '.join(f'X.{k} = Y.{k}' for k in self.key_cols)
         limit = ' AND ROWNUM <= :n' if limited else ''
-        return (f'X.{self.lang_col} = :li{limit} AND NOT EXISTS (SELECT 1 FROM {self.name} Y '
+        level_sql = self.level_condition(level)[0]
+        level_sql = f' AND {level_sql}' if level_sql else ''
+        return (f'X.{self.lang_col} = :li{level_sql}{limit} AND NOT EXISTS (SELECT 1 FROM {self.name} Y '
                 f'WHERE {same_key} AND Y.{self.lang_col} = :lo)')
 
-    @staticmethod
-    def _binds(lan_in, lan_out, limit=None):
+    def _binds(self, lan_in, lan_out, limit=None, level=None):
         binds = {'li': lan_in, 'lo': lan_out}
+        binds.update(self.level_condition(level)[1])
         if limit is not None:
             binds['n'] = limit
         return binds
 
-    def read_missing(self, lan_in, lan_out, limit):
+    def read_missing(self, lan_in, lan_out, limit, level=None):
         """Righe con testo in lan_in e senza la corrispondente in lan_out (al massimo `limit`)."""
-        return (f'SELECT * FROM {self.name} X WHERE {self._predicate(True)}', self._binds(lan_in, lan_out, limit))
+        return (f'SELECT * FROM {self.name} X WHERE {self._predicate(True, level)}',
+                self._binds(lan_in, lan_out, limit, level))
 
-    def count_batch(self, lan_in, lan_out, limit):
+    def count_batch(self, lan_in, lan_out, limit, level=None):
         """(righe, caratteri) della selezione di read_missing, per la stima della durata."""
-        where, binds = self._predicate(True), self._binds(lan_in, lan_out, limit)
+        where, binds = self._predicate(True, level), self._binds(lan_in, lan_out, limit, level)
         return ((f'SELECT COUNT(*) FROM {self.name} X WHERE {where}', binds),
                 (f'SELECT SUM({self.char_expr}) FROM {self.name} X WHERE {where}', binds))
 
-    def count_all(self, lan_in, lan_out):
+    def count_all(self, lan_in, lan_out, level=None):
         """Tutte le righe che mancano in lan_out (senza limite)."""
-        return (f'SELECT COUNT(*) FROM {self.name} X WHERE {self._predicate(False)}', self._binds(lan_in, lan_out))
+        return (f'SELECT COUNT(*) FROM {self.name} X WHERE {self._predicate(False, level)}',
+                self._binds(lan_in, lan_out, level=level))
 
     def read_keys(self, lan_in, keys):
         names = [f':k{i}' for i in range(len(keys))]
@@ -138,12 +173,20 @@ class StringsTable(TableSpec):
     key_index = 1
     char_expr = 'LENGTH(value)'
 
+    def level_condition(self, level):
+        return _code_range_condition(level)
+
+    def layer_of_row(self, row):
+        return _layer_of_code_column(row[1])
+
     def translate_row(self, row, tr):
         value = tr(row[2], required=True)
         return Translated({'value': value}, value)
 
     def insert(self, row, lan_out, values):
-        return self._insert_sql(f':1, :2, :3, NULL, {MARK}, sysdate'), [lan_out, row[1], values['value']]
+        """La categoria (modulo: MES, WMS...) e' della stringa, non della lingua: si copia dalla riga sorgente."""
+        return (self._insert_sql(f':1, :2, :3, :4, {self.user_sql(row)}, sysdate'),
+                [lan_out, row[1], values['value'], row[3]])
 
     def update_target(self, row, lan_out, values, columns):
         return UpdateTarget({'language': lan_out, 'code': row[1]}, {'value': values['value']}, _audit(columns, 4, 6))
@@ -157,14 +200,21 @@ class FieldStringsTable(TableSpec):
     key_index = 1
     char_expr = 'NVL(LENGTH(caption), 0) + NVL(LENGTH(description), 0) + NVL(LENGTH(tip), 0)'
 
+    def level_condition(self, level):
+        return _code_range_condition(level)
+
+    def layer_of_row(self, row):
+        return _layer_of_code_column(row[1])
+
     def translate_row(self, row, tr):
         values = {'caption': tr(row[2]), 'description': tr(row[3]), 'tip': tr(row[4])}
         primary = values['description'] or values['caption'] or values['tip']
         return Translated(values, primary)
 
     def insert(self, row, lan_out, values):
-        return (self._insert_sql(f':1, :2, :3, :4, :5, NULL, {MARK}, sysdate'),
-                [lan_out, row[1], values['caption'], values['description'], values['tip']])
+        """La categoria (modulo) si copia dalla riga sorgente, come per FW_STRINGS."""
+        return (self._insert_sql(f':1, :2, :3, :4, :5, :6, {self.user_sql(row)}, sysdate'),
+                [lan_out, row[1], values['caption'], values['description'], values['tip'], row[5]])
 
     def update_target(self, row, lan_out, values, columns):
         return UpdateTarget({'language': lan_out, 'code': row[1]}, dict(values), _audit(columns, 6, 8))
@@ -182,12 +232,27 @@ class OptionsTable(TableSpec):
     def __init__(self, name):
         self.name = name
 
+    def level_condition(self, level):
+        """Livello dal prefisso del nome (tipo). Un livello con prefisso: LIKE esatto (maiuscole/minuscole contano,
+        come layer_of_name). Standard: tutto cio' che non inizia con un prefisso, senza distinguere maiuscole,
+        cosi' ctXxx non finisce in Standard."""
+        if level is None:
+            return '', {}
+        if level.prefix:
+            return 'X.tipo LIKE :lvl_p', {'lvl_p': level.prefix + '%'}
+        prefixes = [layer.prefix.upper() + '%' for layer in LAYERS if layer.prefix]
+        binds = {f'lvl_p{i}': prefix for i, prefix in enumerate(prefixes)}
+        return ' AND '.join(f'UPPER(X.tipo) NOT LIKE :{name}' for name in binds), binds
+
+    def layer_of_row(self, row):
+        return layer_of_name(row[1]) if row[1] else None
+
     def translate_row(self, row, tr):
         description = tr(row[3], required=True)
         return Translated({'description': description}, description)
 
     def insert(self, row, lan_out, values):
-        return (self._insert_sql(f':1, :2, :3, :4, :5, :6, {MARK}, sysdate'),
+        return (self._insert_sql(f':1, :2, :3, :4, :5, :6, {self.user_sql(row)}, sysdate'),
                 [lan_out, row[1], row[2], values['description'], row[4], row[5]])
 
     def update_target(self, row, lan_out, values, columns):
@@ -199,6 +264,7 @@ class DocuNodesTable(TableSpec):
     """FW_DOCU_NODES_T: id nodo, lingua, testo. Nomi colonna letti dal DB (ordine dell'export .unl)."""
     name = 'FW_DOCU_NODES_T'
     needs_columns = True
+    supports_levels = False
     char_expr = ''
 
     def bind_columns(self, columns):
@@ -235,6 +301,7 @@ class ObjDescrsTable(TableSpec):
     key_cols = ('objid', 'tablename', 'tablefieldname')
     select_key = 'objid'
     key_index = 0
+    supports_levels = False
     char_expr = 'LENGTH(description)'
 
     def translate_row(self, row, tr):
