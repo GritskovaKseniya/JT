@@ -85,17 +85,12 @@ class MultiTableTests(SqlToTecsqlCase):
         self.assertNotIn('TestataListino', untranslated)
         self.assertNotIn('RigaListino', untranslated)
 
-    # PROBLEMA NOTO (c'era gia' in JCTNT, il test falliva anche li'): la subquery con una seconda tabella e senza campi
-    # qualificati resta com'e' (GD_LITES, LITES_LICOD non diventano $TestataListino...) ma la traduzione risulta riuscita.
-    # Da capire e correggere nel passo dello strumento SQL <-> TecSQL; intanto il test e' segnato come "atteso che fallisca".
-    @unittest.expectedFailure
     def test_subquery_fields_translated(self):
         tecsql = self.to_tecsql(self.SUBQUERY)['tecsql']
         self.assertIn('$TestataListino', tecsql)
         self.assertIn('Codice', tecsql)               # LITES_LICOD -> Codice
         self.assertIn('CodCategoria', tecsql)         # LITES_CATLI -> CodCategoria
 
-    @unittest.expectedFailure                        # stesso problema delle subquery (vedi sopra)
     def test_full_multiline_query(self):
         sql = ('SELECT COUNT(*) FROM GD_LIRIG WHERE LIRIG_LICOD IN ('
                '  SELECT DISTINCT LITES_LICOD FROM GD_LITES '
@@ -107,6 +102,89 @@ class MultiTableTests(SqlToTecsqlCase):
         self.assertFalse(r['partial_translation'], f"Non tradotti: {r['untranslated_fields']}")
         self.assertIn('$RigaListino', r['tecsql'])
         self.assertIn('$TestataListino', r['tecsql'])
+
+
+class SubqueryTests(SqlToTecsqlCase):
+    """Le subquery si traducono con le parentesi abbinate davvero. Il difetto che c'era (gia' in JCTNT): una `( SELECT` con uno
+    spazio dopo la parentesi, o una subquery con una funzione dentro (`MAX(x)`), non veniva riconosciuta: restava in SQL e la
+    traduzione risultava lo stesso "riuscita"."""
+
+    def test_a_space_after_the_bracket(self):
+        r = self.to_tecsql("SELECT COUNT(*) FROM GD_LIRIG WHERE LIRIG_LICOD IN ( SELECT LITES_LICOD FROM GD_LITES WHERE LITES_CATLI = 'LL' )")
+        self.assertIn('$TestataListino.Codice', r['tecsql'])
+        self.assertNotIn('GD_LITES', r['tecsql'])
+        self.assertFalse(r['partial_translation'], r['untranslated_fields'])
+
+    def test_no_space_after_the_bracket(self):
+        r = self.to_tecsql("SELECT COUNT(*) FROM GD_LIRIG WHERE LIRIG_LICOD IN (SELECT LITES_LICOD FROM GD_LITES)")
+        self.assertIn('(SELECT $TestataListino.Codice FROM $TestataListino)', r['tecsql'])
+
+    def test_a_function_inside_the_subquery(self):
+        r = self.to_tecsql("SELECT LIRIG_LICOD FROM GD_LIRIG WHERE LIRIG_PREZO = (SELECT MAX(LITES_LICOD) FROM GD_LITES)")
+        self.assertNotIn('GD_LITES', r['tecsql'])
+        self.assertNotIn('LITES_LICOD', r['tecsql'])
+        self.assertIn('$TestataListino.Codice', r['tecsql'])
+        self.assertFalse(r['partial_translation'], r['untranslated_fields'])
+
+    def test_a_subquery_inside_a_subquery(self):
+        r = self.to_tecsql("SELECT LIRIG_LICOD FROM GD_LIRIG WHERE LIRIG_LICOD IN (SELECT LITES_LICOD FROM GD_LITES WHERE "
+                           "LITES_CATLI IN (SELECT LIRIG_CATLI FROM GD_LIRIG WHERE LIRIG_PREZO > 0))")
+        for physical in ('GD_LIRIG', 'GD_LITES', 'LITES_', 'LIRIG_'):
+            self.assertNotIn(physical, r['tecsql'])
+        self.assertEqual(r['tecsql'].count('$RigaListino.'), 4)
+        self.assertEqual(r['tecsql'].count('$TestataListino.'), 2)
+
+    def test_two_subqueries_side_by_side(self):
+        r = self.to_tecsql("SELECT LIRIG_LICOD FROM GD_LIRIG WHERE LIRIG_LICOD IN (SELECT LITES_LICOD FROM GD_LITES) "
+                           "AND LIRIG_CATLI IN (SELECT LITES_CATLI FROM GD_LITES)")
+        self.assertNotIn('GD_LITES', r['tecsql'])
+        self.assertIn('$TestataListino.Codice', r['tecsql'])
+        self.assertIn('$TestataListino.CodCategoria', r['tecsql'])
+
+    def test_a_bracket_inside_a_string_is_not_a_subquery(self):
+        r = self.to_tecsql("SELECT LIRIG_LICOD FROM GD_LIRIG WHERE LIRIG_CATLI = '(SELECT x FROM y)'")
+        self.assertIn("'(SELECT x FROM y)'", r['tecsql'])
+        self.assertFalse(r['partial_translation'], r['untranslated_fields'])
+
+    def test_a_subquery_that_cannot_be_translated_is_said(self):
+        """Prima: lasciata com'era e nessun avviso. Ora il resto si traduce, la subquery resta e la traduzione e' 'in parte'."""
+        r = self.to_tecsql("SELECT LIRIG_LICOD FROM GD_LIRIG WHERE LIRIG_LICOD IN (SELECT X FROM NON_ESISTE)")
+        self.assertIn('$RigaListino.CodListino', r['tecsql'])
+        self.assertIn('(SELECT X FROM NON_ESISTE)', r['tecsql'])
+        self.assertTrue(r['partial_translation'])
+        self.assertIn('subquery not translated: Table NON_ESISTE not found in the dictionary', r['untranslated_fields'])
+
+    def test_a_field_the_subquery_does_not_know_is_reported(self):
+        r = self.to_tecsql("SELECT LIRIG_LICOD FROM GD_LIRIG WHERE LIRIG_LICOD IN (SELECT LITES_LICOD FROM GD_LITES WHERE LITES_NOPE = 1)")
+        self.assertTrue(r['partial_translation'])
+        self.assertIn('LITES_NOPE', r['untranslated_fields'])
+
+    def test_a_subquery_in_the_from(self):
+        r = self.to_tecsql("SELECT T.LIRIG_LICOD FROM (SELECT LIRIG_LICOD FROM GD_LIRIG) T")
+        self.assertIn('(SELECT $RigaListino.CodListino FROM $RigaListino)', r['tecsql'])
+
+
+class AmbiguousSubqueryTests(unittest.TestCase):
+    """Una subquery su una tabella con piu' nomi logici: si chiede quale, come per la query (prima: restava com'era)."""
+
+    def setUp(self):
+        from jt.tecsql_translator import Dictionary
+        self.d = Dictionary(fx.rows_as_dicts() + fx.rows_as_dicts([
+            ('MD_ARTI', '$Articolo', 'ARTI_ARTCO', 'Codice', 'C', 20, 0),
+            ('MD_ARTI', '$ArticoloEsteso', 'ARTI_ARTCO', 'Codice', 'C', 20, 0)]))
+        self.sql = 'SELECT LIRIG_LICOD FROM GD_LIRIG WHERE LIRIG_ARTCO IN (SELECT ARTI_ARTCO FROM MD_ARTI)'
+
+    def test_the_question_comes_from_the_subquery(self):
+        r = self.d.to_tecsql(self.sql)
+        self.assertTrue(r.get('ambiguous'))
+        self.assertEqual(r['table'], 'MD_ARTI')
+        self.assertEqual(sorted(r['candidates']), ['$Articolo', '$ArticoloEsteso'])
+
+    def test_with_the_choice_it_is_translated(self):
+        r = self.d.to_tecsql(self.sql, '$articoloesteso')
+        self.assertTrue(r['success'], r)
+        self.assertIn('(SELECT $ArticoloEsteso.Codice FROM $ArticoloEsteso)', r['tecsql'])
+        self.assertIn('$RigaListino.CodArticolo', r['tecsql'])
 
 
 if __name__ == '__main__':

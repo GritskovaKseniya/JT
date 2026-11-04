@@ -18,7 +18,7 @@ nascosta e vengono saltati se non c'e' un display. Durata: circa 40 secondi.
 ## Risultato (2026-11-03)
 
 ```
-Ran 947 tests (2 "expected failures", vedi test_tecsql_sql_to_tecsql) in ~95 s
+Ran 979 tests in ~100 s
 OK
 ```
 
@@ -31,9 +31,9 @@ Eseguiti anche con i `ResourceWarning` trattati come errori.
 | `test_tools.py` | 5 | Registro degli strumenti: senza requisiti lo strumento e' acceso, le tabelle mancanti sono nominate, il controllo proprio da' il suo motivo, le tabelle si controllano prima. |
 | `test_dictionary.py` | 14 | Dizionario dei nomi letto dal database: la SELECT su FW_TABLES/FW_TABLE_FIELDS, righe come dict con i vuoti a '', `load` ritorna un `Dictionary`, stessa connessione = niente riletture, altro database o `force` = si rilegge, `forget`; **due dizionari insieme non si mescolano**, `update` sostituisce, un dizionario vuoto rifiuta di tradurre; i messaggi d'errore sono in inglese (nessuna parola italiana rimasta). |
 | `test_tecsql_lookup.py` | 11 | (portati da JCTNT) mappe giuste dopo `update_mappings`, maiuscole originali conservate, `_find_matching_descriptors` (anche due descrittori per la stessa tabella fisica). |
-| `test_tecsql_sql_to_tecsql.py` | 13 | (portati da JCTNT) SQL -> TecSQL: campi qualificati e no, costanti del JAS senza avviso, refusi con avviso, subquery. **2 `expectedFailure`**: la subquery con una seconda tabella resta non tradotta (problema gia' in JCTNT). |
-| `test_tecsql_tecsql_to_sql.py` | 11 | (portati da JCTNT) TecSQL -> SQL: SELECT, alias, subquery, `strip_params`, ORDER BY. |
-| `test_orione_pairs.py` | 5 | Il traduttore TecSQL -> SQL contro le 79 coppie che Orione dichiara corrette (`orione_pairs.json`, dizionario `orione_dictionary.json`): ogni coppia combacia o e' una lacuna documentata con il motivo (`orione_known_gaps.json`, 56 lacune; **i file di dati sono solo in locale**, in `.gitignore`: senza, i test si saltano), e il controllo e' esatto (una lacuna corretta fa fallire il test finche' non si toglie dall'elenco). |
+| `test_tecsql_sql_to_tecsql.py` | 24 | (portati da JCTNT) SQL -> TecSQL: campi qualificati e no, costanti del JAS senza avviso, refusi con avviso, subquery. **Subquery** (era un difetto): con uno spazio dopo la parentesi, con una funzione dentro, annidate, affiancate, in FROM, una stringa con `(SELECT`, una subquery che non si traduce o con un campo sconosciuto (`partial_translation` con il motivo), e una su una tabella con due nomi logici (si chiede quale). |
+| `test_tecsql_tecsql_to_sql.py` | 32 | (portati da JCTNT) TecSQL -> SQL: SELECT, alias, subquery, `strip_params`, ORDER BY; **alias** (il campo resta scritto con l'alias, self-join, JOIN, `*`, alias dell'esterno nelle subquery), **`DATE('gg/mm/aaaa')`** -> `TO_DATE`, **`LIMIT`** -> `ROWNUM <= n` (con WHERE, con OR tra parentesi, prima di GROUP/ORDER, con parametro, in subquery, in UNION). |
+| `test_orione_pairs.py` | 5 | Il traduttore TecSQL -> SQL contro le 79 coppie (35 combaciano) che Orione dichiara corrette (`orione_pairs.json`, dizionario `orione_dictionary.json`): ogni coppia combacia o e' una lacuna documentata con il motivo (`orione_known_gaps.json`, 44 lacune; **i file di dati sono solo in locale**, in `.gitignore`: senza, i test si saltano), e il controllo e' esatto (una lacuna corretta fa fallire il test finche' non si toglie dall'elenco). |
 | `test_azure_key.py` | 8 | Controllo della chiave Azure: file mancante, illeggibile o non un oggetto, campo mancante/vuoto/non testo, segnaposto del pacchetto, forma sbagliata (corta, spazi, trattini), endpoint non https, chiavi di 32 e 84 caratteri accettate, messaggio con motivo, referente e cartella. |
 | `test_database.py` | 27 | Connessione e chiusura (ricollegare chiude la precedente, chiusura ripetibile e tollerante agli errori); nomi colonna letti dal cursore e messi in cache; tabelle esistenti; cursori tracciati |
 | `test_service.py` | 112 | Selezione (righe mancanti e per chiavi, conteggio dei caratteri come somma, cursori vecchi chiusi); esecuzione in modalita' normale e per chiavi (INSERT oppure UPDATE), log, errore Azure = riga saltata, errore di INSERT = log errori e si prosegue, commit a ogni riga, avanzamento, arresto richiesto; log CSV; rollback dopo un errore di scrittura o di commit; righe saltate registrate in un log a parte; chiavi con zeri iniziali |

@@ -6,6 +6,7 @@ database collegato, senza stato globale: lo riempiono le righe di FW_TABLES e FW
 traduce con `to_sql(...)` e `to_tecsql(...)`. Le funzioni di modulo che lo usano lo prendono come primo parametro (`d`).
 I messaggi d'errore sono in inglese (come tutta l'interfaccia). Usa `sqlparse`.
 """
+import datetime
 import re
 import sqlparse
 
@@ -554,55 +555,90 @@ def _format_unqualified_field(physical_field, is_outer, context):
     return physical_field
 
 
+class _AmbiguousSubquery(Exception):
+    """Una subquery usa una tabella con piu' nomi logici e nessuno e' stato scelto: si chiede all'utente (come per la query)."""
+
+    def __init__(self, result):
+        super().__init__('ambiguous subquery')
+        self.result = result
+
+
+def _skip_literal(sql, i):
+    """Indice subito dopo la stringa 'testo' che comincia in `i` (gli apici raddoppiati sono dentro la stringa)."""
+    n = len(sql)
+    i += 1
+    while i < n:
+        if sql[i] == "'":
+            if i + 1 < n and sql[i + 1] == "'":
+                i += 2
+                continue
+            return i + 1
+        i += 1
+    return n
+
+
+def _matching_paren(sql, start):
+    """Indice della ')' che chiude la '(' in `start` (le stringhe non contano); -1 se non si chiude."""
+    depth, i, n = 0, start, len(sql)
+    while i < n:
+        char = sql[i]
+        if char == "'":
+            i = _skip_literal(sql, i)
+            continue
+        if char == '(':
+            depth += 1
+        elif char == ')':
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return -1
+
+
+def _find_subqueries(sql):
+    """[(posizione della '(', posizione della ')')] delle subquery piu' esterne: una '(' seguita (anche dopo spazi) da SELECT.
+    Quelle dentro un'altra subquery le trova la traduzione ricorsiva."""
+    spans, i, n = [], 0, len(sql)
+    while i < n:
+        char = sql[i]
+        if char == "'":
+            i = _skip_literal(sql, i)
+            continue
+        if char == '(' and re.match(r'\(\s*SELECT\b', sql[i:], re.IGNORECASE):
+            end = _matching_paren(sql, i)
+            if end != -1:
+                spans.append((i, end))
+                i = end + 1
+                continue
+        i += 1
+    return spans
+
+
 def _translate_subqueries_in_sql(d, sql, chosen_descriptor=None):
     """
-    Traduce le subquery (SELECT...) nella stringa SQL lavorando inside-out:
-    prima le più interne (che non contengono parentesi), poi le più esterne.
-    Usa placeholder per evitare interferenze regex durante il processo.
+    Traduce le subquery (SELECT ...) della stringa SQL, ognuna con la traduzione ricorsiva (che a sua volta trova quelle
+    annidate). Le parentesi si abbinano davvero: una subquery con funzioni (`MAX(x)`) o con uno spazio dopo la `(` si
+    traduce come le altre (prima no: restava com'era e la traduzione risultava lo stesso "riuscita").
 
-    Ritorna il SQL con le subquery tradotte in TecSQL.
+    Ritorna (SQL con le subquery tradotte, i problemi: campi non tradotti o subquery non tradotte). Se una subquery ha una
+    tabella con piu' nomi logici e non e' stato scelto, solleva `_AmbiguousSubquery`.
     """
-    placeholders = {}
-    counter = [0]
-
-    def replace_innermost(sql_text):
-        # Trova (SELECT...senza parentesi annidate...) più interni
-        pattern = re.compile(r'\(SELECT\b[^()]*\)', re.IGNORECASE)
-        matches = list(pattern.finditer(sql_text))
-        if not matches:
-            return sql_text, False
-
-        # Sostituisce da destra a sinistra per preservare gli indici
-        for m in reversed(matches):
-            inner_with_parens = m.group(0)
-            inner = inner_with_parens[1:-1].strip()  # rimuove parentesi esterne
-
-            result = translate_sql_to_tecsql(d, inner, chosen_descriptor)
-            if result.get('success'):
-                translated_inner = result['tecsql']
-            else:
-                translated_inner = inner  # lascia non tradotto in caso di errore
-
-            key = f'__SUBQ_{counter[0]}__'
-            counter[0] += 1
-            placeholders[key] = f'({translated_inner})'
-            sql_text = sql_text[:m.start()] + key + sql_text[m.end():]
-
-        return sql_text, True
-
-    # Itera inside-out finché non ci sono più subquery da tradurre
-    changed = True
-    iterations = 0
-    while changed and iterations < 20:
-        sql, changed = replace_innermost(sql)
-        iterations += 1
-
-    # Ripristina i placeholder in ordine inverso: i più recenti (più esterni)
-    # prima, così i riferimenti a placeholder interni vengono risolti correttamente
-    for key in reversed(list(placeholders.keys())):
-        sql = sql.replace(key, placeholders[key])
-
-    return sql
+    problems, parts, last = [], [], 0
+    for start, end in _find_subqueries(sql):
+        inner = sql[start + 1:end].strip()
+        result = translate_sql_to_tecsql(d, inner, chosen_descriptor)
+        if result.get('ambiguous'):
+            raise _AmbiguousSubquery(result)
+        parts.append(sql[last:start])
+        if result.get('success'):
+            parts.append(f"({result['tecsql']})")
+            problems.extend(result.get('untranslated_fields') or [])
+        else:
+            parts.append(sql[start:end + 1])                 # com'era, ma lo si dice
+            problems.append(f"subquery not translated: {result.get('error')}")
+        last = end + 1
+    parts.append(sql[last:])
+    return ''.join(parts), problems
 
 
 def _split_sql_at_top_level_unions(sql):
@@ -682,7 +718,11 @@ def translate_sql_to_tecsql(d, sql_query, chosen_descriptor=None):
                 'partial_translation': False, 'untranslated_fields': []}
 
     # Pre-processa subquery: traduce dentro-fuori (subquery più interne per prime)
-    normalized = _translate_subqueries_in_sql(d, normalized, chosen_descriptor)
+    before_subqueries = normalized
+    try:
+        normalized, subquery_problems = _translate_subqueries_in_sql(d, normalized, chosen_descriptor)
+    except _AmbiguousSubquery as ambiguous:
+        return ambiguous.result
 
     extraction = _extract_fields_from_sql(normalized)
     tables = extraction['tables']
@@ -690,11 +730,14 @@ def translate_sql_to_tecsql(d, sql_query, chosen_descriptor=None):
     alias_map = extraction.get('alias_map', {})
 
     if not tables:
+        if normalized != before_subqueries:                  # solo una subquery nella FROM: l'esterno non ha tabelle sue
+            return {'success': True, 'tecsql': normalized, 'descriptors_used': {},
+                    'partial_translation': bool(subquery_problems), 'untranslated_fields': list(subquery_problems)}
         return {'success': False, 'error': 'No table found in the query'}
 
     # Find descriptor for each table
     descriptor_choices = {}
-    untranslated_fields = []
+    untranslated_fields = list(subquery_problems)            # i campi (o le subquery) che le subquery non hanno saputo tradurre
 
     for table in tables:
         used_fields = fields_by_table.get(table, [])
@@ -1116,7 +1159,7 @@ def _pre_scan_aliases(d, tokens):
     return alias_map
 
 
-def _translate_tecsql_single(d, normalized_query):
+def _translate_tecsql_single(d, normalized_query, outer_aliases=None):
     # Parse the query, track clause context, and translate logical names.
     if not normalized_query:
         raise ValueError('Empty TecSQL query')
@@ -1134,7 +1177,9 @@ def _translate_tecsql_single(d, normalized_query):
     skip_next_ident = False
     as_is_mode = False
     outer_next_table = False
-    alias_table_map = _pre_scan_aliases(d, tokens)
+    alias_table_map = dict(outer_aliases or {})          # gli alias dell'esterno valgono anche in una subquery
+    alias_table_map.update(_pre_scan_aliases(d, tokens))
+    limit_text = None                                    # LIMIT n: si mette nel WHERE alla fine (vedi _apply_limit)
     tables = []
     fields = []
     last_table_physical = None
@@ -1202,6 +1247,12 @@ def _translate_tecsql_single(d, normalized_query):
             i += 1
             continue
 
+        if token_type == 'IDENT' and text.upper() == 'DATE' and i + 1 < len(tokens) and tokens[i + 1]['text'] == '(':
+            date_sql, consumed = _date_function(tokens, i)
+            output.append({'type': 'IDENT', 'text': date_sql})
+            i += consumed
+            continue
+
         if token_type == 'SYMBOL':
             if text == '(':
                 # Detect subquery: (SELECT ...)
@@ -1211,7 +1262,7 @@ def _translate_tecsql_single(d, normalized_query):
                     inner_tokens, close_idx = _collect_subquery_tokens(tokens, i)
                     inner_text = _format_tokens(inner_tokens)
                     # Translate recursively
-                    translated_inner = _translate_tecsql_single(d, inner_text)
+                    translated_inner = _translate_tecsql_single(d, inner_text, alias_table_map)
                     output.append({'type': 'SYMBOL', 'text': '('})
                     output.append({'type': 'IDENT', 'text': translated_inner})
                     output.append({'type': 'SYMBOL', 'text': ')'})
@@ -1252,13 +1303,12 @@ def _translate_tecsql_single(d, normalized_query):
             elif keyword in {'SELECT', 'WHERE', 'ON', 'HAVING'}:
                 context = keyword
             elif keyword == 'LIMIT':
-                # TecSQL LIMIT n → Oracle FETCH FIRST n ROWS ONLY
-                if i + 1 < len(tokens) and tokens[i + 1]['type'] == 'NUMBER':
-                    n = tokens[i + 1]['text']
-                    output.append({'type': 'KEYWORD', 'text': f'FETCH FIRST {n} ROWS ONLY'})
+                # TecSQL LIMIT n -> Oracle: AND ROWNUM <= n nel WHERE (come fa Orione; FETCH FIRST va solo da Oracle 12c)
+                if i + 1 < len(tokens) and tokens[i + 1]['type'] in ('NUMBER', 'PARAM'):
+                    limit_text = tokens[i + 1]['text']
                     i += 2
                     continue
-                # No number follows: keep LIMIT as-is (best-effort)
+                raise ValueError('LIMIT needs a number or a ?parameter')
             elif keyword == 'AS' and context not in {'FROM', 'JOIN'}:
                 skip_next_ident = True
             output.append({'type': token_type, 'text': text})
@@ -1332,7 +1382,7 @@ def _translate_tecsql_single(d, normalized_query):
                     alias_key = text.lower()
                     if alias_key in alias_table_map:
                         alias_entry = alias_table_map[alias_key]
-                        physical_table = alias_entry['physical']
+                        physical_table = text                # l'alias come e' scritto, non il nome della tabella
                         is_outer = alias_entry.get('outer', False)
                         if right['type'] == 'SYMBOL' and right['text'] == '*':
                             output.append({'type': 'IDENT', 'text': f'{physical_table}.*'})
@@ -1400,7 +1450,59 @@ def _translate_tecsql_single(d, normalized_query):
         output.append({'type': token_type, 'text': text})
         i += 1
 
+    if limit_text is not None:
+        output = _apply_limit(output, limit_text)
     return _format_tokens(output)
+
+
+def _date_function(tokens, i):
+    """DATE('gg/mm/aaaa') -> TO_DATE('aaaa-mm-gg') (come Orione: TecSQL scrive la data all'italiana, Oracle la vuole cosi').
+    Ritorna (testo SQL, quanti token ha consumato)."""
+    if not (i + 3 < len(tokens) and tokens[i + 2]['type'] == 'STRING' and tokens[i + 3]['text'] == ')'):
+        raise ValueError("DATE needs one string like '31/12/2008'")
+    match = re.fullmatch(r"'(\d{1,2})/(\d{1,2})/(\d{4})'", tokens[i + 2]['text'])
+    if not match:
+        raise ValueError(f"DATE argument must look like 'dd/mm/yyyy': {tokens[i + 2]['text']}")
+    day, month, year = (int(g) for g in match.groups())
+    try:
+        datetime.date(year, month, day)
+    except ValueError:
+        raise ValueError(f"DATE argument is not a real date: {tokens[i + 2]['text']}") from None
+    return f"TO_DATE('{year:04d}-{month:02d}-{day:02d}')", 4
+
+
+def _apply_limit(output, limit_text):
+    """Mette `ROWNUM <= n` nel WHERE della query (il LIMIT di TecSQL): `AND` se c'e' gia' un WHERE, altrimenti un WHERE nuovo;
+    prima di GROUP BY / HAVING / ORDER BY. Se le condizioni gia' presenti hanno un OR si mettono tra parentesi (Orione no: li'
+    `a OR b AND ROWNUM <= n` limiterebbe solo la seconda). Come in Orione il limite vale prima dell'ORDER BY."""
+    depth, where_at, end_at = 0, None, len(output)
+    for index, token in enumerate(output):
+        if token['type'] == 'SYMBOL' and token['text'] == '(':
+            depth += 1
+        elif token['type'] == 'SYMBOL' and token['text'] == ')':
+            depth -= 1
+        elif depth == 0 and token['type'] == 'KEYWORD':
+            keyword = token['text'].upper()
+            if keyword == 'WHERE' and where_at is None:
+                where_at = index
+            elif keyword in ('GROUP', 'HAVING', 'ORDER') and where_at is not None or keyword in ('GROUP', 'HAVING', 'ORDER'):
+                end_at = index
+                break
+    limit = [{'type': 'IDENT', 'text': f'ROWNUM <= {limit_text}'}]
+    if where_at is None:
+        return output[:end_at] + [{'type': 'KEYWORD', 'text': 'WHERE'}] + limit + output[end_at:]
+    conditions = output[where_at + 1:end_at]
+    depth, has_or = 0, False
+    for token in conditions:
+        if token['type'] == 'SYMBOL' and token['text'] == '(':
+            depth += 1
+        elif token['type'] == 'SYMBOL' and token['text'] == ')':
+            depth -= 1
+        elif depth == 0 and token['type'] == 'KEYWORD' and token['text'].upper() == 'OR':
+            has_or = True
+    if has_or:
+        conditions = [{'type': 'SYMBOL', 'text': '('}] + conditions + [{'type': 'SYMBOL', 'text': ')'}]
+    return (output[:where_at + 1] + conditions + [{'type': 'KEYWORD', 'text': 'AND'}] + limit + output[end_at:])
 
 
 class Dictionary:

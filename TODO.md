@@ -2,35 +2,26 @@
 
 Cose note da fare o da correggere, in ordine di importanza. Il piano completo di JTools e' in `PIANO_TOOLKIT.md`.
 
-## Bug
+## Traduttore SQL <-> TecSQL
 
-- **SQL -> TecSQL non traduce una subquery con una seconda tabella e senza campi qualificati, e dice "riuscito".**
-  `translate_sql_to_tecsql('SELECT COUNT(*) FROM GD_LIRIG WHERE LIRIG_LICOD IN (SELECT LITES_LICOD FROM GD_LITES WHERE LITES_CATLI = \'LL\')')`
-  traduce solo la query esterna: la subquery resta `SELECT LITES_LICOD FROM GD_LITES ...` ma `success` e' `True` e
-  `partial_translation` e' `False`, quindi nessun avviso. Il problema c'era gia' in JCTNT (`tecsql_translator.py`, il suo test
-  falliva anche li'). Provato con il dizionario di prova (RigaListino / TestataListino).
-  Da fare: capire perche' `_translate_subqueries_in_sql` non lo prende (forse solo con campi qualificati), correggerlo,
-  e se non si riesce almeno dire "tradotto in parte". I due test che lo mostrano sono `expectedFailure` in
-  `tests/test_tecsql_sql_to_tecsql.py` (`test_subquery_fields_translated`, `test_full_multiline_query`): quando funziona,
-  togliere `@unittest.expectedFailure`. Si affronta nel passo 8 (schermata SQL <-> TecSQL).
+Fatto (passo 8): alias, `DATE()`, `LIMIT` e le subquery di SQL -> TecSQL (vedi sotto). Resta:
 
-- **Lacune del traduttore TecSQL -> SQL rispetto a Orione** (il vero traduttore: `JFlex2.Orione\srcJAVA\it\tec\framework\sql\parser`,
-  grammatica in `parser\TecSqlParser.cup`; il traduttore di JT e' quello di JCTNT, scritto a mano su un modello piu' semplice).
-  Misurato con i test di Orione (79 coppie TecSQL -> SQL Oracle, `tests\test_orione_pairs.py`): **23 combaciano, 56 no**.
-  Le 56 per motivo (l'elenco esatto e' in `tests\orione_known_gaps.json`):
-  - **un campo scritto con un alias esce con il nome della tabella invece dell'alias (5)**: `FROM $FwTables T1 ... T1.TableName`
-    diventa `FW_TABLES.TABLENAME` ma la tabella e' `FW_TABLES T1`: in Oracle e' `ORA-00904`, e con un self-join i due alias
-    diventano la stessa cosa. **E' il difetto piu' serio: gli alias sono normali.** (Gli esempi dei test di JCTNT lo mascheravano.)
-  - **`DATE('gg/mm/aaaa')` non diventa `TO_DATE('aaaa-mm-gg')` (6)**.
-  - **`LIMIT n` diventa `FETCH FIRST n ROWS ONLY` (1)**: funziona da Oracle 12c; Orione scrive `AND ROWNUM <= n` che va anche su
-    Oracle 11 (JCTNT cita un client Oracle 11).
-  - **solo SELECT (11)**: UPDATE, INSERT, DELETE e LOCK TABLE non si traducono (Orione si').
-  - **`HAVING` prima di `GROUP BY` non si riordina (1)**: innocuo in Oracle.
-  - **32 coppie non si possono confrontare**: usano descrittori che esistono solo nei test di Orione (`$TestTransSource`...).
-  Niente di tutto questo e' stato corretto: serve decidere cosa conta per chi usa lo strumento (le query vere sono quasi tutte SELECT?).
-  I dati dei test (coppie, descrittori, elenco delle lacune) **non stanno nel repository** (pubblico): si creano in locale con `tools\orione_pairs.py`. Quando si corregge una lacuna `tests\test_orione_pairs.py` lo dice (la coppia ora combacia): `python tests\test_orione_pairs.py
-  --regenerate` aggiorna l'elenco.
-- **SQL -> TecSQL esiste solo in JCTNT** (Orione non lo ha, non gli serve): non c'e' un riferimento, solo i nostri test.
+- **TecSQL -> SQL: UPDATE, INSERT, DELETE e LOCK TABLE non si traducono** (11 coppie dei test di Orione); Orione li traduce.
+  Rimandato: per ora si traducono solo le SELECT.
+- **`HAVING` prima di `GROUP BY` non viene riordinato** (1 coppia): innocuo in Oracle, Orione lo riordina.
+- **`LIMIT` vale prima dell'`ORDER BY`** (come in Orione): `... ORDER BY x LIMIT 5` da' le prime 5 righe e poi le ordina, non le 5
+  prime in ordine. Per averle in ordine serve una subquery ordinata. Da dire all'utente nello strumento.
+- **Le funzioni di TecSQL (`YEAR`, `MONTH`, `DAY`, `WEEK`, `TODAY`, `TIME`, `LPAD`...) non si traducono**: Orione le converte per ogni
+  database (per Oracle `TO_CHAR(...)`, `SYSDATE`...); JT le lascia com'e'. Le coppie dei test di Orione che le usano passano dai
+  `ParameterValue` e non sono tra quelle confrontate: da verificare a parte.
+- **I messaggi e i commenti dentro `tecsql_translator.py` sono in parte in italiano** (i commenti): da uniformare.
+- **Dubbio di fondo:** il traduttore e' scritto a mano e copre una parte di TecSQL. La grammatica vera e' in Orione
+  (`parser\TecSqlParser.cup`, 82 regole, e `TecSqlParser.jlex`): portarla in Python (per esempio con `lark`) darebbe un traduttore che
+  capisce tutto TecSQL, con tutti i test di Orione come prova. E' un lavoro grande (la grammatica e' piccola, ma i costruttori di SQL
+  sono ~3.000 righe): da decidere.
+- **I dati dei test di Orione non stanno nel repository** (pubblico): `tests\orione_*.json`, creati con `tools\orione_pairs.py`.
+  `python tests\test_orione_pairs.py --regenerate` aggiorna l'elenco delle lacune dopo una correzione.
+- **SQL -> TecSQL esiste solo in JCTNT** (Orione non lo ha): non c'e' un riferimento, solo i nostri test.
 
 ## Idee rimandate
 
