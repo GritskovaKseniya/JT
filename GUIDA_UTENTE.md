@@ -28,11 +28,17 @@ Il programma ha due passi, in alto a sinistra: **1 Connection** e **2 Translatio
 
 ## 3. Passo 1 - Connessione
 
-1. Compila **Host name**, **Port**, **SID**, **Username**, **Password**. Dopo la prima volta i campi si ricordano.
+1. Compila **Host name**, **Port**, **SID**, **Username**, **Password** e scegli **Environment**: `dev`, `test` o `prod`
+   (vedi sotto). Dopo la prima volta i campi si ricordano.
 2. Premi **Connect** (o Invio). Sotto i pulsanti compare un avviso: "Connecting...", poi "Connection established" oppure il
    motivo dell'errore. L'avviso si chiude con la crocetta a destra e ricompare al prossimo evento.
 3. Premi **Next** per passare alla traduzione. Se cambi un campo dopo essere collegata, la connessione si chiude e devi
    ricollegarti.
+
+**Environment** dice che tipo di database e' (dove si scrive serve piu' attenzione). Il programma non puo' saperlo: lo scegli
+una volta e JT lo ricorda **per quel database** (se ne scrivi un altro, torna `Not set`). In basso a destra un segno colorato lo
+ricorda sempre: `DEV` blu, `TEST` verde, `PROD` rosso, `NOT SET` arancione. **`Not set` vale come `prod`**: la scelta prudente.
+Puoi cambiarlo anche dopo esserti collegata, senza ricollegarti.
 
 In basso a sinistra una riga mostra sempre lo stato: `Not connected - try the connection to continue` oppure
 `Connected to <database> - <host> - user <utente>`. Passa il mouse per vedere i dettagli.
@@ -102,6 +108,19 @@ Poi **Write** scrive esattamente quelle traduzioni: **Azure non viene richiamato
 
 Mentre l'anteprima e' aperta, i blocchi **LANGUAGES** e **WHAT TO TRANSLATE** si chiudono da soli per fare posto alla tabella (restano
 in riga con il riassunto) e si riaprono quando l'anteprima finisce.
+
+### Conferma prima di scrivere
+
+Su un database **`prod` o `Not set`**, prima di **scrivere**, cioe' premendo **Translate** (traduzione diretta) o **Write** (dopo
+l'anteprima), compare una finestra di conferma con un riepilogo: quante righe e in quale tabella, il **database** (nome, host, utente), l'**ambiente**, le
+lingue, il **livello** e l'**utente che verra' scritto** (CT scrive `ZFXCUSTOM`, CW `ZFXINTEGR`, il resto `JT`), e per **Write** quante
+righe sono INSERT e quante UPDATE. **Preview** non chiede mai niente: non scrive.
+
+- Per confermare bisogna **scrivere il nome del database** (maiuscole e minuscole non contano): finche' non e' giusto il pulsante
+  resta spento. Cosi' un clic distratto non scrive su un database sbagliato.
+- Con ambiente **`dev` o `test` non compare nessuna conferma**: si scrive subito (con l'anteprima la si e' gia' controllata).
+- **Cancel** (o Esc) annulla: non si traduce e non si scrive niente, quindi non si paga niente; la selezione (e l'anteprima) restano
+  e si puo' riprovare.
 
 Durante la traduzione i campi sono bloccati e la barra mostra l'avanzamento
 (`Processed 40/100 - Inserted 38 - Errors 1 - Skipped 1`). La finestra resta libera: puoi spostarla.

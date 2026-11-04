@@ -4,7 +4,8 @@ import re
 import tkinter as tk
 from tkinter import ttk
 
-from ..layers import DEFAULT_LEVEL, LEVEL_ALL, LEVEL_CHOICES, level_label
+from .. import environments
+from ..layers import DEFAULT_LEVEL, LEVEL_ALL, LEVEL_CHOICES, level_label, users_written
 from ..logs import write_run_logs
 from ..runner import DONE, ERROR, PROGRESS
 from ..tables import TooManyKeys, get_table
@@ -498,6 +499,9 @@ class TranslationScreen(ttk.Frame):
         translator = self._make_translator()
         if translator is None:
             return
+        if not self._confirm_write(selection):
+            self.status.show('info', 'Cancelled. Nothing was translated or written.')
+            return
         self._begin_run(selection)
         service, app = self.app.service, self.app
         app.runner.start(lambda emit, should_stop: service.run(
@@ -523,11 +527,46 @@ class TranslationScreen(ttk.Frame):
         selection, preview = self.selection, self.preview
         if selection is None or preview is None or self.running or not preview.writable:
             return
+        if not self._confirm_write(selection, preview):
+            self.status.show('info', 'Cancelled. Nothing was written: the preview is still here.')
+            return
         self._begin_run(selection, 'write', total=len(preview.rows))
         service, app = self.app.service, self.app
         app.runner.start(lambda emit, should_stop: service.write(
             selection, preview, on_progress=emit, should_stop=lambda: should_stop() or app.closing))
         self._poll()
+
+    def _confirm_write(self, selection, preview=None):
+        """La conferma prima di scrivere, con un riepilogo (database, ambiente, livello, utente). La si chiede solo sul database
+        prod o senza etichetta, e per confermare si scrive il nome del database: su dev e test non si chiede niente.
+        Ritorna True se si puo' procedere."""
+        app, spec = self.app, selection.spec
+        env = app.environment
+        if not environments.is_strict(env):
+            return True
+        info = app.db.info or {}
+        database = info.get('db_name') or info.get('sid') or info.get('host') or ''
+        if preview is not None:
+            question = f'Write {rows(preview.writable)} to {spec.name}?'
+            users = sorted({row.base['user'] for row in preview.rows if row.action != 'SKIP'})
+            counts = f'{preview.inserts} insert, {preview.updates} update'
+            ok_text = 'Write'
+        else:
+            question = f'Translate and write {rows(selection.total)} to {spec.name}?'
+            users = users_written(selection.level, spec.supports_levels)
+            counts = ('Rows that already have a translation are replaced.' if selection.update_mode else '')
+            ok_text = 'Translate'
+        if not spec.supports_levels:
+            level = 'no levels (every row)'
+        else:
+            level = 'all levels' if selection.level is None else level_label(selection.level)
+        lines = [f"Database: {database}  \u00b7  {info.get('host', '')}  \u00b7  user {info.get('user', '')}",
+                 f"Environment: {environments.to_label(env)}" + ('' if env else ' (treated as prod)'),
+                 f'Languages: {self.var_in.get()} \u2192 {self.var_out.get()}',
+                 f"Level: {level}  \u00b7  written as user {', '.join(users)}"]
+        if counts:
+            lines.append(counts)
+        return app.confirm_write(question, '\n'.join(lines), database or 'WRITE', ok_text)
 
     def discard(self):
         """Butta l'anteprima: non e' stato scritto niente. La selezione va ricaricata (le righe si leggono una volta sola)."""

@@ -16,6 +16,7 @@ from .scale import px
 from .theme import setup_style
 from .translation_screen import TranslationScreen
 from .winicon import set_window_icons
+from .. import environments
 from .widgets import InfoBar, ScrollArea, Stepper
 
 BOTTOM_MARGIN = 80        # spazio lasciato per la barra delle applicazioni
@@ -36,6 +37,7 @@ class JTApp:
         self.last_dialog = None
         self._dialog = None
         self._placed = False
+        self.environment = ''        # etichetta del database collegato: dev, test, prod ('' = non impostata, vale come prod)
 
         if scale_factor is None:
             scale.init(root)
@@ -92,15 +94,32 @@ class JTApp:
         except Exception:
             self.infobar.set_disconnected()      # db.connect ha gia' chiuso la connessione precedente
             raise
+        self.environment = environments.normalize(values.get('environment', ''))
+        self.db.info['environment'] = self.environment
         self.infobar.set_connected(self.db.info)
         try:
             self.settings.save_connection(values['host'], values['port'], values['sid'], values['username'],
                                           values['password'])
+            self.settings.save_environment(values['host'], values['port'], values['sid'], self.environment)
         except OSError as e:                     # la connessione e' riuscita: un file non scrivibile non la annulla
             print(f'Could not save the connection data: {e}')
 
+    def set_environment(self, env):
+        """Cambia l'etichetta del database collegato (subito, senza ricollegarsi) e la ricorda per quel database."""
+        self.environment = environments.normalize(env)
+        info = self.db.info
+        if not info:
+            return
+        info['environment'] = self.environment
+        self.infobar.set_connected(info)
+        try:
+            self.settings.save_environment(info['host'], info['port'], info['sid'], self.environment)
+        except OSError as e:
+            print(f'Could not save the environment: {e}')
+
     def disconnect(self):
         self.db.close()
+        self.environment = ''
         self.infobar.set_disconnected()
 
     def available_tables(self):
@@ -146,13 +165,18 @@ class JTApp:
 
     # ------------------------------------------------------------------ chiusura
 
-    def confirm(self, question, detail='', ok_text='OK', cancel_text='Cancel'):
+    def confirm_write(self, question, detail, type_to_confirm=None, ok_text='Write'):
+        """La conferma prima di scrivere sul database. Con `type_to_confirm` (database prod o senza etichetta) per
+        confermare si deve scrivere quel nome."""
+        return self.confirm(question, detail, ok_text, 'Cancel', type_to_confirm=type_to_confirm, wrap=360)
+
+    def confirm(self, question, detail='', ok_text='OK', cancel_text='Cancel', **options):
         """Una conferma alla volta: una seconda richiesta con una gia' aperta la porta in primo piano."""
         if self._dialog is not None:
             self._dialog.top.lift()
             return False
         self._dialog = self.last_dialog = ConfirmDialog(self.root, question, detail, ok_text, cancel_text,
-                                                        icon=self.paths.icon)
+                                                        icon=self.paths.icon, **options)
         try:
             return self._dialog.show()
         finally:

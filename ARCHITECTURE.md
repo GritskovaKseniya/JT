@@ -9,6 +9,7 @@ jt/
   settings.py             ultima connessione, ultima scelta, credenziali Azure
   glossary.py             termini sostituiti (UMV -> HU) e non tradotti (Supply Chain Planning, MES...)
   azure.py                client Azure Translator (usa il glossario)
+  environments.py         etichetta dell'ambiente di un database (dev/test/prod, non impostata = prod), chiave per ricordarla
   layers.py               livelli di Jflex (FW, AP, CW, CT, CK, CC): intervalli dei codici, prefissi dei nomi, utente scritto, livelli visibili
   tables.py               UNA CLASSE PER TABELLA: SQL di selezione (anche per livello), traduzione di una riga, INSERT, UPDATE
   db.py                   connessione Oracle, cursori, metadati (niente logica di traduzione)
@@ -44,6 +45,12 @@ Per questo la logica si prova senza aprire finestre (test veloci) e l'interfacci
 **Aggiungere una tabella da tradurre.** Una classe in `jt/tables.py` (copia quella piu' simile) e la sua riga in `TABLES`,
 poi una voce in `Data/tables.json`. La classe dice: colonna lingua, chiave logica, come tradurre una riga, come inserirla e
 come aggiornarla. Servizio e interfaccia non cambiano.
+
+**La conferma prima di scrivere.** `TranslationScreen._confirm_write` costruisce il riepilogo e chiede a `JTApp.confirm_write`, che
+apre `ConfirmDialog`. La finestra si apre solo con un ambiente prod o non impostato (`environments.is_strict`; su dev e test
+`_confirm_write` risponde subito di si') e il pulsante si accende solo quando si scrive il nome del database (`type_to_confirm`). L'etichetta si sceglie nella schermata di connessione, si salva per database nel file dei
+dati di connessione (`Settings.environment` / `save_environment`) e vive in `JTApp.environment` e `db.info['environment']`. Nei
+test `JTApp.confirm_write` e' sostituito da una risposta automatica (`UiCase`).
 
 **Sezioni che si aprono e si chiudono.** I blocchi del passo 2 (LANGUAGES, WHAT TO TRANSLATE, PROGRESS) e "Advanced" (Max rows,
 Update by keys) e "Details" (tempi) sono `Collapsible` (`ui/widgets.py`): chiuse mostrano solo la riga con un riassunto

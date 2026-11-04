@@ -196,4 +196,20 @@ La fase A rende **piu' sicuro JT** e si usa subito; la B e' piccola; la C e' l'u
   100 si scopre solo scrivendo, `ORA-12899` nel log): si potrebbe segnarlo gia' in tabella leggendo le lunghezze da
   `cursor.description`; modificare una traduzione nella tabella prima di scrivere; la conferma con riepilogo (passo 2).
 
+### Passo 2 - Conferma ed etichetta ambiente: fatto (2026-11-04)
+
+- `jt/environments.py`: `dev` / `test` / `prod`; non impostata (o sconosciuta) vale come prod (`is_strict`). L'etichetta si sceglie nella
+  schermata di connessione (campo **Environment**), si ricorda **per database** (host, porta, SID; maiuscole e spazi non contano) dentro
+  il file dei dati di connessione (non serve un file nuovo: gia' escluso da git e dallo zip), si propone da sola quando si scrive
+  un database gia' noto e si puo' cambiare anche da collegati.
+- Segno colorato a destra della riga in basso (DEV blu, TEST verde, PROD rosso, NOT SET arancione) e riga `Environment` nel suggerimento.
+- Conferma prima di **Translate** e **Write** (non prima di Preview), **solo su prod e non impostata** (su dev e test non si chiede
+  niente: scelta di Kseniia dopo aver provato la prima versione, che la chiedeva ovunque): riepilogo con database, ambiente,
+  lingue, livello, utenti scritti, INSERT/UPDATE; il pulsante si accende solo scrivendo il nome del database. Annullare non traduce
+  e non scrive (quindi non costa); la selezione e l'anteprima restano.
+- Trovato dai test: i gestori delle variabili di Tk non hanno un ordine garantito, e cambiando il SID da collegati la proposta della
+  nuova etichetta poteva cancellare quella del database vecchio: la proposta del programma non si salva mai (`_refilling`).
+- **Idee per dopo:** chiedere conferma anche per la sola "traduzione diretta" con meno righe (soglia)? un elenco di profili di
+  connessione con l'etichetta (passo 6).
+
 (scrivi qui le altre decisioni passo per passo e cio' che si scopre)

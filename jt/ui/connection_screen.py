@@ -2,9 +2,18 @@
 import tkinter as tk
 from tkinter import ttk
 
+from .. import environments
 from .scale import pad, px
 from .texts import reason
-from .widgets import StatusBar, WrapTracker, coming_soon
+from .widgets import StatusBar, ToolTip, WrapTracker, coming_soon
+
+ENV_HINT = {
+    'title': 'Environment',
+    'intro': 'What kind of database this is: where JT writes needs more care. Set it once, JT remembers it for this database.',
+    'rows': [('dev / test', 'Writing does not ask for anything.'),
+             ('prod', 'Writing asks you to type the database name to confirm.'),
+             ('Not set', 'Treated like prod.')],
+}
 
 FIELDS = (('Host name', 'host', ''), ('Port', 'port', ''), ('SID', 'sid', ''),
           ('Username', 'username', ''), ('Password', 'password', '*'))
@@ -29,6 +38,16 @@ class ConnectionScreen(ttk.Frame):
             entry.bind('<Return>', lambda _e: self.connect())
             self.entries[key] = entry
 
+        row = len(FIELDS)                                   # dev / test / prod: dove si scrive, con quanta cautela
+        label_env = ttk.Label(card, text='Environment  (?)')
+        label_env.grid(row=row, column=0, sticky='w', padx=(0, px(14)), pady=px(5))
+        self.env_var = tk.StringVar(self, value=environments.to_label(
+            app.settings.environment(saved['host'], saved['port'], saved['sid'])))
+        self._refilling = False                             # l'etichetta la sta proponendo il programma, non la sceglie chi usa
+        self.cmb_env = ttk.Combobox(card, textvariable=self.env_var, values=list(environments.CHOICES), state='readonly')
+        self.cmb_env.grid(row=row, column=1, sticky='ew', pady=px(5))
+        ToolTip(label_env, ENV_HINT, self.cmb_env)
+
         buttons = self.buttons = ttk.Frame(self)
         buttons.pack(fill='x', pady=px(12))
         self.connect_button = ttk.Button(buttons, text='Connect', style='Secondary.TButton', command=self.connect)
@@ -46,6 +65,23 @@ class ConnectionScreen(ttk.Frame):
         # cambiare i dati dopo essersi collegati: la connessione aperta non corrisponde piu' a quello che si vede
         for var in self.vars.values():
             var.trace_add('write', self._settings_changed)
+        for key in ('host', 'port', 'sid'):                 # un altro database: si propone la sua etichetta (se la conosciamo)
+            self.vars[key].trace_add('write', self._refill_environment)
+        self.env_var.trace_add('write', self._environment_changed)
+
+    def _refill_environment(self, *_):
+        values = {key: var.get() for key, var in self.vars.items()}
+        self._refilling = True              # non e' una scelta: non si salva (l'ordine dei gestori di Tk non e' garantito)
+        try:
+            self.env_var.set(environments.to_label(
+                self.app.settings.environment(values['host'], values['port'], values['sid'])))
+        finally:
+            self._refilling = False
+
+    def _environment_changed(self, *_):
+        """Cambiare l'etichetta mentre si e' collegati vale subito (non serve ricollegarsi)."""
+        if self.app.db.connected and not self._refilling:
+            self.app.set_environment(environments.from_label(self.env_var.get()))
 
     def _banner(self, state, text):
         if not self.status.winfo_manager():
@@ -54,6 +90,7 @@ class ConnectionScreen(ttk.Frame):
 
     def connect(self):
         values = {key: var.get() for key, var in self.vars.items()}
+        values['environment'] = environments.from_label(self.env_var.get())
         self._banner('info', 'Connecting...')
         self.app.set_busy(True)
         try:

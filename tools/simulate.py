@@ -521,7 +521,8 @@ def run_gui(sample=None, azure=False):
         if not azure:
             app.make_translator = lambda: SimTranslator(realistic=True)
         root.title(root.title() + ('  [SIMULATOR - real Azure]' if azure else '  [SIMULATOR]'))
-        app.connect({'host': 'simulator', 'port': '1521', 'sid': 'SIM', 'username': 'simulator', 'password': 'x'})
+        app.connect({'host': 'simulator', 'port': '1521', 'sid': 'SIM', 'username': 'simulator', 'password': 'x',
+                     'environment': 'test'})            # test: conferma normale; per provare la conferma forte: New connection > prod
         app.show_translation()
         try:
             root.mainloop()

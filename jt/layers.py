@@ -61,6 +61,15 @@ def user_of_layer(layer):
     return layer.user if layer is not None and layer.name in USER_FROM_LAYER else DB_MARKER
 
 
+def users_written(level, supports_levels=True):
+    """Gli utenti che si scrivono nelle righe: uno con un livello scelto, piu' d'uno con tutti i livelli."""
+    if not supports_levels:
+        return (DB_MARKER,)
+    if level is not None:
+        return (user_of_layer(level),)
+    return (DB_MARKER,) + tuple(BY_NAME[name].user for name in USER_FROM_LAYER)
+
+
 def level_label(layer):
     """Nome breve di un livello (messaggi, log): Standard, CW, CT..."""
     return 'Standard' if layer.name == 'AP' else layer.name

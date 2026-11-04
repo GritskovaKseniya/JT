@@ -37,6 +37,7 @@ from jt.tables import get_table  # noqa: E402
 from jt.ui import scale  # noqa: E402
 from jt.ui.app import JTApp  # noqa: E402
 from jt.ui.connection_screen import ConnectionScreen  # noqa: E402
+from jt.ui.dialogs import ConfirmDialog  # noqa: E402
 from jt.ui.widgets import NOT_CONNECTED, Collapsible, StatusBar  # noqa: E402
 from jt.ui.dpi import enable_dpi_awareness  # noqa: E402
 from jt.ui.secret import MESSAGE, open_secret_panel  # noqa: E402
@@ -138,6 +139,23 @@ class UiCase(JtCase):
         self.addCleanup(scale.set_factor, 1.0)           # la scala e' globale: ogni test la ripristina
         self.runner = self.make_runner()
         self.app = JTApp(self.root, self.paths, self.db, runner=self.runner, scale_factor=1.0)
+        # la conferma prima di scrivere e' una finestra modale: nei test si risponde da sola (self.confirm_answer) e si
+        # registra la richiesta; i test della finestra vera la disattivano con self.use_real_confirmation()
+        self.confirmations = []
+        self.confirm_answer = True
+
+        def auto_confirm(_app, question, detail, type_to_confirm=None, ok_text='Write'):
+            self.confirmations.append({'question': question, 'detail': detail, 'type_to_confirm': type_to_confirm,
+                                       'ok_text': ok_text})
+            return self.confirm_answer
+
+        self.confirm_patch = patch.object(JTApp, 'confirm_write', auto_confirm)
+        self.confirm_patch.start()
+        self.addCleanup(self.use_real_confirmation)
+
+    def use_real_confirmation(self):
+        with contextlib.suppress(RuntimeError):
+            self.confirm_patch.stop()
 
     def make_runner(self):
         """Nei test normali il lavoro gira subito nello stesso thread: nessuna attesa, nessuna corsa."""
@@ -488,7 +506,7 @@ class InfoBarTests(UiCase):
         self.assertEqual(self.text(), f'Connected to PRODDB   {SEP}   fake-host   {SEP}   user fake_user')
         self.assertEqual(self.dot(), PALETTE['ok'])
         self.assertEqual(self.db.info, {'host': 'fake-host', 'port': '1521', 'sid': 'FAKESID', 'user': 'fake_user',
-                                        'db_name': 'PRODDB'})
+                                        'db_name': 'PRODDB', 'environment': ''})
 
     def test_it_falls_back_to_the_typed_sid_when_the_server_does_not_answer(self):
         self.fake_db.db_name = None
@@ -560,14 +578,15 @@ class InfoBarTests(UiCase):
         hint = self.app.infobar._hint()
         self.assertEqual(hint['title'], 'Database connection')
         self.assertEqual(hint['rows'], [('Database', 'PRODDB'), ('SID', 'FAKESID'), ('Host', 'fake-host:1521'),
-                                        ('User', 'fake_user')])
+                                        ('User', 'fake_user'), ('Environment', 'not set (treated as prod)')])
         self.assertNotIn('footer', hint)                    # suggerimento compatto: niente piede
 
     def test_tooltip_hides_the_sid_when_it_is_the_same_as_the_database_name(self):
         self.fake_db.db_name = 'fakesid'                    # stesso nome, maiuscole diverse
         self.screen.connect()
         self.assertEqual(self.app.infobar._hint()['rows'],
-                         [('Database', 'fakesid'), ('Host', 'fake-host:1521'), ('User', 'fake_user')])
+                         [('Database', 'fakesid'), ('Host', 'fake-host:1521'), ('User', 'fake_user'),
+                          ('Environment', 'not set (treated as prod)')])
 
     def test_tooltip_without_a_reported_name_says_so(self):
         self.fake_db.db_name = None
@@ -1804,6 +1823,367 @@ class PreviewFlowTests(UiCase):
         screen.preview_tree.selection_set('0')
         screen._show_preview_detail()
         self.assertIn('user ZFXCUSTOM', screen.preview_detail.cget('text'))
+
+
+class EnvironmentFieldTests(UiCase):
+    """Passo 1: l'etichetta dell'ambiente (dev/test/prod) di un database: si sceglie una volta e si ricorda."""
+
+    def test_the_field_offers_not_set_dev_test_prod_and_starts_not_set(self):
+        self.assertEqual(list(self.screen.cmb_env.cget('values')), ['Not set', 'dev', 'test', 'prod'])
+        self.assertEqual(self.screen.env_var.get(), 'Not set')
+        self.assertEqual(str(self.screen.cmb_env.cget('state')), 'readonly')
+
+    def test_connect_remembers_the_label_for_that_database(self):
+        self.screen.env_var.set('test')
+        self.screen.connect()
+        self.assertEqual(self.app.environment, 'test')
+        self.assertEqual(self.db.info['environment'], 'test')
+        self.assertEqual(self.app.settings.environment('fake-host', '1521', 'FAKESID'), 'test')
+
+    def test_the_saved_label_is_there_when_the_program_starts_again(self):
+        self.app.settings.save_environment('fake-host', '1521', 'FAKESID', 'prod')
+        self.app.show_connection()
+        self.assertEqual(self.app.screen.env_var.get(), 'prod')
+
+    def test_typing_another_database_proposes_its_own_label_and_the_old_one_is_kept(self):
+        screen = self.screen
+        screen.env_var.set('prod')
+        screen.connect()
+        screen.vars['sid'].set('OTHER')
+        self.assertEqual(screen.env_var.get(), 'Not set')
+        self.assertEqual(self.app.settings.environment('fake-host', '1521', 'FAKESID'), 'prod')   # non si cancella
+        screen.vars['sid'].set('fakesid')                                  # maiuscole e minuscole non contano
+        self.assertEqual(screen.env_var.get(), 'prod')
+
+    def test_changing_the_label_while_connected_applies_at_once_without_reconnecting(self):
+        screen = self.screen
+        screen.connect()
+        self.assertEqual(self.app.environment, '')
+        screen.env_var.set('prod')
+        self.assertEqual(self.app.environment, 'prod')
+        self.assertEqual(self.app.infobar.chip.cget('text'), 'PROD')
+        self.assertEqual(self.app.settings.environment('fake-host', '1521', 'FAKESID'), 'prod')
+        self.assertTrue(self.db.connected)
+        self.assertEqual(state(screen.next_button), 'normal')
+
+    def test_choosing_not_set_removes_the_saved_label(self):
+        screen = self.screen
+        screen.env_var.set('test')
+        screen.connect()
+        screen.env_var.set('Not set')
+        self.assertEqual(self.app.environment, '')
+        self.assertEqual(self.app.settings.environment('fake-host', '1521', 'FAKESID'), '')
+
+    def test_without_a_connection_the_label_is_only_saved_when_connecting(self):
+        self.screen.env_var.set('prod')
+        self.assertEqual(self.app.settings.environment('fake-host', '1521', 'FAKESID'), '')
+
+    def test_a_failed_connection_keeps_the_infobar_without_a_label(self):
+        self.fake_db.fail_connect = True
+        self.screen.env_var.set('prod')
+        self.screen.connect()
+        self.assertEqual(self.app.infobar.chip.winfo_manager(), '')
+
+    def test_going_back_to_step_one_forgets_the_label_of_the_closed_connection(self):
+        self.screen.env_var.set('prod')
+        self.screen.connect()
+        self.app.go_back()
+        self.assertEqual(self.app.environment, '')
+
+    def test_the_field_has_a_hint(self):
+        from jt.ui.connection_screen import ENV_HINT
+        self.assertEqual(ENV_HINT['title'], 'Environment')
+        self.assertIn('prod', ' '.join(name for name, _ in ENV_HINT['rows']))
+
+
+class InfoBarEnvironmentTests(UiCase):
+    """Il segno colorato in basso: dev, test, prod o non impostata."""
+
+    CASES = (('dev', 'DEV', 'accent'), ('test', 'TEST', 'ok'), ('prod', 'PROD', 'error'), ('', 'NOT SET', 'warn'))
+
+    def test_no_chip_when_not_connected(self):
+        self.assertEqual(self.app.infobar.chip.winfo_manager(), '')
+
+    def test_each_label_has_its_own_text_and_colour(self):
+        for env, text, color in self.CASES:
+            with self.subTest(env=env):
+                self.app.connect(dict(FAKE_CONNECTION, environment=env))
+                chip = self.app.infobar.chip
+                self.assertEqual((chip.cget('text'), str(chip.cget('bg'))), (text, PALETTE[color]))
+                self.assertEqual(chip.winfo_manager(), 'pack')
+
+    def test_the_chip_is_readable(self):
+        for _env, text, color in self.CASES:
+            self.assertGreaterEqual(contrast('white', PALETTE[color], self.root), 4.5, text)
+
+    def test_disconnecting_hides_the_chip(self):
+        self.app.connect(dict(FAKE_CONNECTION, environment='prod'))
+        self.app.disconnect()
+        self.assertEqual(self.app.infobar.chip.winfo_manager(), '')
+
+    def test_the_tooltip_says_the_environment(self):
+        self.app.connect(dict(FAKE_CONNECTION, environment='prod'))
+        self.assertIn(('Environment', 'prod'), self.app.infobar._hint()['rows'])
+        self.app.set_environment('')
+        self.assertIn(('Environment', 'not set (treated as prod)'), self.app.infobar._hint()['rows'])
+
+    def test_an_unknown_label_counts_as_not_set(self):
+        self.app.connect(dict(FAKE_CONNECTION, environment='production'))
+        self.assertEqual((self.app.environment, self.app.infobar.chip.cget('text')), ('', 'NOT SET'))
+
+
+class TypedConfirmationDialogTests(UiCase):
+    """ConfirmDialog con `type_to_confirm`: per andare avanti si scrive il nome del database."""
+
+    def make(self, expected='ORA319'):
+        dialog = ConfirmDialog(self.root, 'Write 2 rows?', 'detail', 'Write', 'Cancel', type_to_confirm=expected)
+        self.addCleanup(lambda: dialog.top.winfo_exists() and dialog.top.destroy())
+        return dialog
+
+    def test_ok_stays_off_until_the_name_is_typed_ignoring_case_and_edge_spaces(self):
+        dialog = self.make()
+        self.assertEqual(state(dialog.ok_button), 'disabled')
+        for typed, expected in (('ora', 'disabled'), ('ORA3190', 'disabled'), ('ora319', 'normal'), ('  ORA319 ', 'normal'),
+                                ('', 'disabled'), ('ORA319', 'normal')):
+            dialog.typed.set(typed)
+            self.assertEqual(state(dialog.ok_button), expected, repr(typed))
+
+    def test_enter_in_the_field_confirms_only_with_the_right_name(self):
+        dialog = self.make()
+        with patch.object(dialog.top, 'focus_get', return_value=dialog.entry):
+            dialog.typed.set('nope')
+            dialog._enter()
+            self.assertTrue(dialog.top.winfo_exists())                     # non succede niente
+            dialog.typed.set('ORA319')
+            dialog._enter()
+        self.assertTrue(dialog.result)
+
+    def test_cancel_and_escape_never_need_the_name(self):
+        dialog = self.make()
+        dialog.cancel_button.invoke()
+        self.assertFalse(dialog.result)
+
+    def test_the_dialog_says_what_to_type(self):
+        dialog = self.make()
+        self.assertIn('To confirm, type the database name:  ORA319', ' '.join(all_texts(dialog.top)))
+
+    def test_the_field_gets_the_focus_when_the_dialog_opens(self):
+        dialog = self.make()
+        calls, original = [], tk.Misc.focus_set
+
+        def spy(widget):
+            calls.append(widget)
+            return original(widget)
+
+        with patch.object(tk.Misc, 'focus_set', spy):
+            self.drive_dialog_for(dialog, lambda: None)
+        self.assertIs(calls[-1], dialog.entry)
+
+    def drive_dialog_for(self, dialog, action):
+        """Mostra il dialogo `dialog` e, a finestra aperta, esegue action; poi lo chiude."""
+        self.root.after(10, lambda: (action(), dialog.cancel_button.invoke()))
+        dialog.show()
+
+    def test_a_plain_dialog_has_no_field(self):
+        dialog = ConfirmDialog(self.root, 'Quit?', '', 'Quit', 'Stay')
+        self.addCleanup(dialog.top.destroy)
+        self.assertIsNone(dialog.entry)
+        self.assertEqual(state(dialog.ok_button), 'normal')
+        self.assertFalse(dialog.matches())
+
+
+class WriteConfirmationTests(UiCase):
+    """Prima di scrivere (Translate diretto o Write dopo l'anteprima) si chiede conferma con un riepilogo."""
+
+    def loaded(self, rows=2, **choice):
+        self.azure = self.use_azure()
+        return self.loaded_strings(rows, **choice)
+
+    def test_translate_asks_first_with_a_summary(self):
+        screen = self.loaded(2)
+        screen.translate_button.invoke()
+        self.assertEqual(len(self.confirmations), 1)
+        asked = self.confirmations[0]
+        self.assertEqual((asked['question'], asked['ok_text']), ('Translate and write 2 rows to FW_STRINGS?', 'Translate'))
+        lines = asked['detail'].split('\n')
+        self.assertEqual(lines[0], 'Database: FAKEDB  ·  fake-host  ·  user fake_user')
+        self.assertEqual(lines[1], 'Environment: Not set (treated as prod)')
+        self.assertEqual(lines[2], 'Languages: Italian → English')
+        self.assertEqual(lines[3], 'Level: Standard  ·  written as user JT')
+        self.assertTrue(screen.status.message.cget('text').startswith('Done: 2 inserted.'))
+
+    def test_prod_and_not_set_ask_for_the_database_name(self):
+        screen = self.loaded(2)
+        for env in ('', 'prod'):
+            with self.subTest(env=env):
+                self.confirmations.clear()
+                self.app.set_environment(env)
+                screen.load()
+                screen.translate_button.invoke()
+                self.assertEqual(len(self.confirmations), 1)
+                self.assertEqual(self.confirmations[0]['type_to_confirm'], 'FAKEDB')
+
+    def test_dev_and_test_never_ask_neither_for_translate_nor_after_a_preview(self):
+        screen = self.loaded(2)
+        for env in ('dev', 'test'):
+            with self.subTest(env=env):
+                self.confirmations.clear()
+                self.fake_db.log.clear()
+                self.app.set_environment(env)
+                screen.load()
+                screen.translate_button.invoke()                              # traduzione diretta
+                self.assertEqual(len(self.fake_db.inserts()), 2)
+                self.fake_db.log.clear()
+                screen.load()
+                screen.preview_button.invoke()
+                screen.write_button.invoke()                                  # dopo l'anteprima
+                self.assertEqual(len(self.fake_db.inserts()), 2)
+                self.assertEqual(self.confirmations, [])
+
+    def test_the_summary_of_the_dialog_is_still_there_for_prod_after_a_preview(self):
+        screen = self.loaded(2)
+        self.app.set_environment('prod')
+        screen.preview_button.invoke()
+        screen.write_button.invoke()
+        self.assertEqual(len(self.confirmations), 1)
+        self.assertEqual(self.confirmations[0]['type_to_confirm'], 'FAKEDB')
+
+    def test_without_a_database_name_the_sid_is_asked_and_failing_that_the_host(self):
+        self.fake_db.db_name = None
+        screen = self.loaded(2)
+        screen.translate_button.invoke()
+        self.assertEqual(self.confirmations[0]['type_to_confirm'], 'FAKESID')
+
+    def test_the_environment_is_in_the_summary(self):
+        screen = self.loaded(2)
+        self.app.set_environment('prod')
+        screen.translate_button.invoke()
+        self.assertIn('Environment: prod', self.confirmations[0]['detail'].split('\n'))
+
+    def test_cancelling_translate_translates_and_writes_nothing_and_keeps_the_selection(self):
+        screen = self.loaded(2)
+        self.confirm_answer = False
+        screen.translate_button.invoke()
+        self.assertEqual(len(self.azure.calls), 0)                           # niente costo
+        self.assertEqual(self.fake_db.writes(), [])
+        self.assertIsNotNone(screen.selection)
+        self.assertEqual(state(screen.translate_button), 'normal')
+        self.assertEqual(screen.status.message.cget('text'), 'Cancelled. Nothing was translated or written.')
+        self.confirm_answer = True
+        screen.translate_button.invoke()                                     # si puo' riprovare
+        self.assertEqual(len(self.fake_db.inserts()), 2)
+
+    def test_the_preview_never_asks_only_the_write_does(self):
+        screen = self.loaded(2)
+        screen.preview_button.invoke()
+        self.assertEqual(self.confirmations, [])
+        screen.write_button.invoke()
+        self.assertEqual(len(self.confirmations), 1)
+        asked = self.confirmations[0]
+        self.assertEqual((asked['question'], asked['ok_text']), ('Write 2 rows to FW_STRINGS?', 'Write'))
+        self.assertIn('2 insert, 0 update', asked['detail'].split('\n'))
+
+    def test_cancelling_the_write_keeps_the_preview_and_writes_nothing(self):
+        screen = self.loaded(2)
+        screen.preview_button.invoke()
+        self.confirm_answer = False
+        screen.write_button.invoke()
+        self.assertIsNotNone(screen.preview)
+        self.assertEqual(self.fake_db.writes(), [])
+        self.assertEqual(state(screen.write_button), 'normal')
+        self.assertEqual(screen.status.message.cget('text'), 'Cancelled. Nothing was written: the preview is still here.')
+        self.confirm_answer = True
+        screen.write_button.invoke()
+        self.assertEqual(len(self.fake_db.inserts()), 2)
+        self.assertEqual(len(self.azure.calls), 2)
+
+    def test_the_summary_says_level_and_user_of_the_rows(self):
+        screen = self.loaded(2)
+        for level, expected in ((L_CT, 'Level: CT  ·  written as user ZFXCUSTOM'),
+                                (L_CW, 'Level: CW  ·  written as user ZFXINTEGR'),
+                                (L_ALL, 'Level: all levels  ·  written as user JT, ZFXCUSTOM, ZFXINTEGR')):
+            with self.subTest(level=level):
+                self.confirmations.clear()
+                screen.var_level.set(level)
+                screen.load()
+                if screen.selection is None:
+                    continue                                                 # niente righe di quel livello nel finto database
+                screen.translate_button.invoke()
+                self.assertIn(expected, self.confirmations[0]['detail'].split('\n'))
+
+    def test_the_summary_of_a_preview_lists_the_users_actually_written(self):
+        self.use_azure()
+        self.fake_db.source['FW_STRINGS'] = [('it', 100000, 'Standard', None, None, None),
+                                             ('it', 3000001, 'Testo CT', None, None, None)]
+        screen = self.step2()
+        self.choose(screen, keys='100000, 3000001')
+        screen.var_level.set(L_ALL)
+        screen.load()
+        screen.preview_button.invoke()
+        screen.write_button.invoke()
+        self.assertIn('written as user JT, ZFXCUSTOM', self.confirmations[0]['detail'].split('\n')[3])
+
+    def test_update_by_keys_says_that_existing_translations_are_replaced(self):
+        self.use_azure()
+        self.fake_db.source['FW_STRINGS'] = plain_rows(2)
+        screen = self.step2()
+        self.choose(screen, keys='100000, 100001')
+        screen.load()
+        screen.translate_button.invoke()
+        self.assertIn('Rows that already have a translation are replaced.', self.confirmations[0]['detail'].split('\n'))
+
+    def test_a_table_without_levels_says_so(self):
+        self.use_azure()
+        self.fake_db.missing['FW_OBJ_DESCRS'] = 2
+        screen = self.step2()
+        self.choose(screen, table='JFX: Object descriptions')
+        screen.load()
+        screen.translate_button.invoke()
+        self.assertIn('Level: no levels (every row)  ·  written as user JT', self.confirmations[0]['detail'].split('\n'))
+
+    def test_a_missing_azure_key_is_reported_before_asking_anything(self):
+        screen = self.loaded_strings(2)
+        with patch.object(JTApp, 'make_translator', side_effect=RuntimeError('no key')):
+            screen.translate_button.invoke()
+        self.assertEqual(self.confirmations, [])
+        self.assertIn('Azure settings not found or not valid', screen.status.message.cget('text'))
+
+    # --- con la finestra vera (non la risposta automatica)
+
+    def test_a_test_database_writes_without_opening_any_dialog(self):
+        self.use_real_confirmation()
+        screen = self.loaded(2)
+        self.app.set_environment('test')
+        with patch.object(JTApp, 'confirm', side_effect=AssertionError('nessuna finestra su un database di test')):
+            screen.translate_button.invoke()
+        self.assertEqual(len(self.fake_db.inserts()), 2)
+
+    def test_the_real_dialog_for_prod_needs_the_name_before_it_writes(self):
+        self.use_real_confirmation()
+        screen = self.loaded(2)
+        self.app.set_environment('prod')
+
+        def act(dialog, seen):
+            seen['before'] = state(dialog.ok_button)
+            seen['text'] = ' '.join(all_texts(dialog.top))
+            dialog.typed.set('FAKEDB')
+            seen['after'] = state(dialog.ok_button)
+            dialog.ok_button.invoke()
+
+        _value, seen = self.drive_dialog(lambda: screen.translate_button.invoke(), act)
+        self.assertEqual((seen['before'], seen['after']), ('disabled', 'normal'))
+        self.assertIn('Environment: prod', seen['text'])
+        self.assertIn('To confirm, type the database name:  FAKEDB', seen['text'])
+        self.assertEqual(len(self.fake_db.inserts()), 2)
+
+    def test_the_real_dialog_cancelled_writes_nothing(self):
+        self.use_real_confirmation()
+        screen = self.loaded(2)
+        _value, _seen = self.drive_dialog(lambda: screen.translate_button.invoke(),
+                                          lambda dialog, seen: dialog.cancel_button.invoke())
+        self.assertEqual(self.fake_db.writes(), [])
+        self.assertEqual(len(self.azure.calls), 0)
+        self.assertEqual(screen.status.message.cget('text'), 'Cancelled. Nothing was translated or written.')
 
 
 class StaleSelectionTests(UiCase):

@@ -3,6 +3,7 @@ import os
 import tkinter as tk
 from tkinter import ttk
 
+from .. import environments
 from . import scale
 from .scale import px
 from .texts import shorten
@@ -198,8 +199,9 @@ class InfoBar(tk.Frame):
         self.dot.pack(side='left')
         self.label = tk.Label(row, font=(FONT, 9), fg=PALETTE['muted'], bg=PALETTE['bg'], anchor='w')
         self.label.pack(side='left', padx=(px(6), 0))
+        self.chip = tk.Label(row, font=(FONT, 8, 'bold'), fg='white', padx=px(6), pady=px(1))      # dev / test / prod
         self.info = None
-        ToolTip(row, self._hint, self.dot, self.label)
+        ToolTip(row, self._hint, self.dot, self.label, self.chip)
         self.set_disconnected()
 
     def set_connected(self, info):
@@ -208,11 +210,15 @@ class InfoBar(tk.Frame):
         self.dot.configure(fg=PALETTE['ok'])
         self.label.configure(text=f"Connected to {name}   ·   {shorten(info.get('host', ''), 30)}   ·   "
                                   f"user {shorten(info.get('user', ''), 24)}")
+        text, color = environments.chip(info.get('environment', ''))
+        self.chip.configure(text=text, bg=PALETTE[color])
+        self.chip.pack(side='right')
 
     def set_disconnected(self):
         self.info = None
         self.dot.configure(fg='#8a94a6')
         self.label.configure(text=NOT_CONNECTED)
+        self.chip.pack_forget()
 
     def _hint(self):
         if not self.info:
@@ -222,6 +228,8 @@ class InfoBar(tk.Frame):
         if info.get('sid') and info['sid'].lower() != str(info.get('db_name') or '').lower():
             rows.append(('SID', info['sid']))                 # solo se e' diverso dal nome dichiarato dal server
         rows += [('Host', f"{info.get('host', '')}:{info.get('port', '')}"), ('User', info.get('user', ''))]
+        env = environments.normalize(info.get('environment', ''))
+        rows.append(('Environment', env or 'not set (treated as prod)'))
         return {'title': 'Database connection', 'rows': rows}
 
 

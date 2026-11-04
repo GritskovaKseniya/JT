@@ -1,4 +1,5 @@
 """Impostazioni salvate: ultima connessione, ultima scelta, credenziali Azure."""
+from . import environments
 from .jsonstore import read_json, write_json
 
 
@@ -20,6 +21,26 @@ class Settings:
     def save_connection(self, host, port, sid, username, password):
         data = self._read_optional(self._paths.connection)
         data.update(host=host, port=port, sid=sid, username=username, password=password)
+        write_json(self._paths.connection, data)
+
+    def environment(self, host, port, sid):
+        """L'etichetta (dev/test/prod) ricordata per questo database, oppure '' se non c'e'."""
+        saved = self._read_optional(self._paths.connection).get('environments')
+        if not isinstance(saved, dict):
+            return ''
+        return environments.normalize(saved.get(environments.key(host, port, sid)))
+
+    def save_environment(self, host, port, sid, env):
+        """Ricorda l'etichetta per questo database (insieme ai dati di connessione); '' la toglie."""
+        data = self._read_optional(self._paths.connection)
+        saved = data.get('environments')
+        saved = dict(saved) if isinstance(saved, dict) else {}
+        label, where = environments.normalize(env), environments.key(host, port, sid)
+        if label:
+            saved[where] = label
+        else:
+            saved.pop(where, None)
+        data['environments'] = saved
         write_json(self._paths.connection, data)
 
     def last_query(self):
