@@ -46,6 +46,9 @@ def setup_style(root):
     style.configure('Card.TLabelframe', background=c['bg'], bordercolor=c['border'], relief='solid')
     style.configure('Card.TLabelframe.Label', background=c['bg'], foreground=c['accent'], font=(FONT, 9, 'bold'))
 
+    # divisore tra due riquadri: niente puntini, solo una fascia libera da trascinare (il cursore cambia)
+    style.configure('Sash', gripcount=0, sashthickness=pad(10)[0], background=c['bg'], lightcolor=c['bg'], darkcolor=c['bg'],
+                    bordercolor=c['bg'])
     style.configure('TEntry', fieldbackground='white', bordercolor=c['field_border'], padding=pad(4))
     style.map('TEntry', fieldbackground=[('disabled', c['disabled_soft_bg'])], foreground=[('disabled', c['muted'])])
     style.configure('TCombobox', fieldbackground='white', bordercolor=c['field_border'], padding=pad(4))

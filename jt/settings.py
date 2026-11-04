@@ -1,6 +1,7 @@
 """Impostazioni salvate: ultima connessione, ultima scelta, credenziali Azure."""
 from . import environments
 from .jsonstore import read_json, write_json
+from .preferences import Preferences
 
 
 class Settings:
@@ -13,6 +14,10 @@ class Settings:
         except (OSError, ValueError):
             return {}
         return data if isinstance(data, dict) else {}
+
+    def preferences(self):
+        """Le preferenze scritte a mano (riletto a ogni uso: si cambia il file e basta)."""
+        return Preferences(self._paths.preferences)
 
     def connection(self):
         data = self._read_optional(self._paths.connection)

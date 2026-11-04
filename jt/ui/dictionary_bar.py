@@ -1,11 +1,11 @@
-"""La riga "Dictionary: N fields in M tables  [Reload]" degli strumenti dei nomi: legge il dizionario dal database collegato
-(una volta per connessione) e lo tiene in `dictionary`."""
+"""Il "Names dictionary: N fields  [Reload]" degli strumenti dei nomi: una riga piccola da mettere nell'intestazione di una sezione
+(non una riga sua). Legge il dizionario dal database collegato (una volta per connessione) e lo tiene in `dictionary`."""
 import tkinter as tk
 from tkinter import ttk
 
 from .. import dictionary as dictionary_reader
 from .scale import px
-from .theme import PALETTE
+from .theme import FONT, PALETTE
 from .widgets import ToolTip
 
 
@@ -14,12 +14,18 @@ class DictionaryBar(tk.Frame):
         super().__init__(parent, bg=PALETTE['bg'])
         self.app, self.on_message, self.on_reload = app, on_message, on_reload
         self.dictionary = None
-        self.label = ttk.Label(self, text='', style='Muted.TLabel')
+        self.label = tk.Label(self, text='', bg=PALETTE['bg'], fg=PALETTE['muted'], font=(FONT, 8))
         self.label.pack(side='left')
-        self.button = ttk.Button(self, text='Reload', style='Secondary.TButton', command=self.reload)
-        self.button.pack(side='right')
-        ToolTip(self.button, {'title': 'Reload dictionary',
-                              'intro': 'The names are read from the database once. Reload them if they changed.'})
+        self.button = ttk.Button(self, text='Reload', style='Small.Secondary.TButton', command=self.reload)
+        self.button.pack(side='left', padx=(px(6), 0))
+        self.tip = ToolTip(self.label, self._hint, self.button)
+
+    def _hint(self):
+        if self.dictionary is None:
+            return {'title': 'Names dictionary', 'intro': 'Not loaded.'}
+        return {'title': 'Names dictionary',
+                'intro': f'{len(self.dictionary.rows):,} fields in {len(self.dictionary.table_map):,} tables: the physical and '
+                         'logical names of Jflex, read from the database once. Reload them if they changed.'}
 
     def load(self, force=False):
         """Legge il dizionario (cursore di attesa). Ritorna True se c'e'."""
@@ -29,12 +35,12 @@ class DictionaryBar(tk.Frame):
         except Exception as e:
             print(e)
             self.dictionary = None
-            self.label.config(text='Dictionary not loaded')
+            self.label.config(text='Names dictionary not loaded')
             self.on_message('error', f"Could not read the dictionary of names: {' '.join(str(e).split())[:200]}")
             return False
         finally:
             self.app.set_busy(False)
-        self.label.config(text=f'Dictionary: {len(self.dictionary.rows):,} fields in {len(self.dictionary.table_map):,} tables')
+        self.label.config(text=f'Names dictionary: {len(self.dictionary.rows):,} fields')
         return True
 
     def reload(self):

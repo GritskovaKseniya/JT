@@ -6,6 +6,7 @@ from tkinter import ttk
 from .. import names
 from .scale import px
 from .theme import PALETTE
+from .widgets import TreeBox
 
 ASC, DESC = ' ▲', ' ▼'
 
@@ -20,21 +21,27 @@ class DataTable(ttk.Frame):
         self.rows = []                              # nell'ordine mostrato
         self.sorted_by = None                       # (chiave, crescente)
         keys = [c[0] for c in self.columns]
-        self.tree = ttk.Treeview(self, columns=keys, show='headings', height=height, selectmode='browse')
-        for key, title, width, right in self.columns:
-            self.tree.heading(key, text=title, anchor='w', command=lambda k=key: self.sort_by(k))
-            self.tree.column(key, width=px(width), minwidth=px(40), stretch=True, anchor='e' if right else 'w')
-        bar = ttk.Scrollbar(self, orient='vertical', command=self.tree.yview)
-        self.tree.configure(yscrollcommand=bar.set)
-        self.tree.pack(side='left', fill='both', expand=True)
-        bar.pack(side='right', fill='y')
+        self.box = TreeBox(self, height=height, columns=keys, show='headings', selectmode='browse')
+        self.box.pack(fill='both', expand=True)
+        self.tree = self.box.tree
+        self.set_columns(self.columns)
         self.tree.tag_configure('notfound', foreground=PALETTE['error'])
         self.tree.bind('<ButtonRelease-1>', self._click)
 
+    def set_columns(self, columns):
+        """Le colonne mostrate (chiave, titolo, larghezza di partenza, a destra); la larghezza vera si calcola sulle righe."""
+        self.columns = list(columns)
+        self.tree.config(columns=[c[0] for c in self.columns])
+        for key, title, width, right in self.columns:
+            self.tree.heading(key, text=title, anchor='w', command=lambda k=key: self.sort_by(k))
+            self.tree.column(key, width=px(width), minwidth=px(40), stretch=False, anchor='e' if right else 'w')
+
     def set_rows(self, rows):
-        """Mostra queste righe (e toglie l'ordinamento)."""
+        """Mostra queste righe (e toglie l'ordinamento). Le colonne si allargano a quello che contengono, fino a un massimo: il
+        resto si vede scorrendo (la tabella non allarga mai la finestra)."""
         self.rows = list(rows)
         self.sorted_by = None
+        self.box.fit_columns([(key, title) for key, title, *_ in self.columns], self.rows)
         self._render()
 
     def clear(self):
@@ -51,9 +58,10 @@ class DataTable(ttk.Frame):
                 mark = ASC if self.sorted_by[1] else DESC
             self.tree.heading(key, text=title + mark)
 
-    def sort_by(self, key):
-        """Ordina per questa colonna; un secondo clic sulla stessa inverte l'ordine."""
-        ascending = not (self.sorted_by and self.sorted_by[0] == key and self.sorted_by[1])
+    def sort_by(self, key, ascending=None):
+        """Ordina per questa colonna; un secondo clic sulla stessa inverte l'ordine (o il verso e' dato)."""
+        if ascending is None:
+            ascending = not (self.sorted_by and self.sorted_by[0] == key and self.sorted_by[1])
         self.rows.sort(key=lambda row: names.sort_key(key, row.get(key)), reverse=not ascending)
         self.sorted_by = (key, ascending)
         self._render()

@@ -7,8 +7,9 @@ from .. import indexes as index_reader, names
 from .dictionary_bar import DictionaryBar
 from .scale import pad, px
 from .table_picker import TablePicker
-from .theme import FONT, PALETTE
-from .widgets import Collapsible, StatusBar, WrapTracker
+from .texts import shorten
+from .theme import PALETTE
+from .widgets import Collapsible, StatusBar, TreeBox, WrapTracker
 
 HINT = 'Type a table name and press Show: its indexes appear below.'
 
@@ -20,55 +21,49 @@ class IndexesScreen(ttk.Frame):
         self.wrap = WrapTracker()
         self.table = None                            # il nome fisico mostrato
         self.indexes, self.columns = [], []
-
-        self.status = StatusBar(self, HINT, on_change=lambda: app.fit_window())
-        self.bar = DictionaryBar(self, app, self.message)
-        self.bar.pack(fill='x', pady=(0, px(6)))
+        self.summary_text = ''
+        self.status = StatusBar(self, HINT, on_change=lambda: app.fit_window(), compact=True)
 
         self.table_section, card = self._section('TABLE', first=True)
+        self.bar = DictionaryBar(self.table_section.extra, app, self.message)
+        self.bar.pack()
         self.picker = TablePicker(card, self.bar.get, self.show_table, self.message, button_text='Show',
+                                  history=lambda: [h['fisico'] for h in app.settings.search_history()],
                                   on_layout=lambda: app.fit_window(),
                                   on_suggest=lambda: self.table_section.expand(notify=False))
         self.picker.pack(fill='x')
 
         self.result_section, card = self._section('INDEXES', grow=True)
-        self.title = tk.Label(card, text='', bg=PALETTE['bg'], fg=PALETTE['text'], font=(FONT, 10, 'bold'), anchor='w')
-        self.title.pack(fill='x')
-        top = tk.Frame(card, bg=PALETTE['bg'])
-        top.pack(fill='x', pady=(px(2), px(4)))
-        self.hint = ttk.Label(top, text='Open an index to see its columns', style='Muted.TLabel')
-        self.hint.pack(side='left')
-        self.copy_button = ttk.Button(top, text='Copy all', style='Secondary.TButton', command=self.copy_all, state='disabled')
+        extra = self.result_section.extra                  # i pulsanti stanno sulla riga dell'intestazione
+        self.copy_button = ttk.Button(extra, text='Copy all', style='Small.Secondary.TButton', command=self.copy_all,
+                                      state='disabled')
         self.copy_button.pack(side='right')
-        self.collapse_button = ttk.Button(top, text='Collapse', style='Secondary.TButton', command=self.collapse_all,
+        self.collapse_button = ttk.Button(extra, text='Collapse', style='Small.Secondary.TButton', command=self.collapse_all,
                                           state='disabled')
-        self.collapse_button.pack(side='right', padx=(0, px(6)))
-        self.expand_button = ttk.Button(top, text='Expand', style='Secondary.TButton', command=self.expand_all, state='disabled')
-        self.expand_button.pack(side='right', padx=(0, px(6)))
-        frame = tk.Frame(card, bg=PALETTE['bg'])
-        frame.pack(fill='both', expand=True)
-        self.tree = ttk.Treeview(frame, columns=('kind',), show='tree headings', height=9, selectmode='browse')
+        self.collapse_button.pack(side='right', padx=(0, px(4)))
+        self.expand_button = ttk.Button(extra, text='Expand', style='Small.Secondary.TButton', command=self.expand_all,
+                                        state='disabled')
+        self.expand_button.pack(side='right', padx=(0, px(4)))
+        self.tree_box = TreeBox(card, height=6, columns=('kind',), show='tree headings', selectmode='browse')
+        self.tree_box.pack(fill='both', expand=True)
+        self.tree = self.tree_box.tree
         self.tree.heading('#0', text='Index / column', anchor='w')
         self.tree.heading('kind', text='Unique / position', anchor='w')
-        self.tree.column('#0', width=px(250), stretch=True)
+        self.tree.column('#0', width=px(260), stretch=True)
         self.tree.column('kind', width=px(110), stretch=False)
-        bar = ttk.Scrollbar(frame, orient='vertical', command=self.tree.yview)
-        self.tree.configure(yscrollcommand=bar.set)
-        self.tree.pack(side='left', fill='both', expand=True)
-        bar.pack(side='right', fill='y')
         self.tree.bind('<ButtonRelease-1>', self._click)
 
-        self.status.pack(fill='x', pady=(px(10), 0))
+        self.status.pack(fill='x', pady=(px(6), 0))
         self.wrap.add(self.status, 95)
         self.bar.load()
+        self.picker.refresh_history()
 
     def _section(self, title, first=False, grow=False):
-        """Un blocco con titolo che si chiude; con `grow` (i risultati) si allarga anche in altezza con la finestra."""
         section = Collapsible(self, title, expanded=True, on_toggle=lambda: self.app.fit_window(), grow=grow)
-        section.pack(fill='both' if grow else 'x', expand=grow, pady=(0 if first else px(8), 0))
+        section.pack(fill='both' if grow else 'x', expand=grow, pady=(0 if first else px(4), 0))
         card = tk.Frame(section.body, bg=PALETTE['bg'], highlightthickness=1, highlightbackground=PALETTE['border'],
-                        padx=px(10), pady=px(8))
-        card.pack(fill='both' if grow else 'x', expand=grow, pady=(px(2), 0))
+                        padx=px(6), pady=px(6))
+        card.pack(fill='both' if grow else 'x', expand=grow, pady=(px(6), 0))
         return section, card
 
     def message(self, state, text):
@@ -97,13 +92,15 @@ class IndexesScreen(ttk.Frame):
             self.app.set_busy(False)
         self.table = table.physical
         self._render()
-        self.title.config(text=f'{table.physical} → {table.logical}')
-        self.table_section.set_summary(table.physical)
-        self.result_section.set_summary(f'{len(self.indexes)} indexes')
+        if self.app.settings.preferences().get('indexes', 'expand_all'):
+            self.expand_all()
+        self.summary_text = f'{table.physical} → {table.logical}  ·  {len(self.indexes)} indexes'
+        self.result_section.set_summary(shorten(self.summary_text, 40))
+        self.table_section.set_summary(shorten(table.physical, 30))
         self.table_section.collapse(notify=False)
         self.result_section.expand(notify=False)
         if self.indexes:
-            self.message('ok', f'{len(self.indexes)} indexes.')
+            self.message('ok', f'{len(self.indexes)} indexes. Open one to see its columns.')
         else:
             self.message('info', f'No index found for {table.physical}.')
         self.app.fit_window()

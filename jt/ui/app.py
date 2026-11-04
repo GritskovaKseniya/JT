@@ -99,6 +99,16 @@ class JTApp:
     def show_connection(self):
         self._show(ConnectionScreen, 1)
 
+    @property
+    def tools(self):
+        """Gli strumenti da mostrare: quelli di "order tools" (Data/preferences.json), riletto a ogni uso, quindi basta cambiare il
+        file e passare da "New connection"."""
+        return self.settings.preferences().arrange(self._tools)
+
+    @tools.setter
+    def tools(self, value):
+        self._tools = list(value)
+
     def show_translation(self):
         """Il passo 2: con piu' strumenti le schede (ToolsScreen), con uno solo la sua schermata direttamente."""
         if len(self.tools) > 1:

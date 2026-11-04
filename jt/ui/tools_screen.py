@@ -125,7 +125,9 @@ class ToolsScreen(ttk.Frame):
         self.menu.pack(fill='x', padx=px(20), pady=(0, px(6)))          # lo stesso margine ai lati delle schermate
         self.content = ttk.Frame(self)
         self.content.pack(fill='both', expand=True)
-        first = next((tool for tool in self.tools if not self.problems[tool.name]), None)
+        wanted = app.settings.preferences().default_tool()
+        on = [tool for tool in self.tools if not self.problems[tool.name]]
+        first = next((tool for tool in on if tool.name == wanted), on[0] if on else None)       # il preferito, se e' acceso
         if first is not None:               # si apre da solo il primo strumento acceso
             self.select(first.name, notify=False)
 

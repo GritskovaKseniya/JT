@@ -139,18 +139,19 @@ class StatusBar(tk.Frame):
     BY_COLOR = {PALETTE['ok']: 'ok', 'green': 'ok', PALETTE['error']: 'error', 'red': 'error',
                 PALETTE['warn']: 'warn', 'orange': 'warn'}
 
-    def __init__(self, parent, text, on_change=None, closable=False):
+    def __init__(self, parent, text, on_change=None, closable=False, compact=False):
+        """`compact`: una riga sottile (gli strumenti, dove lo spazio serve ai risultati) invece del banner di due righe."""
         super().__init__(parent, bd=0, highlightthickness=0)
         self.on_change = on_change
         self._idle_job = None
         self.columnconfigure(2, weight=1)
-        self.rowconfigure(0, minsize=px(38))
-        self.bar = tk.Frame(self, width=px(5), bd=0)
+        self.rowconfigure(0, minsize=px(22 if compact else 38))
+        self.bar = tk.Frame(self, width=px(3 if compact else 5), bd=0)
         self.bar.grid(row=0, column=0, sticky='ns')
-        self.icon = tk.Label(self, font=(FONT_SYMBOL, 12), padx=px(10))
+        self.icon = tk.Label(self, font=(FONT_SYMBOL, 9 if compact else 12), padx=px(6 if compact else 10))
         self.icon.grid(row=0, column=1)
         self.message = tk.Label(self, text=text, anchor='w', justify='left', font=(FONT, 9),
-                                wraplength=px(320), pady=px(6))
+                                wraplength=px(320), pady=px(1 if compact else 6))
         self.message.grid(row=0, column=2, sticky='ew')
         self.close_button = None
         if closable:                 # con la crocetta il banner si toglie; chi lo usa lo rimette quando serve (pack)
@@ -426,6 +427,53 @@ class ScrollArea(tk.Frame):
         if not str(widget).startswith(str(self.inner)) or isinstance(widget, ttk.Combobox):
             return
         self.canvas.yview_scroll(-1 if event.delta > 0 else 1, 'units')
+
+
+class TreeBox(tk.Frame):
+    """Un `ttk.Treeview` (in `tree`) con le barre di scorrimento verticale e orizzontale, che compaiono solo quando servono.
+    Non fa crescere la finestra: la sua misura la da' il posto che c'e' (`height` righe come minimo), il resto si vede scorrendo,
+    e `fit_columns` da' alle colonne la larghezza di quello che contengono ma non oltre un massimo."""
+
+    def __init__(self, parent, height=8, **tree_options):
+        super().__init__(parent, bg=PALETTE['bg'], height=px(24 + 22 * height), width=1)
+        self.grid_propagate(False)                      # la misura non dipende dalle colonne (altrimenti una tabella larga allarga l'app)
+        self.rowconfigure(0, weight=1)
+        self.columnconfigure(0, weight=1)
+        self.tree = ttk.Treeview(self, height=height, **tree_options)
+        self.vbar = ttk.Scrollbar(self, orient='vertical', command=self.tree.yview)
+        self.hbar = ttk.Scrollbar(self, orient='horizontal', command=self.tree.xview)
+        self.tree.grid(row=0, column=0, sticky='nsew')
+        self.vbar.grid(row=0, column=1, sticky='ns')
+        self.hbar.grid(row=1, column=0, sticky='ew')
+        self.vbar.grid_remove()
+        self.hbar.grid_remove()
+        self.tree.configure(yscrollcommand=lambda a, b: self._scrolled(self.vbar, a, b),
+                            xscrollcommand=lambda a, b: self._scrolled(self.hbar, a, b))
+
+    @staticmethod
+    def _scrolled(bar, first, last):
+        """Aggiorna la barra; la mostra solo se c'e' qualcosa da scorrere."""
+        bar.set(first, last)
+        if float(first) > 0.0 or float(last) < 1.0:
+            bar.grid()
+        else:
+            bar.grid_remove()
+
+    def fit_columns(self, columns, rows, key=lambda row, column: row.get(column), max_px=260, min_px=50):
+        """Larghezza di ogni colonna = quella del testo piu' lungo (intestazione compresa), tra min_px e max_px (a scala 100%)."""
+        from tkinter import font as tkfont
+        font = tkfont.nametofont('TkDefaultFont')
+        widths = {}
+        for column, title in columns:
+            longest = font.measure(title) + px(26)                     # c'e' anche la freccia dell'ordinamento
+            for row in rows[:400]:
+                value = key(row, column)
+                if value not in (None, ''):
+                    longest = max(longest, font.measure(str(value)) + px(14))
+            widths[column] = max(px(min_px), min(longest, px(max_px)))
+        last = columns[-1][0]
+        for column, _ in columns:
+            self.tree.column(column, width=widths[column], minwidth=px(40), stretch=column == last)
 
 
 class ScrolledText(tk.Frame):

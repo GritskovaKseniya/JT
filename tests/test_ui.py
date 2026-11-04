@@ -3524,7 +3524,7 @@ class TecsqlScreenTests(UiCase):
 
     def test_it_opens_with_the_dictionary_read_once(self):
         screen = self.open()
-        self.assertEqual(screen.label_dictionary.cget('text'), 'Dictionary: 6 fields in 4 tables')
+        self.assertEqual(screen.label_dictionary.cget('text'), 'Names dictionary: 6 fields')
         self.assertEqual(state(screen.copy_button), 'disabled')
         self.assertEqual(state(screen.swap_button), 'disabled')
         self.assertEqual(len(self.fake_db.dictionary_queries), 1)
@@ -3643,7 +3643,7 @@ class TecsqlScreenTests(UiCase):
         self.fake_db.dictionary_rows = self.ROWS[:2]
         screen.reload_button.invoke()
         self.assertEqual(len(self.fake_db.dictionary_queries), 2)
-        self.assertEqual(screen.label_dictionary.cget('text'), 'Dictionary: 2 fields in 1 tables')
+        self.assertEqual(screen.label_dictionary.cget('text'), 'Names dictionary: 2 fields')
         self.assertIn('Dictionary reloaded', screen.status.message.cget('text'))
         self.run_translate(screen, 'SELECT ARTI_ARTCO FROM MD_ARTI')                 # il dizionario nuovo non ha MD_ARTI
         self.assertEqual(screen.status.message.cget('text'), 'Table MD_ARTI not found in the dictionary')
@@ -3651,12 +3651,12 @@ class TecsqlScreenTests(UiCase):
     def test_a_dictionary_that_cannot_be_read_is_said_and_retried_at_the_next_translation(self):
         self.fake_db.dictionary_error = True
         screen = self.open()
-        self.assertEqual(screen.label_dictionary.cget('text'), 'Dictionary not loaded')
+        self.assertEqual(screen.label_dictionary.cget('text'), 'Names dictionary not loaded')
         self.assertIn('Could not read the dictionary of names', screen.status.message.cget('text'))
         self.fake_db.dictionary_error = False
         self.run_translate(screen, 'SELECT GD_LIRIG.LIRIG_LICOD FROM GD_LIRIG')
         self.assertEqual(screen.result_text(), 'SELECT $RigaListino.CodListino FROM $RigaListino')
-        self.assertTrue(screen.label_dictionary.cget('text').startswith('Dictionary: '))
+        self.assertTrue(screen.label_dictionary.cget('text').startswith('Names dictionary: '))
 
     def test_it_needs_no_azure_key_and_writes_nothing(self):
         self.key_reason = 'the key file was not found'
@@ -3721,15 +3721,59 @@ class NamesToolsCase(UiCase):
     def search(self, screen, table, fields=''):
         screen.picker.set_value(table)
         if hasattr(screen, 'fields'):
-            screen.fields.delete('1.0', 'end')
-            screen.fields.insert('1.0', fields)
+            screen.fields.delete(0, 'end')
+            screen.fields.insert(0, fields)
         screen.picker.search()
+
+
+class PreferencesFileTests(NamesToolsCase):
+    def prefer(self, **data):
+        from jt.jsonstore import write_json
+        write_json(self.paths.preferences, data)
+
+    def test_the_tool_opened_first_is_the_preferred_one(self):
+        self.prefer(default_tool='indexes')
+        self.assertEqual(self.open('indexes').__class__.__name__, 'IndexesScreen')
+        self.assertEqual(self.app.screen.selected, 'indexes')
+
+    def test_a_preferred_tool_that_does_not_exist_leaves_the_first(self):
+        self.prefer(default_tool='nope')
+        self.open('names')
+        self.assertEqual(self.app.screen.tools[0].name, 'strings')
+
+    def test_names_hides_the_columns_and_sorts_as_the_file_says(self):
+        self.prefer(names={'sort': 'CAMPO_LOGICO', 'descending': True, 'hide_columns': ['DECIMALI', 'TIPO']})
+        screen = self.open('names')
+        self.search(screen, 'MD_ARTI')
+        keys = [c[0] for c in screen.grid.columns]
+        self.assertNotIn('DECIMALI', keys)
+        self.assertNotIn('TIPO', keys)
+        self.assertEqual(screen.grid.rows[0]['CAMPO_LOGICO'], 'Descrizione')
+        self.assertEqual(screen.grid.sorted_by, ('CAMPO_LOGICO', False))
+
+    def test_the_sort_of_a_hidden_column_is_skipped(self):
+        self.prefer(names={'sort': 'TIPO', 'hide_columns': ['TIPO']})
+        screen = self.open('names')
+        self.search(screen, 'MD_ARTI')
+        self.assertIsNone(screen.grid.sorted_by)
+
+    def test_indexes_open_with_their_columns_when_asked(self):
+        self.prefer(indexes={'expand_all': True})
+        screen = self.open('indexes')
+        self.search(screen, 'GD_LIRIG')
+        self.assertTrue(all(screen.tree.item(i, 'open') for i in screen.tree.get_children()))
+
+    def test_remove_parameters_can_start_on(self):
+        self.prefer(tecsql={'strip_parameters': True})
+        screen = self.open('names')
+        from jt.ui.tecsql_screen import TecsqlScreen
+        self.assertTrue(TecsqlScreen(self.root, self.app).var_strip.get())
 
 
 class NamesScreenTests(NamesToolsCase):
     def test_it_opens_with_the_dictionary_and_nothing_to_copy(self):
         screen = self.open()
-        self.assertEqual(screen.bar.label.cget('text'), 'Dictionary: 8 fields in 6 tables')
+        self.assertEqual(screen.bar.label.cget('text'), 'Names dictionary: 8 fields')
         self.assertEqual(state(screen.copy_button), 'disabled')
         self.assertTrue(screen.search_section.expanded)
 
@@ -3737,9 +3781,9 @@ class NamesScreenTests(NamesToolsCase):
         screen = self.open()
         self.search(screen, 'gd_lirig')
         self.assertEqual([r['CAMPO_FISICO'] for r in screen.grid.rows], ['LIRIG_LICOD', 'LIRIG_PREZO'])
-        self.assertEqual(screen.title.cget('text'), 'GD_LIRIG → RigaListino')
-        self.assertEqual(screen.status.message.cget('text'), '2 fields.')
-        self.assertEqual(screen.result_section.summary.cget('text'), '2 fields')
+        self.assertEqual(screen.summary_text.split('  ·  ')[0], 'GD_LIRIG → RigaListino')
+        self.assertEqual(screen.status.message.cget('text'), '2 fields. Click a cell to copy it.')
+        self.assertEqual(screen.result_section.summary.cget('text'), 'GD_LIRIG → RigaListino · 2 fields')
         self.assertEqual(state(screen.copy_button), 'normal')
         self.assertEqual(self.app.current_table, {'physical': 'GD_LIRIG', 'logical': 'RigaListino'})
 
@@ -3753,14 +3797,14 @@ class NamesScreenTests(NamesToolsCase):
     def test_a_table_by_logical_name_in_any_case(self):
         screen = self.open()
         self.search(screen, 'testatalistino')
-        self.assertEqual(screen.title.cget('text'), 'GD_LITES → TestataListino')
+        self.assertEqual(screen.summary_text.split('  ·  ')[0], 'GD_LITES → TestataListino')
 
     def test_a_table_with_two_logical_names_shows_which_field_is_of_which(self):
         screen = self.open()
         self.search(screen, 'MD_ARTI')
         self.assertEqual(len(screen.grid.rows), 3)
         self.assertEqual(screen.grid.columns[0][0], 'TABELLA_LOGICA')
-        self.assertIn('2 logical names', screen.title.cget('text'))
+        self.assertIn('2 logical names', screen.summary_text.split('  ·  ')[0])
         self.search(screen, 'ArticoloEsteso')                            # il nome logico: solo il suo
         self.assertEqual(len(screen.grid.rows), 1)
         self.assertNotEqual(screen.grid.columns[0][0], 'TABELLA_LOGICA')
@@ -3786,7 +3830,7 @@ class NamesScreenTests(NamesToolsCase):
         screen.picker.list.selection_set(screen.picker.list.get_children()[0])
         screen.picker._choose()                                          # il doppio clic
         self.assertEqual(screen.picker.box.winfo_manager(), '')
-        self.assertIn(screen.title.cget('text'), ('GD_LIRIG → RigaListino', 'GD_LITES → TestataListino'))
+        self.assertIn(screen.summary_text.split('  ·  ')[0], ('GD_LIRIG → RigaListino', 'GD_LITES → TestataListino'))
 
     def test_a_typo_is_suggested(self):
         screen = self.open()
@@ -3810,7 +3854,7 @@ class NamesScreenTests(NamesToolsCase):
     def test_a_descriptor_without_a_table_is_shown_but_not_remembered(self):
         screen = self.open()
         self.search(screen, 'Virtuale')
-        self.assertEqual(screen.title.cget('text'), '(no physical table) → Virtuale')
+        self.assertEqual(screen.summary_text.split('  ·  ')[0], '(no physical table) → Virtuale')
         self.assertEqual(self.app.settings.search_history(), [])
         self.assertEqual(self.app.current_table['physical'], '-')
 
@@ -3851,13 +3895,10 @@ class NamesScreenTests(NamesToolsCase):
         self.search(screen, 'FW_STRINGS')
         self.assertEqual(self.app.settings.search_history(), [{'fisico': 'FW_STRINGS', 'logico': 'FwStrings'},
                                                                {'fisico': 'GD_LIRIG', 'logico': 'RigaListino'}])
-        values = list(screen.recent_box.cget('values'))
-        self.assertEqual(values[0], 'Recent searches...')
-        self.assertIn('GD_LIRIG → RigaListino', values)
-        screen.var_recent.set('GD_LIRIG → RigaListino')
-        screen._recent_chosen()
-        self.assertEqual(screen.title.cget('text'), 'GD_LIRIG → RigaListino')
-        self.assertEqual(screen.var_recent.get(), 'Recent searches...')
+        self.assertEqual(list(screen.picker.entry.cget('values')), ['FW_STRINGS', 'GD_LIRIG'])
+        screen.picker.set_value('GD_LIRIG')                                # si sceglie dal menu: la ricerca parte da sola
+        screen.picker.entry.event_generate('<<ComboboxSelected>>')
+        self.assertEqual(screen.summary_text.split('  ·  ')[0], 'GD_LIRIG → RigaListino')
 
     def test_it_reads_and_writes_nothing_in_the_database_and_needs_no_key(self):
         self.key_reason = 'the key file was not found'
@@ -3869,11 +3910,11 @@ class NamesScreenTests(NamesToolsCase):
     def test_a_dictionary_that_cannot_be_read_is_said_and_retried(self):
         self.fake_db.dictionary_error = True
         screen = self.open()
-        self.assertEqual(screen.bar.label.cget('text'), 'Dictionary not loaded')
+        self.assertEqual(screen.bar.label.cget('text'), 'Names dictionary not loaded')
         self.assertEqual(screen.status.state, 'error')
         self.fake_db.dictionary_error = False
         self.search(screen, 'GD_LIRIG')
-        self.assertEqual(screen.title.cget('text'), 'GD_LIRIG → RigaListino')
+        self.assertEqual(screen.summary_text.split('  ·  ')[0], 'GD_LIRIG → RigaListino')
 
     def test_the_tool_is_off_without_the_dictionary_tables(self):
         self.fake_db.invalid_tables = {'FW_TABLE_FIELDS'}
@@ -3893,8 +3934,8 @@ class IndexesScreenTests(NamesToolsCase):
         first = [screen.tree.item(c, 'text') for c in screen.tree.get_children(top[0])]
         self.assertEqual(first, ['LIRIG_LICOD', 'LIRIG_PREZO'])
         self.assertEqual([screen.tree.set(c, 'kind') for c in screen.tree.get_children(top[0])], ['1', '2'])
-        self.assertEqual(screen.title.cget('text'), 'GD_LIRIG → RigaListino')
-        self.assertEqual(screen.status.message.cget('text'), '2 indexes.')
+        self.assertEqual(screen.summary_text.split('  ·  ')[0], 'GD_LIRIG → RigaListino')
+        self.assertEqual(screen.status.message.cget('text'), '2 indexes. Open one to see its columns.')
         self.assertFalse(screen.table_section.expanded)
         self.assertEqual(screen.table_section.summary.cget('text'), 'GD_LIRIG')
 
@@ -4025,6 +4066,45 @@ class DataTableTests(UiCase):
         table.copy_text('hello')
         self.assertEqual(self.root.clipboard_get(), 'hello')
         self.assertEqual(table.copied, ['hello'])
+
+
+class TreeBoxTests(UiCase):
+    def settle(self):
+        for _ in range(10):
+            self.root.update()
+
+    def test_a_column_is_as_wide_as_its_text_but_never_above_the_maximum(self):
+        from jt.ui.widgets import TreeBox
+        box = TreeBox(self.root, columns=('a', 'b'), show='headings')
+        box.fit_columns([('a', 'A'), ('b', 'B')], [{'a': 'x' * 400, 'b': 'y'}])
+        self.assertEqual(int(box.tree.column('a', 'width')), scale.px(260))
+        self.assertEqual(int(box.tree.column('b', 'width')), scale.px(50))               # il minimo
+
+    def test_a_very_wide_table_does_not_widen_the_window_and_gets_a_scroll_bar(self):
+        from jt.ui.widgets import TreeBox
+        self.root.deiconify()
+        self.root.geometry('500x300')
+        box = TreeBox(self.root, columns=tuple(f'c{i}' for i in range(12)), show='headings')
+        box.pack(fill='both', expand=True)
+        columns = [(f'c{i}', f'Column {i}') for i in range(12)]
+        box.fit_columns(columns, [{c: 'z' * 60 for c, _ in columns}])
+        for c, title in columns:
+            box.tree.heading(c, text=title)
+        box.tree.insert('', 'end', values=['z' * 60] * 12)
+        self.settle()
+        self.assertEqual(self.root.winfo_width(), 500)
+        self.assertEqual(box.hbar.winfo_manager(), 'grid')                         # le colonne non entrano: si scorre
+
+    def test_the_scroll_bars_are_hidden_when_everything_fits(self):
+        from jt.ui.widgets import TreeBox
+        self.root.deiconify()
+        self.root.geometry('500x300')
+        box = TreeBox(self.root, columns=('a',), show='headings')
+        box.pack(fill='both', expand=True)
+        box.tree.insert('', 'end', values=['x'])
+        self.settle()
+        self.assertEqual(box.hbar.winfo_manager(), '')
+        self.assertEqual(box.vbar.winfo_manager(), '')
 
 
 class ScrolledTextTests(UiCase):

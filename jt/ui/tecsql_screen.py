@@ -3,8 +3,8 @@ dice che e' TecSQL). Non scrive niente sul database e non serve la chiave Azure:
 import tkinter as tk
 from tkinter import ttk
 
-from .. import dictionary
 from ..tecsql_translator import normalize_query_text
+from .dictionary_bar import DictionaryBar
 from .scale import pad, px
 from .theme import FONT, PALETTE
 from .widgets import ScrolledText, StatusBar, ToolTip, WrapTracker
@@ -21,32 +21,26 @@ class TecsqlScreen(ttk.Frame):
         self.dictionary = None              # il Dictionary del database collegato
         self.direction = ''                 # 'tecsql_to_sql' | 'sql_to_tecsql' dopo una traduzione
         self.candidates = {}                # nome mostrato -> chiave del descrittore (solo se la query e' ambigua)
-        self.var_strip = tk.BooleanVar(value=False)
+        self.var_strip = tk.BooleanVar(value=app.settings.preferences().get('tecsql', 'strip_parameters'))
         self.var_choice = tk.StringVar(value='')
 
-        # il dizionario: quanti nomi, e per rileggerlo
-        top = tk.Frame(self, bg=PALETTE['bg'])
-        top.pack(fill='x', pady=(0, px(6)))
-        self.label_dictionary = ttk.Label(top, text='', style='Muted.TLabel')
-        self.label_dictionary.pack(side='left')
-        self.reload_button = ttk.Button(top, text='Reload', style='Secondary.TButton', command=self.reload)
-        self.reload_button.pack(side='right')
-        ToolTip(self.reload_button, {'title': 'Reload dictionary',
-                                     'intro': 'The names are read from the database once. Reload them if they changed.'})
-
-        # --- la query e il risultato: due riquadri uno sopra l'altro con un divisore da trascinare e che crescono con la finestra
+        # --- la query e il risultato: due riquadri uno sopra l'altro con un divisore da trascinare e che crescono con la finestra.
+        # Titoli e pulsanti stanno sulla riga del titolo (niente righe di sola intestazione): lo spazio e' per il testo.
         self.panes = ttk.PanedWindow(self, orient='vertical')
         self.panes.pack(fill='both', expand=True)
-        query_pane, card = self._pane('QUERY')
-        self.input_box = ScrolledText(card, height=5)
+        query_pane, card, header = self._pane('QUERY')
+        self.bar = DictionaryBar(header, app, self._say, on_reload=self._reloaded)          # "Names dictionary: N fields  Reload"
+        self.bar.pack(side='right')
+        self.label_dictionary, self.reload_button = self.bar.label, self.bar.button
+        self.input_box = ScrolledText(card, height=4)
         self.input = self.input_box.text
         self.input_box.pack(fill='both', expand=True)
         self.input.bind('<Control-Return>', lambda _e: (self.translate(), 'break')[1])
         buttons = tk.Frame(card, bg=PALETTE['bg'])
-        buttons.pack(fill='x', pady=(px(8), 0))
-        self.translate_button = ttk.Button(buttons, text='Translate', style='Primary.TButton', command=self.translate)
+        buttons.pack(fill='x', pady=(px(6), 0))
+        self.translate_button = ttk.Button(buttons, text='Translate', style='Small.Primary.TButton', command=self.translate)
         self.translate_button.pack(side='left', padx=(0, px(6)))
-        self.clear_button = ttk.Button(buttons, text='Clear', style='Secondary.TButton', command=self.clear)
+        self.clear_button = ttk.Button(buttons, text='Clear', style='Small.Secondary.TButton', command=self.clear)
         self.clear_button.pack(side='left')
         self.check_strip = ttk.Checkbutton(buttons, text='Remove ?parameters', variable=self.var_strip)
         self.check_strip.pack(side='right')
@@ -64,62 +58,52 @@ class TecsqlScreen(ttk.Frame):
         self.choice_box.bind('<<ComboboxSelected>>', self._chosen)
         self.wrap.add(self.choice_label, 60)
 
-        result_pane, card = self._pane('RESULT', top=px(8))
-        top_row = tk.Frame(card, bg=PALETTE['bg'])
-        top_row.pack(fill='x', pady=(0, px(4)))
-        self.label_direction = ttk.Label(top_row, text='', style='Muted.TLabel')
-        self.label_direction.pack(side='left')
-        self.copy_button = ttk.Button(top_row, text='Copy', style='Secondary.TButton', command=self.copy, state='disabled')
+        result_pane, card, header = self._pane('RESULT', top=px(6))
+        self.label_direction = tk.Label(header, text='', bg=PALETTE['bg'], fg=PALETTE['muted'], font=(FONT, 9))
+        self.label_direction.pack(side='left', padx=(px(8), 0))
+        self.copy_button = ttk.Button(header, text='Copy', style='Small.Secondary.TButton', command=self.copy, state='disabled')
         self.copy_button.pack(side='right')
-        self.swap_button = ttk.Button(top_row, text='Use as query', style='Secondary.TButton', command=self.swap,
+        self.swap_button = ttk.Button(header, text='Use as query', style='Small.Secondary.TButton', command=self.swap,
                                       state='disabled')
         self.swap_button.pack(side='right', padx=(0, px(6)))
         ToolTip(self.swap_button, {'title': 'Use as query',
                                    'intro': 'Puts the result in the query box, to translate it back to the other form.'})
-        self.output_box = ScrolledText(card, height=5, readonly=True)
+        self.output_box = ScrolledText(card, height=4, readonly=True)
         self.output = self.output_box.text
         self.output_box.pack(fill='both', expand=True)
 
-        self.status = StatusBar(self, EMPTY_HINT, on_change=lambda: app.fit_window())
-        self.status.pack(fill='x', pady=(px(10), 0), side='bottom')
+        self.status = StatusBar(self, EMPTY_HINT, on_change=lambda: app.fit_window(), compact=True)
+        self.status.pack(fill='x', pady=(px(6), 0), side='bottom')
         self.wrap.add(self.status, 95)
 
         self.load_dictionary()
 
     def _pane(self, title, top=0):
-        """Un riquadro del divisore: il titolo e una scheda che cresce con la finestra. Ritorna (il riquadro, la scheda)."""
+        """Un riquadro del divisore: una riga con il titolo (a destra e a sinistra ci si mettono i pulsanti) e la scheda che cresce con
+        la finestra. Ritorna (il riquadro, la scheda, la riga del titolo)."""
         pane = tk.Frame(self.panes, bg=PALETTE['bg'])
         self.panes.add(pane, weight=1)
-        tk.Label(pane, text=title, bg=PALETTE['bg'], fg=PALETTE['accent'], font=(FONT, 9, 'bold'), anchor='w').pack(
-            fill='x', pady=(top, px(2)))
+        header = tk.Frame(pane, bg=PALETTE['bg'])
+        header.pack(fill='x', pady=(top, px(6)))
+        tk.Label(header, text=title, bg=PALETTE['bg'], fg=PALETTE['accent'], font=(FONT, 9, 'bold'), anchor='w').pack(side='left')
         card = tk.Frame(pane, bg=PALETTE['bg'], highlightthickness=1, highlightbackground=PALETTE['border'],
-                        padx=px(10), pady=px(8))
+                        padx=px(6), pady=px(6))
         card.pack(fill='both', expand=True)
-        return pane, card
+        return pane, card, header
 
     # ------------------------------------------------------------------ dizionario
 
+    def _say(self, state, text):
+        self.status.show(state, text)
+
     def load_dictionary(self, force=False):
         """Legge il dizionario dei nomi dal database collegato (una volta per connessione)."""
-        self.app.set_busy(True)
-        try:
-            self.dictionary = dictionary.load(self.app.db, force=force)
-        except Exception as e:
-            print(e)
-            self.dictionary = None
-            self.label_dictionary.config(text='Dictionary not loaded')
-            self.status.show('error', f'Could not read the dictionary of names: {self._reason(e)}')
-            return False
-        finally:
-            self.app.set_busy(False)
-        tables = len(self.dictionary.table_map)
-        self.label_dictionary.config(text=f'Dictionary: {len(self.dictionary.rows):,} fields in {tables:,} tables')
-        return True
+        ok = self.bar.load(force)
+        self.dictionary = self.bar.dictionary
+        return ok
 
-    def reload(self):
-        dictionary.forget()
-        if self.load_dictionary(force=True):
-            self.status.show('ok', f'Dictionary reloaded: {len(self.dictionary.rows):,} fields.')
+    def _reloaded(self):
+        self.dictionary = self.bar.dictionary
         self.clear_result()
 
     @staticmethod

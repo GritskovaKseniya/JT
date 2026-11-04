@@ -56,12 +56,13 @@ class Paths:
 
     def seed_user_files(self):
         """Alla prima partenza copia nella cartella dell'utente il modello della chiave Azure fornito col programma."""
-        if self.user_base == self.base or os.path.exists(self.azure):
+        if self.user_base == self.base:
             return
-        packaged = self._file('Data', 'azure_services.json')
-        if os.path.exists(packaged):
-            os.makedirs(self.user_base, exist_ok=True)
-            shutil.copy(packaged, self.azure)
+        for name, target in (('azure_services.json', self.azure), ('preferences.json', self.preferences)):
+            packaged = self._file('Data', name)
+            if not os.path.exists(target) and os.path.exists(packaged):
+                os.makedirs(self.user_base, exist_ok=True)
+                shutil.copy(packaged, target)
 
     @property
     def azure(self):
@@ -87,6 +88,11 @@ class Paths:
     def searches(self):
         """Le ultime tabelle cercate nello strumento Names."""
         return self._user_file('search_history.json')
+
+    @property
+    def preferences(self):
+        """Le preferenze di visualizzazione, scritte a mano (vedi jt/preferences.py)."""
+        return self._user_file('preferences.json')
 
     @property
     def glossary(self):
