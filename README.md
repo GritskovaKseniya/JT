@@ -109,7 +109,7 @@ appaiono in tabella, per esempio in hindi). Se la chiave non c'e' o e' il segnap
 
 **Con righe vere.** `tools\extract_sample.py` copia da un Oracle vero (solo `SELECT`) una piccola selezione di righe in
 `tools\sample_data.json`: tutte le stringhe e triplette CT/CW, una parte di FW, AP e CC con le loro traduzioni, le opzioni `Fw...`
-e un campione degli altri tipi, un campione dei nodi di documentazione. Il file e' in `.gitignore` (dati di un database vero: non
+e un campione degli altri tipi, un campione dei nodi di documentazione e **il dizionario dei nomi** (FW_TABLES e FW_TABLE_FIELDS: circa 260 tabelle logiche e 6.700 campi, compresi i casi con due nomi logici per la stessa tabella fisica). Con `--only FW_TABLES,FW_TABLE_FIELDS` si aggiunge una sola parte al file che c'e' gia' (anche da un altro database) senza rileggere il resto. Il file e' in `.gitignore` (dati di un database vero: non
 va su GitHub). Poi `run_simulator.bat --gui --sample tools\sample_data.json` apre JT sul simulatore con le righe di prova **piu'**
 quelle vere, e `create_test_db.py --sample tools\sample_data.json` fa lo stesso in un Oracle di prova.
 

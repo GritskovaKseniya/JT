@@ -87,6 +87,8 @@ class SampleDataTests(unittest.TestCase):
             cursor.execute(f'CREATE TABLE {name} ({columns})')
         tool.fill_tables(cursor)
         for table in tool.SCHEMA:
+            if table in tool.DICTIONARY_TABLES:
+                continue                                    # il dizionario dei nomi non si traduce
             spec = get_table(table).bind_columns(tool._columns(table))
             sql, binds = spec.count_all('it', 'en')
             missing = cursor.execute(sql, binds).fetchone()[0]

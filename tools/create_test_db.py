@@ -37,7 +37,13 @@ SCHEMA = {
     'FW_DOCU_NODES_T': 'nodeid NUMBER(10) NOT NULL, lang CHAR(2) NOT NULL, nodetitle VARCHAR2(255)',   # 3 colonne, come nel DB vero
     'FW_OBJ_DESCRS': 'objid NUMBER(10) NOT NULL, tablename VARCHAR2(30) NOT NULL, tablefieldname VARCHAR2(30) NOT NULL, '
                      'language VARCHAR2(2) NOT NULL, description VARCHAR2(100)',
+    # il dizionario dei nomi (SQL <-> TecSQL): solo le colonne che JT legge (le tabelle vere ne hanno 12 e 33). In un Jflex vero
+    # TYPE, WIDTH e DECIMALS sono testo.
+    'FW_TABLES': 'tablename VARCHAR2(30) NOT NULL, tabledbname VARCHAR2(30)',
+    'FW_TABLE_FIELDS': 'tablename VARCHAR2(30) NOT NULL, tablefieldname VARCHAR2(30) NOT NULL, dbfieldname VARCHAR2(30), '
+                       'type VARCHAR2(10), width VARCHAR2(5), decimals VARCHAR2(2)',
 }
+DICTIONARY_TABLES = ('FW_TABLES', 'FW_TABLE_FIELDS')      # non si traducono: sono il dizionario dei nomi
 # le varianti delle opzioni differiscono solo per il codice: CHAR(1), VARCHAR2(2), VARCHAR2(3), NUMBER(5) (letto da un Oracle vero)
 for _name, _code in (('FW_OPZIONI_DUE', 'VARCHAR2(2)'), ('FW_OPZIONI_TRE', 'VARCHAR2(3)'), ('FW_OPZIONI_INT', 'NUMBER(5)')):
     SCHEMA[_name] = SCHEMA['FW_OPZIONI'].replace('codice CHAR(1)', f'codice {_code}')
@@ -123,6 +129,19 @@ def _data():
                              (3, 'QL_CARAT', 'CARAT_DESCR', 'it', 'Materiale'),
                              (4, 'QL_CARAT', 'CARAT_DESCR', 'it', _long_text()),
                              (1, 'QL_CARAT', 'CARAT_DESCR', 'en', 'Colour')]
+    # dizionario dei nomi: due descrittori per GD_LIRIG/GD_LITES e tre per MD_ARTI (un nome fisico con piu' nomi logici: il
+    # caso "ambiguo" di SQL -> TecSQL)
+    data['FW_TABLES'] = [('RigaListino', 'GD_LIRIG'), ('TestataListino', 'GD_LITES'), ('Articolo', 'MD_ARTI'),
+                         ('ArticoloEsteso', 'MD_ARTI')]
+    data['FW_TABLE_FIELDS'] = [
+        ('RigaListino', 'CodListino', 'LIRIG_LICOD', 'C', '10', '0'), ('RigaListino', 'CatListino', 'LIRIG_CATLI', 'C', '2', '0'),
+        ('RigaListino', 'CodArticolo', 'LIRIG_ARTCO', 'C', '20', '0'), ('RigaListino', 'Prezzo', 'LIRIG_PREZO', 'N', '15', '4'),
+        ('TestataListino', 'Codice', 'LITES_LICOD', 'C', '10', '0'), ('TestataListino', 'CodCategoria', 'LITES_CATLI', 'C', '2', '0'),
+        ('TestataListino', 'Descrizione', 'LITES_DESCR', 'C', '50', '0'),
+        ('Articolo', 'Codice', 'ARTI_ARTCO', 'C', '20', '0'), ('Articolo', 'Descrizione', 'ARTI_DESCR', 'C', '50', '0'),
+        ('ArticoloEsteso', 'Codice', 'ARTI_ARTCO', 'C', '20', '0'), ('ArticoloEsteso', 'Descrizione', 'ARTI_DESCR', 'C', '50', '0'),
+        ('ArticoloEsteso', 'Prezzo', 'ARTI_PREZO', 'N', '15', '4'),
+    ]
     return data
 
 
@@ -131,7 +150,7 @@ DATA = _data()
 # posizioni delle colonne che identificano una riga (lingua e codice...): per non duplicare le righe di prova con quelle vere
 KEY_POSITIONS = {'FW_STRINGS': (0, 1), 'FW_FIELD_STRINGS': (0, 1), 'FW_OPZIONI': (0, 1, 2), 'FW_OPZIONI_DUE': (0, 1, 2),
                  'FW_OPZIONI_TRE': (0, 1, 2), 'FW_OPZIONI_INT': (0, 1, 2), 'FW_DOCU_NODES_T': (0, 1),
-                 'FW_OBJ_DESCRS': (0, 1, 2, 3)}
+                 'FW_OBJ_DESCRS': (0, 1, 2, 3), 'FW_TABLES': (0,), 'FW_TABLE_FIELDS': (0, 1)}
 
 
 def load_sample(path):

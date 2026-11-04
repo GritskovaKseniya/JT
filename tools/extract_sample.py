@@ -35,6 +35,13 @@ def _chosen_codes(table, lang_col='language'):
             f"OR ({level} = 'other' AND MOD(code, 30) = 0))")
 
 
+def _dictionary_tables():
+    """Le tabelle logiche scelte per il dizionario di prova: tutte quelle che condividono la tabella fisica con un'altra (i
+    casi ambigui: due nomi logici per la stessa tabella) e una ogni dodici delle altre (distribuite su tutto l'elenco)."""
+    return ("SELECT tablename FROM FW_TABLES WHERE MOD(ORA_HASH(tablename), 12) = 0 OR (tabledbname <> '-' AND tabledbname IN "
+            "(SELECT tabledbname FROM FW_TABLES WHERE tabledbname <> '-' GROUP BY tabledbname HAVING COUNT(*) > 1))")
+
+
 def _options(table):
     """Tutte le lingue dei tipi scelti: i tipi Fw..., quelli con prefisso Ct/Cw/Ck/Cc e uno ogni otto degli altri."""
     return (f"SELECT * FROM {table} WHERE tipo IN (SELECT tipo FROM (SELECT tipo, ROWNUM n FROM "
@@ -53,6 +60,10 @@ SELECTS = {
     'FW_OPZIONI_INT': _options('FW_OPZIONI_INT'),
     'FW_DOCU_NODES_T': 'SELECT * FROM FW_DOCU_NODES_T WHERE MOD(nodeid, 25) = 0 ORDER BY nodeid, lang',
     'FW_OBJ_DESCRS': 'SELECT * FROM FW_OBJ_DESCRS WHERE MOD(objid, 10) = 0 ORDER BY objid, tablename, tablefieldname, language',
+    # il dizionario dei nomi (SQL <-> TecSQL): solo le colonne che JT legge, nell'ordine dello schema di prova
+    'FW_TABLES': f'SELECT tablename, tabledbname FROM FW_TABLES WHERE tablename IN ({_dictionary_tables()}) ORDER BY tablename',
+    'FW_TABLE_FIELDS': ('SELECT tablename, tablefieldname, dbfieldname, type, width, decimals FROM FW_TABLE_FIELDS '
+                        f'WHERE tablename IN ({_dictionary_tables()}) ORDER BY tablename, tablefieldname'),
 }
 
 
@@ -99,16 +110,26 @@ def main(argv=None):
     parser.add_argument('--user', required=True)
     parser.add_argument('--password', help='meglio non scriverla qui: senza, si chiede (o JT_SAMPLE_PASSWORD)')
     parser.add_argument('--out', default=DEFAULT_OUT)
+    parser.add_argument('--only', help="solo queste tabelle (separate da virgola) e il resto del file resta com'e': "
+                                       "per aggiungere altre righe, anche da un altro database")
     args = parser.parse_args(argv)
     password = args.password or os.environ.get('JT_SAMPLE_PASSWORD') or getpass.getpass(f'Password of {args.user}: ')
     import cx_Oracle
     connection = cx_Oracle.connect(args.user, password, dsn=cx_Oracle.makedsn(args.host, args.port, sid=args.sid))
     try:
         print(f'Reading from {args.host}:{args.port}/{args.sid} (SELECT only)...')
-        sample = build_sample(connection)
+        only = [name.strip().upper() for name in args.only.split(',')] if args.only else None
+        sample = build_sample(connection, {n: SELECTS[n] for n in only} if only else None)
     finally:
         connection.close()
-    sample['source'] = f'{args.host}:{args.port}/{args.sid}'
+    if only and os.path.exists(args.out):               # si aggiunge a quello che c'era
+        with open(args.out, encoding='utf-8') as f:
+            previous = json.load(f)
+        previous['tables'].update(sample['tables'])
+        previous.setdefault('extra_sources', {}).update({name: f'{args.host}:{args.port}/{args.sid}' for name in only})
+        sample = previous
+    else:
+        sample['source'] = f'{args.host}:{args.port}/{args.sid}'
     sample['taken'] = datetime.now().strftime('%Y-%m-%d')
     with open(args.out, 'w', encoding='utf-8') as f:
         json.dump(sample, f, ensure_ascii=False, indent=0)

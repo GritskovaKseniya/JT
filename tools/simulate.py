@@ -548,8 +548,51 @@ def scenario_undo():
     return s
 
 
+def scenario_names():
+    """Il dizionario dei nomi letto dal database simulato (FW_TABLES e FW_TABLE_FIELDS) e la traduzione SQL <-> TecSQL."""
+    from jt import dictionary, tecsql_translator as translator
+    s = Scenario('Nomi: dizionario letto dal database e traduzione SQL <-> TecSQL')
+    dictionary.forget()
+    try:
+        expected = s.sim.query('SELECT COUNT(*) FROM FW_TABLES TAB JOIN FW_TABLE_FIELDS FIE ON (FIE.TABLENAME = TAB.TABLENAME)')[0][0]
+        rows = dictionary.load(s.db)
+        s.check('il dizionario ha una riga per ogni campo', len(rows) == expected and expected > 0, (len(rows), expected))
+        s.check('le mappe del traduttore sono piene', translator.TABLE_MAP.get('$rigalistino') == 'GD_LIRIG',
+                translator.TABLE_MAP.get('$rigalistino'))
+        s.check('con la stessa connessione non si rilegge', dictionary.load(s.db) is rows)
+
+        sql = translator.translate_tecsql('SELECT $RigaListino.Prezzo FROM $RigaListino WHERE $RigaListino.CatListino = \'LL\'')
+        s.check('TecSQL -> SQL: nomi logici diventano fisici',
+                'GD_LIRIG.LIRIG_PREZO' in sql and "GD_LIRIG.LIRIG_CATLI = 'LL'" in sql, sql)
+
+        result = translator.translate_sql_to_tecsql('SELECT GD_LIRIG.LIRIG_LICOD FROM GD_LIRIG')
+        s.check('SQL -> TecSQL: nomi fisici diventano logici',
+                result['success'] and '$RigaListino.CodListino' in result['tecsql'], result)
+
+        ambiguous = translator.translate_sql_to_tecsql('SELECT ARTI_ARTCO FROM MD_ARTI')
+        s.check('SQL -> TecSQL: MD_ARTI ha due nomi logici, il traduttore chiede quale',
+                ambiguous.get('ambiguous') and len(ambiguous.get('candidates', [])) == 2, ambiguous)
+        chosen = translator.translate_sql_to_tecsql('SELECT ARTI_ARTCO FROM MD_ARTI', '$articoloesteso')
+        s.check('scelto il descrittore, la traduzione riesce', chosen['success'] and '$ArticoloEsteso' in chosen['tecsql'],
+                chosen)
+
+        s.check('un database senza dizionario: errore chiaro (non un risultato vuoto)',
+                _raises(lambda: (dictionary.forget(), translator.translate_tecsql('SELECT $A.B FROM $A'))), 'nessun errore')
+    finally:
+        dictionary.forget()
+    return s
+
+
+def _raises(call):
+    try:
+        call()
+    except ValueError:
+        return True
+    return False
+
+
 SCENARIOS = (scenario_counts, scenario_strings, scenario_all_levels, scenario_triplets, scenario_options,
-             scenario_update_by_keys, scenario_errors, scenario_preview, scenario_undo)
+             scenario_update_by_keys, scenario_errors, scenario_preview, scenario_undo, scenario_names)
 
 
 def run_scenarios(out=print):
