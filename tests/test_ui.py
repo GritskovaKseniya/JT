@@ -3284,6 +3284,63 @@ class ClosingTests(UiCase):
         with self.assertRaises(tk.TclError):
             self.root.winfo_exists()
 
+    def previewed(self):
+        self.use_azure()
+        screen = self.loaded_strings(2)
+        screen.preview_button.invoke()
+        self.assertIsNotNone(screen.preview)
+        return screen
+
+    def test_closing_with_an_unwritten_preview_asks_and_staying_keeps_everything(self):
+        screen = self.previewed()
+        destroy = self.watch_destroy()
+        with patch.object(JTApp, 'confirm', return_value=False) as confirm:
+            self.app.on_closing()
+        confirm.assert_called_once()
+        self.assertEqual(confirm.call_args.args[0], 'Discard the preview and quit?')
+        self.assertEqual(confirm.call_args.args[2:], ('Discard and quit', 'Keep the preview'))
+        self.assertIn('charged', confirm.call_args.args[1])
+        destroy.assert_not_called()
+        self.assertTrue(self.db.connected)
+        self.assertIsNotNone(screen.preview)                     # l'anteprima e' ancora li'
+
+    def test_closing_with_an_unwritten_preview_and_confirming_quits(self):
+        self.previewed()
+        destroy = self.watch_destroy()
+        with patch.object(JTApp, 'confirm', return_value=True):
+            self.app.on_closing()
+        destroy.assert_called_once()
+        self.assertTrue(self.fake_db.conns[0].closed)
+
+    def test_no_question_once_the_preview_is_written_or_discarded(self):
+        screen = self.previewed()
+        screen.write_button.invoke()
+        with patch.object(JTApp, 'confirm', return_value=False) as confirm, patch.object(JTApp, 'finish_close') as finish:
+            self.app.on_closing()
+        confirm.assert_not_called()
+        finish.assert_called_once()
+        screen = self.reload_preview_screen()
+        screen.discard_button.invoke()
+        with patch.object(JTApp, 'confirm', return_value=False) as confirm, patch.object(JTApp, 'finish_close') as finish:
+            self.app.on_closing()
+        confirm.assert_not_called()
+        finish.assert_called_once()
+
+    def reload_preview_screen(self):
+        self.fake_db.missing['FW_STRINGS'] = 2
+        screen = self.app.screen
+        screen.load()
+        screen.preview_button.invoke()
+        self.assertIsNotNone(screen.preview)
+        return screen
+
+    def test_the_connection_screen_has_no_preview_to_ask_about(self):
+        self.app.show_connection()
+        with patch.object(JTApp, 'confirm', return_value=False) as confirm, patch.object(JTApp, 'finish_close') as finish:
+            self.app.on_closing()
+        confirm.assert_not_called()
+        finish.assert_called_once()
+
     def test_error_in_close_does_not_prevent_quitting(self):
         self.fake_db.close_error = True
         self.step2()

@@ -193,6 +193,12 @@ class JTApp:
                 else:
                     self.finish_close()
             return
+        preview = getattr(self.screen, 'preview', None)
+        if preview is not None and preview.writable:         # tradotto (e pagato ad Azure) ma non ancora scritto
+            if not self.confirm('Discard the preview and quit?',
+                                'The translations in the preview have not been written. Azure already charged for them: '
+                                'a new preview is charged again.', 'Discard and quit', 'Keep the preview'):
+                return
         self.finish_close()                  # niente in corso: si chiude subito (anche dal pannello di Windows)
 
     def finish_close(self):

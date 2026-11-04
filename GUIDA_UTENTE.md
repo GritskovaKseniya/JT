@@ -136,8 +136,9 @@ Nella riga **Details** sotto la barra di avanzamento c'e' sempre il link **Open 
 log; cliccando su **Details** si vedono anche i tempi (trascorso e previsto).
 
 **Chiudere JT.** Se non sta traducendo, JT si chiude subito (anche dal pannello di Windows) e chiude la connessione al database,
-senza domande. Se sta traducendo chiede conferma (**Stop and quit** / **Keep translating**): le righe gia' scritte restano nel
-database e la riga in corso viene finita prima di uscire. Un'anteprima pronta ma non ancora scritta si perde alla chiusura.
+senza domande (l'unica eccezione e' un'anteprima gia' pronta e non ancora scritta: vedi sotto). Se sta traducendo chiede conferma (**Stop and quit** / **Keep translating**): le righe gia' scritte restano nel
+database e la riga in corso viene finita prima di uscire. Con un'anteprima pronta ma non ancora scritta chiede **Discard and quit** / **Keep the preview**: le traduzioni dell'anteprima
+sono gia' state pagate ad Azure e chiudendo si perdono (una nuova anteprima le pagherebbe di nuovo).
 
 ## 5. "Update by keys": rifare traduzioni specifiche
 
