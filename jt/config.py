@@ -7,6 +7,7 @@ from dataclasses import dataclass
 APP_TITLE = 'JT - Jflex Translator'
 VERSION = '3.2'
 
+KEY_CONTACT = 'Kseniia Hrytskova'   # a chi chiedere il file della chiave Azure (si dice nel messaggio senza chiave)
 DB_MARKER = 'JT'            # scritto nella colonna "utente" delle righe inserite/aggiornate dal tool
 SECONDS_PER_ROW = 0.625     # stima della durata: una riga = una chiamata Azure + un INSERT
 MAX_KEYS = 1000             # limite di Oracle per una lista IN

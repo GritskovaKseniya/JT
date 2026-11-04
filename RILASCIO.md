@@ -16,8 +16,8 @@ Procedura per quando hai sviluppato qualcosa di nuovo e vuoi rifare lo `.zip` da
 | 1 | Controlla che JT non sia aperto e che il certificato di firma ci sia e non scada a breve | Chiudi JT / vedi "Certificato" sotto |
 | 2 | Se indichi `--version 3.1`, scrive la nuova versione in `jt\config.py` | |
 | 3 | Lancia tutti i test automatici | Non costruisce nulla finche' non passano |
-| 4 | Costruisce il pacchetto: ricostruisce `JT.exe`, firma, mette la chiave Azure, **senza** `JT-TestDB.exe` | Leggi l'errore sopra `STOP` |
-| 5 | Controlla lo .zip: file giusti, **nessun dato personale** (`connection_data.json`, `query_data.json`, log, CSV), chiave Azure vera, exe firmato | `STOP`: non dare lo zip |
+| 4 | Costruisce il pacchetto: ricostruisce `JT.exe`, firma, **senza** la chiave Azure (e senza `JT-TestDB.exe`) | Leggi l'errore sopra `STOP` |
+| 5 | Controlla lo .zip: file giusti, **nessun dato personale** (`connection_data.json`, `query_data.json`, log, CSV), **nessuna chiave Azure vera** (c'e' solo il modello), exe firmato | `STOP`: non dare lo zip |
 | 6 | Scompatta lo .zip in una cartella temporanea e **avvia davvero** `JT.exe` per 6 secondi | `STOP`: l'exe non parte |
 
 Non fa commit ne' push: li decidi tu.
@@ -26,7 +26,7 @@ Non fa commit ne' push: li decidi tu.
 
 ```
 release.bat --version 3.1     nuova versione (cambia anche il nome dello zip: JT-3.1.zip)
-release.bat --no-azure        pacchetto senza la chiave Azure (si scrive a mano in %LOCALAPPDATA%\JT\azure_services.json)
+release.bat --with-azure      include la chiave Azure vera: SOLO per un pacchetto personale (di norma NO, vedi sotto)
 release.bat --installer       crea anche il setup .exe (serve Inno Setup 6 installato)
 release.bat --skip-tests      salta i test (sconsigliato)
 ```
@@ -34,7 +34,7 @@ release.bat --skip-tests      salta i test (sconsigliato)
 ## Cosa c'e' nel pacchetto
 
 `JT.exe` (firmato), `LEGGIMI.txt` (cosa serve e come installare, breve), `GUIDA_UTENTE.md` (come si usa), `JT-certificato.cer`,
-`Data\` (tabelle, lingue, glossario, chiave Azure), `Graphics\`, `_internal\`. **Non** ci sono: `JT-TestDB.exe`, il README per chi
+`Data\` (tabelle, lingue, glossario, modello della chiave Azure), `Graphics\`, `_internal\`. **Non** ci sono: `JT-TestDB.exe`, il README per chi
 sviluppa, i tuoi dati di connessione, i log.
 
 I testi per i colleghi si modificano qui, e il pacchetto li prende da solo alla prossima costruzione:
@@ -74,6 +74,8 @@ Se l'IT ti da un certificato dell'azienda, basta impostare `JT_SIGN_PFX` e `JT_S
 ## Dopo la costruzione
 
 1. `git status` e commit con un messaggio che dice cosa e' cambiato; poi push.
-2. Manda `dist\JT-<versione>.zip` ai colleghi. Contiene la chiave Azure: **solo a chi ti fidi** (se esce, la chiave va
-   rigenerata in Azure). Non metterlo su GitHub (`dist\` e' ignorata da git).
+2. Manda `dist\JT-<versione>.zip` ai colleghi. **Non contiene la chiave Azure**: senza chiave JT legge e conta ma non traduce
+   e non scrive (la chiave e' il permesso di scrivere). La chiave si consegna a parte, a chi e' stato formato: il file
+   `azure_services.json` da copiare in `%LOCALAPPDATA%\JT` (te lo spiega `LEGGIMI.txt`). Se la chiave esce, va rigenerata in Azure.
+   Lo zip senza chiave si puo' anche mettere su GitHub Releases (`dist\` resta ignorata da git: lo carichi a mano).
 3. Ricorda ai colleghi: scompattare lo zip (con "Sblocca" prima, se arriva per posta) e leggere `LEGGIMI.txt`.

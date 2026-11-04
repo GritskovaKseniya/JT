@@ -1,6 +1,7 @@
 """La finestra principale: passi, dimensioni, chiusura. Qui si collegano interfaccia e logica."""
 import tkinter as tk
 
+from .. import azure_key
 from ..azure import AzureTranslator
 from ..catalog import Catalog
 from ..config import APP_TITLE, VERSION, WINDOW_MIN_WIDTH, Paths
@@ -127,7 +128,14 @@ class JTApp:
         entries = self.catalog.tables()
         return self.db.existing_tables(entries) if self.db.connected else entries
 
+    def azure_key_problem(self):
+        """'' se c'e' una chiave Azure che puo' servire, altrimenti il motivo (vedi azure_key.py)."""
+        return azure_key.problem(self.paths.azure)
+
     def make_translator(self):
+        reason = self.azure_key_problem()
+        if reason:
+            raise RuntimeError(reason)
         return AzureTranslator(self.settings.azure_credentials(), Glossary.load(self.paths.glossary))
 
     def set_busy(self, busy):

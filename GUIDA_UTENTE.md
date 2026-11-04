@@ -12,6 +12,7 @@ che indichi).
 | Client Oracle a 64 bit | Gia' installato sul PC (quello che usi per Jflex). Senza, "Connect" da' l'errore `DPI-1047`. |
 | Accesso al database | Host, porta, SID, utente e password; l'utente deve poter scrivere nelle tabelle da tradurre. |
 | Internet | La traduzione la fa Azure. |
+| Chiave Azure | Il file `azure_services.json` (te lo da' chi ti ha formato, vedi `LEGGIMI.txt`). **Senza, JT legge e conta le righe (Load) ma non traduce e non scrive**: sotto i pulsanti compare "No Azure key (...)" con il motivo e a chi chiederla. |
 
 ## 2. Avvio
 
@@ -204,6 +205,7 @@ una corsa che non ha scritto niente (per esempio solo Preview) non ne ha.
 | `ORA-12541: no listener` / `ORA-12154` / `ORA-12545` | Host, porta o SID sbagliati, oppure il server non e' raggiungibile. |
 | `ORA-01017: invalid username/password` | Utente o password errati. |
 | `ORA-12899: valore troppo grande per la colonna ... (massimo: 100)` | La traduzione e' piu' lunga di quanto la colonna consente (per esempio la "Descr. Breve" delle triplette). La riga non viene scritta: compare negli errori e va inserita a mano con un testo piu' corto. |
+| "No Azure key (...)" sotto i pulsanti | Manca il file della chiave, e' il modello del pacchetto o ha la forma sbagliata: chiedila a chi ti ha formato e copia il file in `%LOCALAPPDATA%\JT`. Alla prossima pressione di **Load** JT la trova da solo. |
 | "Azure settings not found or not valid", oppure molte righe "Skipped" con `Azure error 401...` | Il servizio di traduzione non e' configurato o la chiave non e' piu' valida: rivolgiti a chi ti ha dato il programma. |
 | Una tabella non compare | Non esiste in quel database: il programma mostra solo quelle presenti. |
 | Il conteggio "Missing" non si calcola | La tabella non e' leggibile da questo utente; le altre funzionano. |

@@ -5,7 +5,7 @@ import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import ttk
 
-from .. import environments
+from .. import azure_key, environments
 from ..layers import DEFAULT_LEVEL, LEVEL_ALL, LEVEL_CHOICES, level_label, level_short_title, users_written
 from ..logs import write_run_logs, write_undo_script
 from ..runner import DONE, ERROR, PROGRESS
@@ -127,6 +127,7 @@ class TranslationScreen(ttk.Frame):
         self._update_level_state()
         self._update_advanced_summary()
         self._update_summaries()
+        self._check_key()
 
         # qualsiasi modifica ai campi rende non valida la selezione gia' caricata
         for var in (self.var_in, self.var_out, self.var_table, self.var_level, self.var_max, self.var_keys):
@@ -320,6 +321,10 @@ class TranslationScreen(ttk.Frame):
         self.translate_button = ttk.Button(buttons, text='Translate', style='Primary.TButton', state='disabled',
                                            command=self.translate)
         self.translate_button.pack(side='left', expand=True, fill='x', padx=(px(6), 0))
+        self.label_key = tk.Label(self, text='', bg=PALETTE['bg'], fg=PALETTE['error'], font=(FONT, 9, 'bold'),
+                                  wraplength=px(420), justify='left', anchor='w')       # solo senza chiave Azure
+        self.wrap.add(self.label_key, 95)
+        self.key_problem = ''
         self.status = StatusBar(self, 'Load the data for the translation.', on_change=self.app.fit_window)
         self.status.pack(fill='x')
         self.wrap.add(self.status, 95)
@@ -511,6 +516,7 @@ class TranslationScreen(ttk.Frame):
     def load(self):
         if self.running:
             return
+        self._check_key()                        # la chiave si puo' avere messo a programma aperto
         try:
             self._load()
         finally:
@@ -605,13 +611,35 @@ class TranslationScreen(ttk.Frame):
         self.app.settings.save_last_query(self.var_in.get(), self.var_out.get(), self.var_table.get(),
                                           self.var_level.get())
         self.status.show(state, text)
-        self.translate_button.config(state='normal')
-        self.preview_button.config(state='normal')
+        keyed = 'disabled' if self.key_problem else 'normal'
+        self.translate_button.config(state=keyed)
+        self.preview_button.config(state=keyed)
 
     # ------------------------------------------------------------------ traduzione
 
+    def _check_key(self):
+        """Rilegge la chiave Azure (si puo' averla messa a programma aperto): senza, niente traduzione e niente scrittura.
+        Mostra o toglie l'avviso sotto i pulsanti. Ritorna True se la chiave puo' servire."""
+        self.key_problem = self.app.azure_key_problem()
+        shown = bool(self.label_key.winfo_manager())
+        if self.key_problem:
+            folder = os.path.dirname(self.app.paths.azure)
+            self.label_key.config(text=azure_key.message(self.key_problem, folder))
+            if not shown:
+                self.label_key.pack(fill='x', before=self.status)
+            for button in (self.preview_button, self.translate_button, self.write_button):
+                button.config(state='disabled')
+        elif shown:
+            self.label_key.pack_forget()
+        if shown != bool(self.key_problem):
+            self.app.fit_window()                # la finestra cambia solo se l'avviso compare o sparisce
+        return not self.key_problem
+
     def _make_translator(self):
         """Il traduttore Azure, oppure None (con il messaggio) se la chiave non c'e' o non vale."""
+        if not self._check_key():
+            self.status.show('error', azure_key.message(self.key_problem, os.path.dirname(self.app.paths.azure)))
+            return None
         try:
             return self.app.make_translator()
         except Exception as e:
@@ -654,6 +682,9 @@ class TranslationScreen(ttk.Frame):
         """Scrive le traduzioni dell'anteprima (Azure non si richiama)."""
         selection, preview = self.selection, self.preview
         if selection is None or preview is None or self.running or not preview.writable:
+            return
+        if not self._check_key():                # senza chiave non si scrive, nemmeno un'anteprima gia' pronta
+            self.status.show('error', azure_key.message(self.key_problem, os.path.dirname(self.app.paths.azure)))
             return
         if not self._confirm_write(selection, preview):
             self.status.show('info', 'Cancelled. Nothing was written: the preview is still here.')
@@ -935,7 +966,8 @@ class TranslationScreen(ttk.Frame):
         if locked:
             self.preview_button.config(state='disabled')
         has_preview = self.preview is not None
-        self.write_button.config(state='normal' if has_preview and not locked and self.preview.writable else 'disabled')
+        self.write_button.config(state='normal' if has_preview and not locked and self.preview.writable
+                                 and not self.key_problem else 'disabled')
         self.discard_button.config(state='normal' if has_preview and not locked else 'disabled')
         self.hidden_button.config(state='disabled' if locked else 'normal')
         self.app.stepper.set_link_enabled(not locked)

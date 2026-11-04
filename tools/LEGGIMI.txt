@@ -34,8 +34,17 @@ Per disinstallare basta cancellare la cartella. Log e impostazioni stanno in
 %LOCALAPPDATA%\JT (scrivilo nella barra degli indirizzi di Esplora file).
 
 
+LA CHIAVE DI AZURE (PER TRADURRE E SCRIVERE)
+--------------------------------------------
+Il pacchetto non contiene la chiave del servizio di traduzione. Senza, JT si apre e legge (Load e conteggi), ma non
+traduce e non scrive nel database: sotto i pulsanti compare l'avviso "No Azure key". La chiave la danno solo a chi e'
+stato formato: se ne hai bisogno, chiedila a Kseniia Hrytskova. Ti consegnera' il file azure_services.json: copialo in
+%LOCALAPPDATA%\JT (scrivilo nella barra degli indirizzi di Esplora file), sostituendo quello che c'e'. Alla prossima
+pressione di Load JT lo trova da solo.
+
+
 SE QUALCOSA NON VA
 ------------------
-- "Azure settings not found or not valid" o molte righe saltate: il servizio di traduzione non e'
-  configurato o la chiave non e' piu' valida. Rivolgiti a chi ti ha dato il programma.
+- "No Azure key": manca il file della chiave (vedi sopra). "Azure settings not found or not valid" o molte righe
+  saltate: la chiave c'e' ma non e' piu' valida. In tutti e due i casi rivolgiti a chi ti ha dato il programma.
 - Altri errori e istruzioni d'uso: GUIDA_UTENTE.md (nella stessa cartella).

@@ -242,4 +242,18 @@ La fase A rende **piu' sicuro JT** e si usa subito; la B e' piccola; la C e' l'u
   stesse verifiche di CT e CW (conteggi che sommano, solo le righe del livello, utente `ZFXCCSYS`, categoria copiata, Standard non
   le tocca): 71 controlli. 839 test.
 
+### Passo 5 - Senza chiave non si scrive (fatto)
+
+- **Controllo** (`jt/azure_key.py`, solo sul file, senza chiamare Azure): file assente o illeggibile, non un oggetto, campo mancante,
+  segnaposto del pacchetto (`INSERISCI-QUI-...`), chiave di forma sbagliata (non 20+ lettere e cifre), endpoint non https. Si
+  rilegge all'apertura del passo 2, a ogni **Load** e prima di tradurre/scrivere: la chiave messa a programma aperto vale dal Load dopo.
+- **Senza chiave** JT legge e conta (Load), ma Preview, Translate, Update by keys e Write sono spenti e anche chiamati a mano non
+  fanno niente (`TranslationScreen._check_key`, `JTApp.make_translator` solleva): compare l'avviso rosso "No Azure key (motivo)... Ask
+  Kseniia Hrytskova for the key file and copy it to <cartella>". Anche un'anteprima gia' pronta non si scrive se la chiave sparisce.
+  Il referente e' `KEY_CONTACT` in `jt/config.py`.
+- **Distribuzione:** `release.bat` costruisce **senza chiave** (regola); `--with-azure` la include (solo pacchetti personali,
+  `--no-azure` resta accettato e non fa niente). `RILASCIO.md`, `LEGGIMI.txt` e `GUIDA_UTENTE.md` dicono come si consegna la chiave.
+- **Limite:** non c'e' ancora uno strumento di sola lettura da aprire al posto di Strings (arriva con JTools, fase C): per ora si
+  apre la stessa schermata con i pulsanti che scrivono spenti. Il controllo guarda la forma, non se Azure accetta la chiave.
+
 (scrivi qui le altre decisioni passo per passo e cio' che si scopre)

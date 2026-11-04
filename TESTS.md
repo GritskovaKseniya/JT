@@ -18,7 +18,7 @@ nascosta e vengono saltati se non c'e' un display. Durata: circa 40 secondi.
 ## Risultato (2026-11-03)
 
 ```
-Ran 854 tests in ~95 s
+Ran 870 tests in ~95 s
 OK
 ```
 
@@ -28,11 +28,12 @@ Eseguiti anche con i `ResourceWarning` trattati come errori.
 |---|---|---|
 | `test_glossary.py` | 27 | Termini sostituiti (UMV -> HU) e non tradotti; termine da solo senza chiamare Azure; termine dentro una frase protetto e poi ripristinato (`& < >` compresi); solo parola intera; qualsiasi lingua sorgente (anche de -> es); verso l'italiano UMV resta; file mancante/rotto tollerato; regole del `glossary.json` consegnato |
 | `test_tables.py` | 72 | `Catalog` (tabelle abilitate, FWK disabilitata); chiavi di "Update by keys" per ogni tabella; per **ogni** tabella SQL di selezione/conteggio/chiavi (lingue e limiti sempre come bind variable), traduzione di una riga, INSERT e UPDATE esatti (campo vuoto = `NULL`, apici nei bind, marcatore `JT`, colonne utente/data solo se la tabella ha la forma attesa); `Settings`, `Paths` |
+| `test_azure_key.py` | 8 | Controllo della chiave Azure: file mancante, illeggibile o non un oggetto, campo mancante/vuoto/non testo, segnaposto del pacchetto, forma sbagliata (corta, spazi, trattini), endpoint non https, chiavi di 32 e 84 caratteri accettate, messaggio con motivo, referente e cartella. |
 | `test_database.py` | 27 | Connessione e chiusura (ricollegare chiude la precedente, chiusura ripetibile e tollerante agli errori); nomi colonna letti dal cursore e messi in cache; tabelle esistenti; cursori tracciati |
 | `test_service.py` | 112 | Selezione (righe mancanti e per chiavi, conteggio dei caratteri come somma, cursori vecchi chiusi); esecuzione in modalita' normale e per chiavi (INSERT oppure UPDATE), log, errore Azure = riga saltata, errore di INSERT = log errori e si prosegue, commit a ogni riga, avanzamento, arresto richiesto; log CSV; rollback dopo un errore di scrittura o di commit; righe saltate registrate in un log a parte; chiavi con zeri iniziali |
 | `test_support.py` | 40 | Esecuzione in un thread (`BackgroundRunner`, `InlineRunner`: eventi, errori, Stop, un solo lavoro alla volta); testi (`fmt_count`, `shorten` mai oltre il limite, `reason`); informazioni sulla connessione (nome del database dichiarato dal server, password mai conservata); limite delle chiavi; timeout di Azure; cartella dei log creata e nomi unici; `JT.py` dichiara la scala dello schermo prima di aprire la finestra e chiude la connessione anche in caso di errore |
 | `test_regressions.py` | 6 | Cifre simili a numeri (`²`) rifiutate, JSON che non e' un oggetto tollerato, log con caption se manca la descrizione, testo di soli spazi non inviato ad Azure |
-| `test_ui.py` | 456
+| `test_ui.py` | 464
 | `test_undo.py` | 21 | Script di annullamento: costanti SQL (apici raddoppiati, `&` lasciata stare, UNISTR per accenti/hindi/a capo/emoji, backslash protetta, date), nomi di tabella e colonna controllati (niente iniezioni), DELETE per gli INSERT e UPDATE per gli UPDATE (NULL compreso), intestazione, `SET DEFINE OFF`, `COMMIT`, ordine inverso, solo ASCII |
 | `test_environments.py` | 13 | Etichette dell'ambiente: solo dev/test/prod valide, non impostata e sconosciuta valgono prod, riconoscere un database senza badare a maiuscole e spazi, segno colorato; come si ricordano nelle impostazioni (per database, senza cancellare i dati di connessione, file rotto tollerato); utenti scritti per livello |
 | `test_layers.py` | 8 | Livelli: confini degli intervalli dei codici (2999999 Standard, 3000000 CT, 4999999 CW...), codice fuori livello = errore, nome dell'opzione dal prefisso (maiuscole contano, prefisso scritto male = nessun livello), livelli visibili |

@@ -1,13 +1,14 @@
 """Procedura di rilascio: dai sorgenti allo .zip da dare ai colleghi, con tutti i controlli.
 
-    .venv\Scripts\python.exe tools\release.py [--version 3.1] [--no-azure] [--installer] [--skip-tests]
+    .venv\Scripts\python.exe tools\release.py [--version 3.1] [--with-azure] [--installer] [--skip-tests]
 
 Cosa fa, in ordine (si ferma al primo problema, senza lasciare un pacchetto a meta'):
   1. controlla che JT non sia aperto e che il certificato di firma ci sia e non scada a breve;
   2. se si indica --version, aggiorna la versione in jt\\config.py;
   3. lancia tutti i test automatici;
-  4. costruisce il pacchetto con le impostazioni di rilascio (chiave Azure, firma, senza database di prova);
-  5. controlla lo .zip: file giusti, nessun dato personale, chiave vera, exe firmato;
+  4. costruisce il pacchetto con le impostazioni di rilascio (firma, senza database di prova, SENZA chiave Azure:
+     la chiave abilita la scrittura e si consegna a parte; --with-azure la include, solo per chi la deve avere);
+  5. controlla lo .zip: file giusti, nessun dato personale, chiave (assente o vera, come richiesto), exe firmato;
   6. scompatta lo .zip in una cartella temporanea e avvia davvero JT.exe per qualche secondo.
 
 Non fa commit ne' push: alla fine ricorda cosa controllare.
@@ -167,7 +168,8 @@ def smoke_test(zip_path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--version', help="nuova versione (per esempio 3.1): si scrive in jt\\config.py")
-    parser.add_argument('--no-azure', action='store_true', help='pacchetto senza la chiave Azure vera')
+    parser.add_argument('--with-azure', action='store_true', help="include la chiave Azure vera (di solito NO: si consegna a parte)")
+    parser.add_argument('--no-azure', action='store_true', help=argparse.SUPPRESS)      # vecchio nome: ora e' la regola
     parser.add_argument('--installer', action='store_true', help="crea anche il setup (serve Inno Setup)")
     parser.add_argument('--skip-tests', action='store_true', help='salta i test (sconsigliato)')
     args = parser.parse_args()
@@ -178,10 +180,11 @@ def main():
         print('   prima:', bump_version(os.path.join(ROOT, 'jt', 'config.py'), args.version))
     if not args.skip_tests:
         run_tests()
-    build(not args.no_azure, args.installer)
+    with_azure = args.with_azure and not args.no_azure
+    build(with_azure, args.installer)
     from jt.config import VERSION      # letta dopo l'eventuale cambio
     zip_path = os.path.join(ROOT, 'dist', f'JT-{VERSION}.zip')
-    verify(zip_path, not args.no_azure)
+    verify(zip_path, with_azure)
     smoke_test(zip_path)
     print(f'\nPRONTO: {zip_path}')
     print('Ora: guarda `git status`, fai commit e push del lavoro e manda lo .zip ai colleghi (vedi RILASCIO.md).')

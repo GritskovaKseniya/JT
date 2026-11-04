@@ -6,6 +6,7 @@ Se non c'e' un display la classe viene saltata.
 """
 import contextlib
 import glob
+import json
 import os
 import re
 import struct
@@ -141,6 +142,7 @@ class UiCase(JtCase):
         self.app = JTApp(self.root, self.paths, self.db, runner=self.runner, scale_factor=1.0)
         # la conferma prima di scrivere e' una finestra modale: nei test si risponde da sola (self.confirm_answer) e si
         # registra la richiesta; i test della finestra vera la disattivano con self.use_real_confirmation()
+        self.key_reason = ''
         self.confirmations = []
         self.confirm_answer = True
 
@@ -150,6 +152,9 @@ class UiCase(JtCase):
             return self.confirm_answer
 
         self.confirm_patch = patch.object(JTApp, 'confirm_write', auto_confirm)
+        self.key_patch = patch.object(JTApp, 'azure_key_problem', lambda _app: self.key_reason)    # '' = c'e' una chiave valida
+        self.key_patch.start()
+        self.addCleanup(self.key_patch.stop)
         self.confirm_patch.start()
         self.addCleanup(self.use_real_confirmation)
 
@@ -3265,6 +3270,101 @@ class TranslateTests(UiCase):
 
 
 # ===================================================================== chiusura
+
+class NoKeyTests(UiCase):
+    """Senza una chiave Azure valida JT legge e conta, ma non traduce e non scrive: nessun percorso porta a una scrittura."""
+
+    NO_KEY = 'the key file was not found'
+
+    def keyless(self, rows=2):
+        self.key_reason = self.NO_KEY
+        self.azure = self.use_azure()
+        return self.loaded_strings(rows)
+
+    def test_the_notice_names_the_reason_the_contact_and_the_folder(self):
+        screen = self.keyless()
+        text = screen.label_key.cget('text')
+        self.assertIn('No Azure key (the key file was not found)', text)
+        self.assertIn('can read and count rows, but it cannot translate or write', text)
+        self.assertIn('Ask Kseniia Hrytskova for the key file', text)
+        self.assertIn(os.path.dirname(self.paths.azure), text)
+        self.assertEqual(screen.label_key.winfo_manager(), 'pack')
+
+    def test_with_a_key_there_is_no_notice(self):
+        screen = self.step2()
+        self.assertEqual(screen.label_key.winfo_manager(), '')
+        self.assertEqual(screen.key_problem, '')
+
+    def test_load_still_works_and_counts_rows_but_translating_is_off(self):
+        screen = self.keyless(3)
+        self.assertIsNotNone(screen.selection)                       # Load ha letto le righe
+        for button in (screen.preview_button, screen.translate_button, screen.write_button):
+            self.assertEqual(state(button), 'disabled')
+
+    def test_no_way_reaches_azure_or_the_database_without_the_key(self):
+        screen = self.keyless(2)
+        for action in (screen.translate, screen.run_preview, screen.write):
+            action()
+        self.assertEqual(self.azure.calls, [])
+        self.assertEqual(self.fake_db.writes(), [])
+        self.assertIn('No Azure key', screen.status.message.cget('text'))
+
+    def test_update_by_keys_cannot_write_either(self):
+        self.key_reason = self.NO_KEY
+        self.azure = self.use_azure()
+        self.fake_db.source['FW_STRINGS'] = plain_rows(2)
+        screen = self.step2()
+        self.choose(screen, keys='100000, 100001')
+        screen.load()
+        self.assertIsNotNone(screen.selection)
+        screen.translate()
+        self.assertEqual((self.azure.calls, self.fake_db.writes()), ([], []))
+
+    def test_a_ready_preview_cannot_be_written_if_the_key_goes_away(self):
+        self.azure = self.use_azure()
+        screen = self.loaded_strings(2)
+        screen.preview_button.invoke()
+        self.assertIsNotNone(screen.preview)
+        self.key_reason = self.NO_KEY                                # il file della chiave sparisce a programma aperto
+        screen.write()
+        self.assertEqual(self.fake_db.writes(), [])
+        self.assertIn('No Azure key', screen.status.message.cget('text'))
+
+    def test_the_key_put_in_place_with_the_program_open_is_picked_up_at_the_next_load(self):
+        screen = self.keyless(2)
+        self.assertEqual(state(screen.translate_button), 'disabled')
+        self.key_reason = ''
+        self.fake_db.missing['FW_STRINGS'] = 2
+        screen.load()
+        self.assertEqual(screen.label_key.winfo_manager(), '')
+        self.assertEqual(state(screen.translate_button), 'normal')
+        screen.translate_button.invoke()
+        self.assertEqual(len(self.fake_db.inserts()), 2)
+
+
+class RealKeyCheckTests(UiCase):
+    """Il controllo vero del file (negli altri test la chiave e' data per buona)."""
+
+    def setUp(self):
+        super().setUp()
+        self.key_patch.stop()
+        self.addCleanup(self.key_patch.start)
+
+    def test_the_app_checks_the_real_file(self):
+        if os.path.exists(self.paths.azure):
+            os.remove(self.paths.azure)
+        self.assertIn('not found', JTApp.azure_key_problem(self.app))
+        os.makedirs(os.path.dirname(self.paths.azure), exist_ok=True)
+        with open(self.paths.azure, 'w', encoding='utf-8') as f:
+            json.dump({'subscription_key': 'A' * 32, 'endpoint': 'https://x.example', 'location': 'italynorth'}, f)
+        self.assertEqual(JTApp.azure_key_problem(self.app), '')
+        with open(self.paths.azure, 'w', encoding='utf-8') as f:
+            json.dump({'subscription_key': 'INSERISCI-QUI-LA-CHIAVE-AZURE', 'endpoint': 'https://x.example',
+                       'location': 'italynorth'}, f)
+        self.assertIn('placeholder', JTApp.azure_key_problem(self.app))
+        with self.assertRaises(RuntimeError):
+            JTApp.make_translator(self.app)                           # nemmeno il traduttore si crea senza chiave
+
 
 class ClosingTests(UiCase):
     def watch_destroy(self):
