@@ -18,7 +18,7 @@ nascosta e vengono saltati se non c'e' un display. Durata: circa 40 secondi.
 ## Risultato (2026-11-03)
 
 ```
-Ran 1105 tests in ~120 s
+Ran 1119 tests in ~120 s
 OK
 ```
 

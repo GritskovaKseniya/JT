@@ -189,7 +189,23 @@ tabella esiste in piu' schemi si tiene quello con piu' indici. Se il database no
 La finestra si puo' **ridimensionare** (trascinando il bordo) o **mettere a schermo intero**: il contenuto cresce con lei. In SQL <> TecSQL i riquadri
 **Query** e **Result** si allargano e c'e' un **divisore da trascinare** tra i due per cambiare quanto spazio ha ciascuno; in Names e Indexes la tabella
 usa tutto lo spazio. Una finestra ingrandita a mano non viene piu' rimpicciolita. I campi di testo hanno la **barra di scorrimento** quando il testo e' piu'
-lungo del campo (e la finestra intera ha la sua se il contenuto non entra).
+lungo del campo (e la finestra intera ha la sua se il contenuto non entra). Le tabelle (Names, Indexes) non allargano mai la finestra: se le colonne non entrano
+compare la barra orizzontale, e ogni colonna e' larga al massimo quanto serve per il suo testo (fino a un tetto).
+
+### Preferenze (`preferences.json`)
+
+Se vuoi cambiare quali strumenti si vedono, in che ordine e qualche predefinito, apri a mano `preferences.json` (`%LOCALAPPDATA%\JT` se hai installato JT, altrimenti la
+cartella `Data`). Non c'e' una schermata: e' un file di testo, e se manca o ha un errore JT usa i valori normali. Si possono **commentare righe con `//`**.
+
+| Voce | Cosa fa |
+|---|---|
+| `"order tools": ["strings", "tecsql", "names", "indexes"]` | Gli strumenti mostrati e il loro ordine. Quello che manca (o e' commentato, `//"names",`) **e' nascosto**. |
+| `"default_tool"` | Lo strumento che si apre per primo. |
+| `"tecsql": {"strip_parameters": true}` | "Remove ?parameters" gia' acceso. |
+| `"names": {"sort": "CAMPO_LOGICO", "descending": false, "hide_columns": ["DECIMALI"]}` | Ordine dei campi e colonne nascoste (Copy all copia comunque tutto). |
+| `"indexes": {"expand_all": true}` | Gli indici si aprono mostrando le colonne. |
+
+Le modifiche valgono dalla volta dopo che passi da **New connection**.
 
 ## 5. "Update by keys": rifare traduzioni specifiche
 

@@ -5,7 +5,7 @@ import sys
 from dataclasses import dataclass
 
 APP_TITLE = 'JT - Jflex Translator'
-VERSION = '3.21'
+VERSION = '3.3'
 
 KEY_CONTACT = 'Kseniia Hrytskova'   # a chi chiedere il file della chiave Azure (si dice nel messaggio senza chiave)
 DB_MARKER = 'JT'            # scritto nella colonna "utente" delle righe inserite/aggiornate dal tool
