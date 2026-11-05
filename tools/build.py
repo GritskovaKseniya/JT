@@ -96,7 +96,7 @@ def copy_files(with_azure, oracle_client, with_testdb=True):
     data = os.path.join(OUT, 'Data')
     os.makedirs(data)
     # Data: solo i file fissi. Mai quelli dell'utente (connessione, ultima scelta) ne' i modelli (.example)
-    for name in ('tables.json', 'languages.json', 'glossary.json'):
+    for name in ('tables.json', 'languages.json', 'glossary.json', 'preferences.json'):
         shutil.copy(os.path.join(ROOT, 'Data', name), data)
     source = 'azure_services.json' if with_azure else 'azure_services.example.json'
     shutil.copy(os.path.join(ROOT, 'Data', source), os.path.join(data, 'azure_services.json'))
