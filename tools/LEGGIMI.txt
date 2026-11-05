@@ -31,7 +31,7 @@ COME INSTALLARE
    Dalla volta dopo restano salvati.
 
 Per disinstallare basta cancellare la cartella. Log e impostazioni stanno in
-%LOCALAPPDATA%\JT (scrivilo nella barra degli indirizzi di Esplora file).
+%LOCALAPPDATA%\JTools (scrivilo nella barra degli indirizzi di Esplora file).
 
 
 LA CHIAVE DI AZURE (PER TRADURRE E SCRIVERE)
@@ -39,7 +39,7 @@ LA CHIAVE DI AZURE (PER TRADURRE E SCRIVERE)
 Il pacchetto non contiene la chiave del servizio di traduzione. Senza, JT si apre e legge (Load e conteggi), ma non
 traduce e non scrive nel database: sotto i pulsanti compare l'avviso "No Azure key". La chiave la danno solo a chi e'
 stato formato: se ne hai bisogno, chiedila a Kseniia Hrytskova. Ti consegnera' il file azure_services.json: copialo in
-%LOCALAPPDATA%\JT (scrivilo nella barra degli indirizzi di Esplora file), sostituendo quello che c'e'. Alla prossima
+%LOCALAPPDATA%\JTools (scrivilo nella barra degli indirizzi di Esplora file), sostituendo quello che c'e'. Alla prossima
 pressione di Load JT lo trova da solo.
 
 

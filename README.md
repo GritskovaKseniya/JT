@@ -77,15 +77,15 @@ New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=JT Jflex Translator
   -CertStoreLocation Cert:\CurrentUser\My -NotAfter (Get-Date).AddYears(3)
 ```
 
-L'installazione e' per utente (`%LOCALAPPDATA%\Programs\JT`, senza diritti di amministratore). Come le altre applicazioni,
+L'installazione e' per utente (`%LOCALAPPDATA%\Programs\JTools`, senza diritti di amministratore). Come le altre applicazioni,
 JT tiene **separati il programma e i dati dell'utente**:
 
 | Dove | Cosa |
 |---|---|
-| `%LOCALAPPDATA%\Programs\JT` | programma, `Data` (tabelle, lingue, glossario), `Graphics`: sola lettura, si sostituisce a ogni aggiornamento |
-| `%LOCALAPPDATA%\JT` | `Logs\`, `azure_services.json`, `connection_data.json`, `query_data.json`: restano dopo aggiornamenti e disinstallazione |
+| `%LOCALAPPDATA%\Programs\JTools` | programma, `Data` (tabelle, lingue, glossario), `Graphics`: sola lettura, si sostituisce a ogni aggiornamento |
+| `%LOCALAPPDATA%\JTools` | `Logs\`, `azure_services.json`, `connection_data.json`, `query_data.json`: restano dopo aggiornamenti e disinstallazione |
 
-Alla prima partenza JT copia il modello della chiave Azure in `%LOCALAPPDATA%\JT`. Da sorgente (`JT.py`) non cambia nulla:
+Alla prima partenza JT copia il modello della chiave Azure in `%LOCALAPPDATA%\JTools`. Da sorgente (`JT.py`) non cambia nulla:
 tutto resta nella cartella del progetto (`Data\`, `Logs\`). La scelta e' in `Paths` (`jt\config.py`).
 
 ## Simulatore di Oracle

@@ -156,7 +156,7 @@ def smoke_test(zip_path):
             time.sleep(6)
             if process.poll() is not None:
                 fail(f'JTools.exe si e\' chiuso da solo (codice {process.returncode}).')
-            seeded = os.path.exists(os.path.join(local, 'JT', 'azure_services.json'))
+            seeded = os.path.exists(os.path.join(local, 'JTools', 'azure_services.json'))
         finally:
             process.kill()
             process.wait()

@@ -194,7 +194,7 @@ compare la barra orizzontale, e ogni colonna e' larga al massimo quanto serve pe
 
 ### Preferenze (`preferences.json`)
 
-Se vuoi cambiare quali strumenti si vedono, in che ordine e qualche predefinito, apri a mano `preferences.json`, nella cartella `Data` accanto a `JTools.exe`. Non c'e' una schermata: e' un file di testo, e se manca o ha un errore JT usa i valori normali. Si possono **commentare righe con `//`**.
+Se vuoi cambiare quali strumenti si vedono, in che ordine e qualche predefinito, apri a mano `preferences.json` in `%LOCALAPPDATA%\JTools` (al primo avvio JTools ne crea una copia con i valori normali: da li' in poi e' tuo e un aggiornamento non lo tocca). Non c'e' una schermata: e' un file di testo, e se manca o ha un errore JT usa i valori normali. Si possono **commentare righe con `//`**.
 
 | Voce | Cosa fa |
 |---|---|
@@ -237,12 +237,12 @@ I testi passano da un glossario: **UMV** diventa **HU** nelle lingue diverse dal
 | Dove | Cosa |
 |---|---|
 | Nel database | Le traduzioni. Nella colonna "utente" delle righe inserite o aggiornate scrive la sigla `JT`, ma per le righe del livello CT scrive `ZFXCUSTOM` e per quelle del livello CW `ZFXINTEGR` e per quelle del livello CC `ZFXCCSYS`. La categoria (il modulo: MES, WMS...) la copia dalla riga di partenza. |
-| `%LOCALAPPDATA%\JT\Logs\JT_inserts_log_<data>.csv` | Una riga per ogni traduzione scritta (data, azione, codice, livello, utente scritto, lingue, testo, traduzione e, per gli UPDATE, `old_output`: il testo che c'era prima). Le righe CT e CW si ritrovano da qui, non dalla sigla `JT`. |
+| `%LOCALAPPDATA%\JTools\Logs\JT_inserts_log_<data>.csv` | Una riga per ogni traduzione scritta (data, azione, codice, livello, utente scritto, lingue, testo, traduzione e, per gli UPDATE, `old_output`: il testo che c'era prima). Le righe CT e CW si ritrovano da qui, non dalla sigla `JT`. |
 | `...\Logs\JT_undo_<data>.sql` | Lo script che **annulla la corsa** (vedi "Annullare una corsa"). Si scrive da solo dopo ogni corsa che ha scritto qualcosa. |
 | `...\Logs\JT_errors_log_<data>.csv` | Le righe che il database ha rifiutato, con il motivo (colonna `reason`). |
 | `...\Logs\JT_skipped_log_<data>.csv` | Le righe non tradotte perche' Azure ha dato errore, con il motivo. |
 
-I file stanno in `%LOCALAPPDATA%\JT` (scrivilo nella barra degli indirizzi di Esplora file, oppure clicca **Open the logs
+I file stanno in `%LOCALAPPDATA%\JTools` (scrivilo nella barra degli indirizzi di Esplora file, oppure clicca **Open the logs
 folder** nel programma), non nella cartella di JT: restano anche se aggiorni o cancelli il programma.
 
 I file CSV si aprono con Excel. Se l'Excel italiano mette tutto in una colonna usa **Dati > Da testo/CSV** e scegli il
@@ -270,7 +270,7 @@ una corsa che non ha scritto niente (per esempio solo Preview) non ne ha.
 | `ORA-12541: no listener` / `ORA-12154` / `ORA-12545` | Host, porta o SID sbagliati, oppure il server non e' raggiungibile. |
 | `ORA-01017: invalid username/password` | Utente o password errati. |
 | `ORA-12899: valore troppo grande per la colonna ... (massimo: 100)` | La traduzione e' piu' lunga di quanto la colonna consente (per esempio la "Descr. Breve" delle triplette). La riga non viene scritta: compare negli errori e va inserita a mano con un testo piu' corto. |
-| "No Azure key (...)" sotto i pulsanti | Manca il file della chiave, e' il modello del pacchetto o ha la forma sbagliata: chiedila a chi ti ha formato e copia il file in `%LOCALAPPDATA%\JT`. Alla prossima pressione di **Load** JT la trova da solo. |
+| "No Azure key (...)" sotto i pulsanti | Manca il file della chiave, e' il modello del pacchetto o ha la forma sbagliata: chiedila a chi ti ha formato e copia il file in `%LOCALAPPDATA%\JTools`. Alla prossima pressione di **Load** JT la trova da solo. |
 | "Azure settings not found or not valid", oppure molte righe "Skipped" con `Azure error 401...` | Il servizio di traduzione non e' configurato o la chiave non e' piu' valida: rivolgiti a chi ti ha dato il programma. |
 | Una tabella non compare | Non esiste in quel database: il programma mostra solo quelle presenti. |
 | Il conteggio "Missing" non si calcola | La tabella non e' leggibile da questo utente; le altre funzionano. |

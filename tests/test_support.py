@@ -374,6 +374,40 @@ class InstalledPathsTests(JtCase):
         with open(paths.azure) as f:
             self.assertIn('MINE', f.read())
 
+    def test_the_preferences_template_is_copied_into_the_user_folder_and_then_belongs_to_the_user(self):
+        paths, program, user = self.paths()
+        with open(os.path.join(program, 'Data', 'preferences.json'), 'w') as f:
+            f.write('{"default_tool": "strings"}')
+        self.assertTrue(paths.preferences.startswith(user))
+        paths.seed_user_files()
+        with open(paths.preferences) as f:
+            self.assertIn('strings', f.read())
+        with open(paths.preferences, 'w') as f:
+            f.write('{"default_tool": "names"}')
+        paths.seed_user_files()
+        with open(paths.preferences) as f:
+            self.assertIn('names', f.read())
+
+    def test_the_data_of_the_old_jt_folder_follow_to_jtools_once(self):
+        from jt.config import Paths
+        program = os.path.join(self.tmp, 'Programs', 'JTools')
+        os.makedirs(os.path.join(program, 'Data'))
+        old, user = os.path.join(self.tmp, 'Local', 'JT'), os.path.join(self.tmp, 'Local', 'JTools')
+        os.makedirs(os.path.join(old, 'Logs'))
+        with open(os.path.join(old, 'azure_services.json'), 'w') as f:
+            f.write('{"subscription_key": "OLDKEY"}')
+        paths = Paths(program, user)
+        paths.seed_user_files()
+        with open(paths.azure) as f:
+            self.assertIn('OLDKEY', f.read())
+        self.assertTrue(os.path.isdir(os.path.join(user, 'Logs')))
+        self.assertTrue(os.path.isdir(old))                            # la vecchia cartella non si tocca
+        with open(paths.azure, 'w') as f:
+            f.write('{"subscription_key": "NEW"}')
+        paths.seed_user_files()                                        # la seconda volta non copia piu' niente
+        with open(paths.azure) as f:
+            self.assertIn('NEW', f.read())
+
     def test_seeding_does_nothing_from_source(self):
         from jt.config import Paths
         os.makedirs(os.path.join(self.tmp, 'Data'))
@@ -396,4 +430,4 @@ class InstalledPathsTests(JtCase):
         with patch.object(sys, 'frozen', True, create=True), patch.object(sys, 'executable', r'C:\Apps\JT\JT.exe'), \
                 patch.dict(os.environ, {'LOCALAPPDATA': r'C:\Users\x\AppData\Local'}):
             paths = Paths.default()
-        self.assertEqual((paths.base, paths.user_base), (r'C:\Apps\JT', r'C:\Users\x\AppData\Local\JT'))
+        self.assertEqual((paths.base, paths.user_base), (r'C:\Apps\JT', r'C:\Users\x\AppData\Local\JTools'))

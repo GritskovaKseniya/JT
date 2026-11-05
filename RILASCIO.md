@@ -76,6 +76,6 @@ Se l'IT ti da un certificato dell'azienda, basta impostare `JT_SIGN_PFX` e `JT_S
 1. `git status` e commit con un messaggio che dice cosa e' cambiato; poi push.
 2. Manda `dist\JTools-<versione>.zip` ai colleghi. **Non contiene la chiave Azure**: senza chiave JT legge e conta ma non traduce
    e non scrive (la chiave e' il permesso di scrivere). La chiave si consegna a parte, a chi e' stato formato: il file
-   `azure_services.json` da copiare in `%LOCALAPPDATA%\JT` (te lo spiega `LEGGIMI.txt`). Se la chiave esce, va rigenerata in Azure.
+   `azure_services.json` da copiare in `%LOCALAPPDATA%\JTools` (te lo spiega `LEGGIMI.txt`). Se la chiave esce, va rigenerata in Azure.
    Lo zip senza chiave si puo' anche mettere su GitHub Releases (`dist\` resta ignorata da git: lo carichi a mano).
 3. Ricorda ai colleghi: scompattare lo zip (con "Sblocca" prima, se arriva per posta) e leggere `LEGGIMI.txt`.
