@@ -1,4 +1,4 @@
-# JT - Jflex Translator: come e' fatto il codice
+# JTools: come e' fatto il codice
 
 ```
 JT.py                     punto di ingresso (poche righe)

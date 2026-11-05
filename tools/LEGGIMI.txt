@@ -1,4 +1,4 @@
-JT - Jflex Translator 3.0
+JTools 3.0
 =========================
 
 Traduce con Azure Translator i testi di un database Jflex (Oracle).
@@ -16,11 +16,11 @@ COSA SERVE
 COME INSTALLARE
 ---------------
 1. Scompatta lo .zip in una cartella (per esempio Documenti\JT).
-   Non lanciare JT.exe da dentro lo zip.
+   Non lanciare JTools.exe da dentro lo zip.
    Se lo zip e' arrivato per posta o scaricato: prima di scompattare fai clic destro
    sullo .zip > Proprieta' > spunta "Sblocca" > OK.
 
-2. Avvia JT.exe.
+2. Avvia JTools.exe.
 
 3. Se Windows mostra "Windows ha protetto il PC":
    clicca "Ulteriori informazioni" e poi "Esegui comunque".

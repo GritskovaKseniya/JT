@@ -1,4 +1,4 @@
-"""JT - Jflex Translator: traduzione di stringhe e opzioni di Jflex con Azure Translator.
+"""JTools: traduzione di stringhe e opzioni di Jflex con Azure Translator.
 
 Livelli (dall'alto verso il basso, ognuno usa solo quelli sotto di se'):
 

@@ -9,7 +9,7 @@ Cosa fa, in ordine (si ferma al primo problema, senza lasciare un pacchetto a me
   4. costruisce il pacchetto con le impostazioni di rilascio (firma, senza database di prova, SENZA chiave Azure:
      la chiave abilita la scrittura e si consegna a parte; --with-azure la include, solo per chi la deve avere);
   5. controlla lo .zip: file giusti, nessun dato personale, chiave (assente o vera, come richiesto), exe firmato;
-  6. scompatta lo .zip in una cartella temporanea e avvia davvero JT.exe per qualche secondo.
+  6. scompatta lo .zip in una cartella temporanea e avvia davvero JTools.exe per qualche secondo.
 
 Non fa commit ne' push: alla fine ricorda cosa controllare.
 """
@@ -26,9 +26,9 @@ import zipfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-PACKAGE_FILES = ('JT/JT.exe', 'JT/LEGGIMI.txt', 'JT/GUIDA_UTENTE.md', 'JT/JT-certificato.cer', 'JT/Data/tables.json',
-                 'JT/Data/languages.json', 'JT/Data/glossary.json', 'JT/Data/preferences.json', 'JT/Data/azure_services.json')
-FORBIDDEN_FILES = ('JT/README.md', 'JT/JT-TestDB.exe')                      # cose che nel pacchetto per i colleghi non vanno
+PACKAGE_FILES = ('JTools/JTools.exe', 'JTools/LEGGIMI.txt', 'JTools/GUIDA_UTENTE.md', 'JTools/JT-certificato.cer', 'JTools/Data/tables.json',
+                 'JTools/Data/languages.json', 'JTools/Data/glossary.json', 'JTools/Data/preferences.json', 'JTools/Data/azure_services.json')
+FORBIDDEN_FILES = ('JTools/README.md', 'JTools/JT-TestDB.exe')                      # cose che nel pacchetto per i colleghi non vanno
 PERSONAL_NAMES = ('connection_data.json', 'query_data.json', 'search_history.json')                # dati personali di chi ha costruito il pacchetto
 PLACEHOLDER_KEY = 'INSERISCI-QUI-LA-CHIAVE-AZURE'
 CERT_SUBJECT = 'JT Jflex Translator'
@@ -62,12 +62,12 @@ def check_zip(path, with_azure=True):
             if name.endswith('/'):
                 continue
             base = name.rsplit('/', 1)[-1]
-            if name in FORBIDDEN_FILES or base in PERSONAL_NAMES or name.startswith('JT/Logs/') or name.endswith('.csv'):
+            if name in FORBIDDEN_FILES or base in PERSONAL_NAMES or name.startswith('JTools/Logs/') or name.endswith('.csv'):
                 problems.append(f'file che non deve esserci: {name}')
-        if not any(n.startswith('JT/Graphics/icons/') and n.endswith('.ico') for n in names):
+        if not any(n.startswith('JTools/Graphics/icons/') and n.endswith('.ico') for n in names):
             problems.append("manca l'icona (Graphics/icons)")
-        if 'JT/Data/azure_services.json' in names:
-            text = z.read('JT/Data/azure_services.json').decode('utf-8', 'replace')
+        if 'JTools/Data/azure_services.json' in names:
+            text = z.read('JTools/Data/azure_services.json').decode('utf-8', 'replace')
             has_placeholder = PLACEHOLDER_KEY in text
             if with_azure and has_placeholder:
                 problems.append('la chiave Azure e\' ancora il segnaposto')
@@ -93,8 +93,8 @@ def bump_version(config_path, version):
 
 def check_environment():
     step('Controlli iniziali')
-    if 'JT.exe' in subprocess.run(['tasklist'], capture_output=True, text=True).stdout:
-        fail('JT.exe e\' aperto: chiudilo e rilancia.')
+    if 'JTools.exe' in subprocess.run(['tasklist'], capture_output=True, text=True).stdout:
+        fail('JTools.exe e\' aperto: chiudilo e rilancia.')
     out = powershell(
         "$c = Get-ChildItem Cert:\\CurrentUser\\My -CodeSigningCert | Where-Object { $_.Subject -like '*" + CERT_SUBJECT + "*' "
         "-and $_.NotAfter -gt (Get-Date) } | Sort-Object NotAfter -Descending | Select-Object -First 1; "
@@ -133,10 +133,10 @@ def build(with_azure, installer):
 def verify(zip_path, with_azure):
     step('Controllo dello .zip')
     problems = check_zip(zip_path, with_azure)
-    out = powershell("$s = Get-AuthenticodeSignature '" + os.path.join(ROOT, 'dist', 'JT', 'JT.exe') + "'; "
+    out = powershell("$s = Get-AuthenticodeSignature '" + os.path.join(ROOT, 'dist', 'JTools', 'JTools.exe') + "'; "
                      "if ($s.SignerCertificate) { $s.SignerCertificate.Subject } else { 'NONE' }")
     if CERT_SUBJECT not in out:
-        problems.append(f'JT.exe non e\' firmato (firma trovata: {out or "nessuna"})')
+        problems.append(f'JTools.exe non e\' firmato (firma trovata: {out or "nessuna"})')
     for problem in problems:
         print('   PROBLEMA:', problem)
     if problems:
@@ -145,24 +145,24 @@ def verify(zip_path, with_azure):
 
 
 def smoke_test(zip_path):
-    step('Prova: scompatto lo .zip e avvio JT.exe')
+    step('Prova: scompatto lo .zip e avvio JTools.exe')
     with tempfile.TemporaryDirectory() as folder:
         extracted, local = os.path.join(folder, 'zip'), os.path.join(folder, 'local')
         os.makedirs(local)
         with zipfile.ZipFile(zip_path) as z:
             z.extractall(extracted)
-        process = subprocess.Popen([os.path.join(extracted, 'JT', 'JT.exe')], env={**os.environ, 'LOCALAPPDATA': local})
+        process = subprocess.Popen([os.path.join(extracted, 'JTools', 'JTools.exe')], env={**os.environ, 'LOCALAPPDATA': local})
         try:
             time.sleep(6)
             if process.poll() is not None:
-                fail(f'JT.exe si e\' chiuso da solo (codice {process.returncode}).')
+                fail(f'JTools.exe si e\' chiuso da solo (codice {process.returncode}).')
             seeded = os.path.exists(os.path.join(local, 'JT', 'azure_services.json'))
         finally:
             process.kill()
             process.wait()
         if not seeded:
-            fail('JT.exe parte ma non crea azure_services.json nella cartella dell\'utente.')
-    print('   ok: JT.exe parte da solo dalla copia scompattata e prepara la cartella dell\'utente')
+            fail('JTools.exe parte ma non crea azure_services.json nella cartella dell\'utente.')
+    print('   ok: JTools.exe parte da solo dalla copia scompattata e prepara la cartella dell\'utente')
 
 
 def main():
@@ -183,7 +183,7 @@ def main():
     with_azure = args.with_azure and not args.no_azure
     build(with_azure, args.installer)
     from jt.config import VERSION      # letta dopo l'eventuale cambio
-    zip_path = os.path.join(ROOT, 'dist', f'JT-{VERSION}.zip')
+    zip_path = os.path.join(ROOT, 'dist', f'JTools-{VERSION}.zip')
     verify(zip_path, with_azure)
     smoke_test(zip_path)
     print(f'\nPRONTO: {zip_path}')

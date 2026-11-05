@@ -1,4 +1,4 @@
-# JT - Jflex Translator: test
+# JTools: test
 
 Ultimo aggiornamento: 2026-11-03 (livelli CT/CW, utente e categoria, log con livello e utente, simulatore di Oracle)
 

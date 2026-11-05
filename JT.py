@@ -1,4 +1,4 @@
-"""JT - Jflex Translator: punto di ingresso.
+"""JTools: punto di ingresso.
 
     .venv\Scripts\python.exe JT.py
 """

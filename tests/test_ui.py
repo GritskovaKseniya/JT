@@ -4670,7 +4670,7 @@ class ClosingTests(UiCase):
 
 class WindowTests(UiCase):
     def test_title_and_version(self):
-        self.assertTrue(self.root.title().startswith('JT - Jflex Translator'))
+        self.assertTrue(self.root.title().startswith('JTools'))
 
     def test_window_is_resizable_both_ways(self):
         self.assertEqual(tuple(self.root.resizable()), (True, True))

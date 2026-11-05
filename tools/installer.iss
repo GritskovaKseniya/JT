@@ -8,9 +8,9 @@ AppVersion={#AppVersion}
 DefaultDirName={localappdata}\Programs\JT
 PrivilegesRequired=lowest
 OutputDir={#OutputDir}
-OutputBaseFilename=JT-Setup-{#AppVersion}
+OutputBaseFilename=JTools-Setup-{#AppVersion}
 SetupIconFile={#SourceDir}\Graphics\icons\bubbles.ico
-UninstallDisplayIcon={app}\JT.exe
+UninstallDisplayIcon={app}\JTools.exe
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -25,14 +25,14 @@ Source: "{#SourceDir}\*"; DestDir: "{app}"; Excludes: "Data\azure_services.json"
 Source: "{#SourceDir}\Data\azure_services.json"; DestDir: "{app}\Data"; Flags: onlyifdoesntexist
 
 [Icons]
-Name: "{autoprograms}\JT - Jflex Translator"; Filename: "{app}\JT.exe"
+Name: "{autoprograms}\JTools"; Filename: "{app}\JTools.exe"
 Name: "{autoprograms}\JT - log e impostazioni"; Filename: "{localappdata}\JT"
-Name: "{autodesktop}\JT - Jflex Translator"; Filename: "{app}\JT.exe"; Tasks: desktopicon
+Name: "{autodesktop}\JTools"; Filename: "{app}\JTools.exe"; Tasks: desktopicon
 
 [Run]
 #ifdef WithTestDb
 Filename: "{app}\JT-TestDB.exe"; Description: "Crea un database Oracle di prova (chiede host, SID e utente)"; Flags: postinstall skipifsilent unchecked
 #endif
-Filename: "{app}\JT.exe"; Description: "Avvia JT"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\JTools.exe"; Description: "Avvia JTools"; Flags: nowait postinstall skipifsilent
 
 ; i log e le impostazioni stanno in %LOCALAPPDATA%\JT e restano anche dopo la disinstallazione

@@ -4,7 +4,7 @@ import shutil
 import sys
 from dataclasses import dataclass
 
-APP_TITLE = 'JT - Jflex Translator'
+APP_TITLE = 'JTools'
 VERSION = '3.3'
 
 KEY_CONTACT = 'Kseniia Hrytskova'   # a chi chiedere il file della chiave Azure (si dice nel messaggio senza chiave)
@@ -58,7 +58,7 @@ class Paths:
         """Alla prima partenza copia nella cartella dell'utente il modello della chiave Azure fornito col programma."""
         if self.user_base == self.base:
             return
-        for name, target in (('azure_services.json', self.azure), ('preferences.json', self.preferences)):
+        for name, target in (('azure_services.json', self.azure),):
             packaged = self._file('Data', name)
             if not os.path.exists(target) and os.path.exists(packaged):
                 os.makedirs(self.user_base, exist_ok=True)
@@ -92,7 +92,7 @@ class Paths:
     @property
     def preferences(self):
         """Le preferenze di visualizzazione, scritte a mano (vedi jt/preferences.py)."""
-        return self._user_file('preferences.json')
+        return self._file('Data', 'preferences.json')          # accanto al programma, anche se installato: e' li' che si modifica
 
     @property
     def glossary(self):

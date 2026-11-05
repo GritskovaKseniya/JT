@@ -1,4 +1,4 @@
-# JT - Jflex Translator
+# JTools
 
 Programma Windows (Tkinter) che traduce con **Azure Translator** i testi di un database **Jflex su Oracle**:
 `FW_STRINGS`, `FW_FIELD_STRINGS`, le tabelle `FW_OPZIONI*`, `FW_DOCU_NODES_T`, `FW_OBJ_DESCRS`. Versione 3.1
@@ -51,8 +51,8 @@ Risultato in `dist\`:
 
 | File | Cosa e' |
 |---|---|
-| `dist\JT\JT.exe` | il programma con tutto dentro (non serve Python); accanto ci sono `Data`, `Graphics`, `LEGGIMI.txt`, `GUIDA_UTENTE.md` (e `JT-TestDB.exe` se non si usa `--no-testdb`) |
-| `dist\JT-3.0.zip` | la cartella `JT` compressa: si scompatta e si lancia `JT.exe` |
+| `dist\JTools\JTools.exe` | il programma con tutto dentro (non serve Python); accanto ci sono `Data`, `Graphics`, `LEGGIMI.txt`, `GUIDA_UTENTE.md` (e `JT-TestDB.exe` se non si usa `--no-testdb`) |
+| `dist\JTools-3.0.zip` | la cartella `JT` compressa: si scompatta e si lancia `JTools.exe` |
 | `dist\JT-Setup-3.0.exe` | programma di installazione (collegamento nel menu Start, disinstallazione). Solo se e' installato [Inno Setup 6](https://jrsoftware.org/isdl.php) |
 
 Opzioni:
@@ -63,7 +63,7 @@ Opzioni:
   JT lo usa da solo e il PC non ha bisogno di Oracle. Verifica la licenza prima di ridistribuirlo.
 - `--no-installer` salta il setup anche se Inno Setup c'e'.
 - `--no-testdb` non mette nel pacchetto `JT-TestDB.exe` (lo strumento del database di prova): per i colleghi che usano solo JT.
-- `--sign` firma `JT.exe`, `JT-TestDB.exe` (se c'e') e il setup con un certificato di code signing, con marca temporale. Il certificato si
+- `--sign` firma `JTools.exe`, `JT-TestDB.exe` (se c'e') e il setup con un certificato di code signing, con marca temporale. Il certificato si
   cerca prima nel file `.pfx` indicato da `JT_SIGN_PFX` (password in `JT_SIGN_PASSWORD`: il certificato dell'azienda), poi nel
   Magazzino certificati dell'utente (`Cert:\CurrentUser\My`, soggetto `JT Jflex Translator`). Il pacchetto contiene anche
   `JT-certificato.cer` (solo la parte pubblica). Un certificato **autofirmato** non e' noto agli altri PC: finche' non lo importano

@@ -1,4 +1,4 @@
-# JT - Jflex Translator: guida utente
+# JTools: guida utente
 
 JT traduce con Azure Translator i testi di un database Jflex (Oracle): stringhe, descrizioni dei campi, opzioni, nodi di
 documentazione. Scrive le traduzioni direttamente nelle tabelle, solo dove mancano (oppure, se lo chiedi, per le chiavi
@@ -16,7 +16,7 @@ che indichi).
 
 ## 2. Avvio
 
-Scompatta lo .zip in una cartella e fai doppio clic su **JT.exe** (non lanciarlo da dentro lo zip).
+Scompatta lo .zip in una cartella e fai doppio clic su **JTools.exe** (non lanciarlo da dentro lo zip).
 
 **Avviso di Windows al primo avvio** ("Windows ha protetto il PC"): clicca **Ulteriori informazioni** e poi **Esegui comunque**.
 Se lo zip e' arrivato per posta o scaricato, prima di scompattare fai clic destro sullo .zip > **Proprieta'** > spunta
@@ -194,8 +194,7 @@ compare la barra orizzontale, e ogni colonna e' larga al massimo quanto serve pe
 
 ### Preferenze (`preferences.json`)
 
-Se vuoi cambiare quali strumenti si vedono, in che ordine e qualche predefinito, apri a mano `preferences.json` (`%LOCALAPPDATA%\JT` se hai installato JT, altrimenti la
-cartella `Data`). Non c'e' una schermata: e' un file di testo, e se manca o ha un errore JT usa i valori normali. Si possono **commentare righe con `//`**.
+Se vuoi cambiare quali strumenti si vedono, in che ordine e qualche predefinito, apri a mano `preferences.json`, nella cartella `Data` accanto a `JTools.exe`. Non c'e' una schermata: e' un file di testo, e se manca o ha un errore JT usa i valori normali. Si possono **commentare righe con `//`**.
 
 | Voce | Cosa fa |
 |---|---|

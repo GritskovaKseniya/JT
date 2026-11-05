@@ -1,4 +1,4 @@
-"""Prepara il programma da dare agli altri: una cartella `dist\JT` con JT.exe (non serve Python), il file .zip e,
+"""Prepara il programma da dare agli altri: una cartella `dist\JTools` con JTools.exe (non serve Python), il file .zip e,
 se Inno Setup e' installato, anche il programma di installazione (setup .exe).
 
     .venv\Scripts\python.exe tools\build.py [--with-azure] [--oracle-client CARTELLA] [--no-installer]
@@ -30,7 +30,7 @@ sys.path.insert(0, ROOT)
 from jt.config import APP_TITLE, ICON_NAME, VERSION  # noqa: E402
 
 DIST, BUILD = os.path.join(ROOT, 'dist'), os.path.join(ROOT, 'build')
-OUT = os.path.join(DIST, 'JT')
+OUT = os.path.join(DIST, 'JTools')
 ISCC_PATHS = (r'C:\Program Files (x86)\Inno Setup 6\ISCC.exe', r'C:\Program Files\Inno Setup 6\ISCC.exe',
               os.path.expandvars(r'%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe'))
 
@@ -44,7 +44,7 @@ def run(*args):
 
 
 # Le versioni gia' pronte (JT-3.0.zip, JT-Setup-3.0.exe) restano in dist: costruirne una nuova non le cancella.
-KEEP_IN_DIST = ('JT-*.zip', 'JT-Setup-*.exe')
+KEEP_IN_DIST = ('JT-*.zip', 'JT-Setup-*.exe', 'JTools-*.zip', 'JTools-Setup-*.exe')
 
 
 def empty_folder(folder, keep=()):
@@ -64,7 +64,7 @@ def empty_folder(folder, keep=()):
 
 def check_not_running():
     """Se JT.exe e' aperto Windows non lo lascia sostituire: meglio fermarsi subito che lasciare dist a meta'."""
-    for name in ('JT.exe', 'JT-TestDB.exe'):
+    for name in ('JTools.exe', 'JT-TestDB.exe'):
         path = os.path.join(OUT, name)
         if os.path.exists(path):
             try:
@@ -79,7 +79,7 @@ def build_exe(with_testdb=True):
     for folder, keep in ((BUILD, ()), (DIST, KEEP_IN_DIST)):
         empty_folder(folder, keep)
     icon = os.path.join(ROOT, 'Graphics', 'icons', f'{ICON_NAME}.ico')
-    run(sys.executable, '-m', 'PyInstaller', '--noconfirm', '--clean', '--noupx', '--windowed', '--name', 'JT',
+    run(sys.executable, '-m', 'PyInstaller', '--noconfirm', '--clean', '--noupx', '--windowed', '--name', 'JTools',
         '--icon', icon, '--hidden-import', 'cx_Oracle', '--distpath', DIST, '--workpath', BUILD, '--specpath', BUILD,
         os.path.join(ROOT, 'JT.py'))
     if not with_testdb:
@@ -161,12 +161,12 @@ def export_certificate(folder):
 
 def make_zip():
     step('Archivio .zip')
-    path = os.path.join(DIST, f'JT-{VERSION}.zip')
+    path = os.path.join(DIST, f'JTools-{VERSION}.zip')
     with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as z:
         for folder, _, files in os.walk(OUT):
             for name in files:
                 full = os.path.join(folder, name)
-                z.write(full, os.path.join('JT', os.path.relpath(full, OUT)))
+                z.write(full, os.path.join('JTools', os.path.relpath(full, OUT)))
     print('  ', path)
     return path
 
@@ -180,7 +180,7 @@ def make_installer(with_testdb=True):
     step('Programma di installazione (Inno Setup)')
     run(iscc, f'/DAppVersion={VERSION}', f'/DAppName={APP_TITLE}', f'/DSourceDir={OUT}', f'/DOutputDir={DIST}',
         *(['/DWithTestDb=1'] if with_testdb else []), os.path.join(ROOT, 'tools', 'installer.iss'))
-    return os.path.join(DIST, f'JT-Setup-{VERSION}.exe')
+    return os.path.join(DIST, f'JTools-Setup-{VERSION}.exe')
 
 
 def main():
@@ -196,7 +196,7 @@ def main():
     copy_files(args.with_azure, args.oracle_client, with_testdb)
     if args.sign:
         step('Firma')
-        sign(*[os.path.join(OUT, name) for name in ('JT.exe', 'JT-TestDB.exe') if os.path.exists(os.path.join(OUT, name))])
+        sign(*[os.path.join(OUT, name) for name in ('JTools.exe', 'JT-TestDB.exe') if os.path.exists(os.path.join(OUT, name))])
         export_certificate(OUT)
     results = [make_zip()]
     if not args.no_installer:

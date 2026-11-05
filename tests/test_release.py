@@ -12,9 +12,9 @@ import build  # noqa: E402
 import release  # noqa: E402
 
 GOOD = {name: b'x' for name in release.PACKAGE_FILES}
-GOOD['JT/Data/azure_services.json'] = b'{"subscription_key": "abcdef0123456789abcdef0123456789"}'
-GOOD['JT/Graphics/icons/bubbles.ico'] = b'ico'
-GOOD['JT/_internal/base_library.zip'] = b'zip'
+GOOD['JTools/Data/azure_services.json'] = b'{"subscription_key": "abcdef0123456789abcdef0123456789"}'
+GOOD['JTools/Graphics/icons/bubbles.ico'] = b'ico'
+GOOD['JTools/_internal/base_library.zip'] = b'zip'
 
 
 class CheckZipTests(JtCase):
@@ -29,36 +29,36 @@ class CheckZipTests(JtCase):
         self.assertEqual(release.check_zip(self.make(GOOD)), [])
 
     def test_a_missing_file_is_reported(self):
-        files = {k: v for k, v in GOOD.items() if k != 'JT/LEGGIMI.txt'}
-        self.assertEqual(release.check_zip(self.make(files)), ['manca JT/LEGGIMI.txt'])
+        files = {k: v for k, v in GOOD.items() if k != 'JTools/LEGGIMI.txt'}
+        self.assertEqual(release.check_zip(self.make(files)), ['manca JTools/LEGGIMI.txt'])
 
     def test_a_missing_icon_is_reported(self):
         files = {k: v for k, v in GOOD.items() if not k.endswith('.ico')}
         self.assertEqual(release.check_zip(self.make(files)), ["manca l'icona (Graphics/icons)"])
 
     def test_personal_files_never_travel(self):
-        for name in ('JT/Data/connection_data.json', 'JT/query_data.json', 'JT/Logs/JT_errors_log_1.csv', 'JT/x.csv'):
+        for name in ('JTools/Data/connection_data.json', 'JTools/query_data.json', 'JTools/Logs/JT_errors_log_1.csv', 'JTools/x.csv'):
             with self.subTest(name=name):
                 problems = release.check_zip(self.make({**GOOD, name: b'secret'}))
                 self.assertEqual(problems, [f'file che non deve esserci: {name}'])
 
     def test_the_test_db_tool_and_the_developer_readme_are_not_in_the_colleagues_package(self):
-        for name in ('JT/JT-TestDB.exe', 'JT/README.md'):
+        for name in ('JTools/JT-TestDB.exe', 'JTools/README.md'):
             problems = release.check_zip(self.make({**GOOD, name: b'x'}))
             self.assertEqual(problems, [f'file che non deve esserci: {name}'])
 
     def test_library_files_with_innocent_names_are_not_flagged(self):
-        files = {**GOOD, 'JT/_internal/some_lib/README.md': b'x', 'JT/_internal/dist-info/data.json': b'x'}
+        files = {**GOOD, 'JTools/_internal/some_lib/README.md': b'x', 'JTools/_internal/dist-info/data.json': b'x'}
         self.assertEqual(release.check_zip(self.make(files)), [])
 
     def test_the_azure_key_must_be_real_when_it_is_meant_to_be_included(self):
-        files = {**GOOD, 'JT/Data/azure_services.json': release.PLACEHOLDER_KEY.encode()}
+        files = {**GOOD, 'JTools/Data/azure_services.json': release.PLACEHOLDER_KEY.encode()}
         self.assertEqual(release.check_zip(self.make(files)), ["la chiave Azure e' ancora il segnaposto"])
 
     def test_the_azure_key_must_not_be_there_when_it_is_not_meant_to_be(self):
         problems = release.check_zip(self.make(GOOD), with_azure=False)
         self.assertEqual(problems, ["la chiave Azure e' dentro il pacchetto ma non doveva esserci"])
-        files = {**GOOD, 'JT/Data/azure_services.json': release.PLACEHOLDER_KEY.encode()}
+        files = {**GOOD, 'JTools/Data/azure_services.json': release.PLACEHOLDER_KEY.encode()}
         self.assertEqual(release.check_zip(self.make(files), with_azure=False), [])
 
 
@@ -99,7 +99,7 @@ class CleaningDistTests(JtCase):
             path = os.path.join(folder, name)
             if name.endswith('/'):
                 os.makedirs(path)
-                with open(os.path.join(path, 'JT.exe'), 'wb') as f:
+                with open(os.path.join(path, 'JTools.exe'), 'wb') as f:
                     f.write(b'x')
             else:
                 with open(path, 'wb') as f:
@@ -107,12 +107,12 @@ class CleaningDistTests(JtCase):
         return folder
 
     def test_previous_versions_stay_and_everything_else_goes(self):
-        folder = self.make('JT-3.0.zip', 'JT-Setup-3.0.exe', 'JT/', 'appunti.txt', 'altro.zip', 'JT-TestDB.exe')
+        folder = self.make('JTools-3.0.zip', 'JTools-Setup-3.0.exe', 'JTools/', 'appunti.txt', 'altro.zip', 'JT-TestDB.exe')
         build.empty_folder(folder, build.KEEP_IN_DIST)
-        self.assertEqual(sorted(os.listdir(folder)), ['JT-3.0.zip', 'JT-Setup-3.0.exe'])
+        self.assertEqual(sorted(os.listdir(folder)), ['JTools-3.0.zip', 'JTools-Setup-3.0.exe'])
 
     def test_without_keep_it_empties_everything_like_before(self):
-        folder = self.make('JT-3.0.zip', 'JT/')
+        folder = self.make('JTools-3.0.zip', 'JTools/')
         build.empty_folder(folder)
         self.assertEqual(os.listdir(folder), [])
         self.assertTrue(os.path.isdir(folder))
@@ -122,9 +122,9 @@ class CleaningDistTests(JtCase):
 
     def test_the_names_the_build_produces_match_what_is_kept(self):
         import fnmatch
-        for name in (f'JT-{build.VERSION}.zip', f'JT-Setup-{build.VERSION}.exe', 'JT-3.0.zip', 'JT-10.2.zip'):
+        for name in (f'JTools-{build.VERSION}.zip', f'JTools-Setup-{build.VERSION}.exe', 'JTools-3.0.zip', 'JTools-10.2.zip'):
             self.assertTrue(any(fnmatch.fnmatch(name, p) for p in build.KEEP_IN_DIST), name)
-        for name in ('JT', 'JT-TestDB.exe', 'JT.exe', 'JT-certificato.cer'):
+        for name in ('JTools', 'JT-TestDB.exe', 'JTools.exe', 'JT-certificato.cer'):
             self.assertFalse(any(fnmatch.fnmatch(name, p) for p in build.KEEP_IN_DIST), name)
 
     def test_build_cleans_dist_with_the_keep_list(self):
