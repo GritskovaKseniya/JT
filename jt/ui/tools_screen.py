@@ -42,12 +42,14 @@ class ToolBar(tk.Frame):
                               cursor='hand2', takefocus=True, highlightthickness=1, highlightbackground=PALETTE['bg'],
                               highlightcolor=PALETTE['accent'])
         self.arrow.pack(side='left', padx=(0, px(6)))
+        self.arrow.config(pady=0)
         self.arrow.bind('<Button-1>', self.toggle)
         for key in ('<Return>', '<space>'):
             self.arrow.bind(key, self.toggle)
         self.strip = tk.Frame(top, bg=PALETTE['bg'])                 # le schede
         self.strip.pack(side='left')
-        self.summary = tk.Label(top, text='', font=(FONT, 10, 'bold'), fg=PALETTE['accent'], bg=PALETTE['bg'])  # da chiusa
+        self.summary = tk.Label(top, text='', font=(FONT, 10, 'bold'), fg=PALETTE['accent'], bg=PALETTE['bg'],
+                                pady=px(1))  # da chiusa
         self.rule = tk.Frame(self, height=1, bg=PALETTE['border'])
         self.rule.pack(fill='x')
 
@@ -55,11 +57,11 @@ class ToolBar(tk.Frame):
             cell = tk.Frame(self.strip, bg=PALETTE['bg'])
             cell.pack(side='left', padx=(0, px(2)))
             off = bool(problems[tool.name])
-            label = tk.Label(cell, text=tool.title, font=(FONT, 10), bg=PALETTE['bg'], padx=px(10), pady=px(5),
+            label = tk.Label(cell, text=tool.title, font=(FONT, 10), bg=PALETTE['bg'], padx=px(10), pady=px(2),
                              fg=PALETTE['muted'] if off else PALETTE['text'], cursor='arrow' if off else 'hand2',
                              takefocus=not off, highlightthickness=1, highlightbackground=PALETTE['bg'],
                              highlightcolor=PALETTE['accent'])
-            line = tk.Frame(cell, height=px(3), bg=PALETTE['bg'])      # la linea sotto la scheda aperta
+            line = tk.Frame(cell, height=px(2), bg=PALETTE['bg'])      # la linea sotto la scheda aperta
             label.pack()
             line.pack(fill='x')
             self.tabs[tool.name], self.lines[tool.name] = label, line
@@ -122,7 +124,7 @@ class ToolsScreen(ttk.Frame):
         self.selected = None               # il nome dello strumento mostrato
         self.wrap = _WrapAll(self)
         self.menu = ToolBar(self, self.tools, self.problems, self.select, lambda: app.fit_window())
-        self.menu.pack(fill='x', padx=px(20), pady=(0, px(6)))          # lo stesso margine ai lati delle schermate
+        self.menu.pack(fill='x', padx=px(20), pady=(0, px(3)))          # lo stesso margine ai lati delle schermate
         self.content = ttk.Frame(self)
         self.content.pack(fill='both', expand=True)
         wanted = app.settings.preferences().default_tool()
