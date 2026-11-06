@@ -68,27 +68,31 @@ def setup_style(root):
                     relief='flat')
     style.map('Treeview', background=[('selected', c['accent'])], foreground=[('selected', 'white')])
 
-    # Pulsanti: Primary (azione principale, pieno), Secondary (bordo e testo blu su bianco), Danger (azione che ferma).
-    # Il rettangolo tratteggiato di default e' nascosto (focuscolor = colore del pulsante).
-    button = dict(padding=(pad(10)[0], pad(4)[0]), font=(FONT, 10, 'bold'))
+    # Pulsanti, stile minimalista (come Teams): piatti, senza ombre. Primary = azione principale (pieno), Secondary = testo blu su
+    # fondo trasparente con un bordo sottile che si riempie di azzurro quando ci passi sopra, Danger = azione che ferma.
+    # Il rettangolo tratteggiato di default e' nascosto (focuscolor = colore del pulsante); da tastiera si vede il bordo blu.
+    button = dict(padding=(pad(10)[0], pad(4)[0]), font=(FONT, 10, 'bold'), relief='flat', borderwidth=1)
     style.configure('Primary.TButton', background=c['accent'], foreground='white', bordercolor=c['accent'],
                     focuscolor=c['accent'], **button)
     style.map('Primary.TButton',
               background=[('disabled', c['disabled_bg']), ('pressed', c['accent_dark']), ('active', c['accent_dark'])],
               foreground=[('disabled', c['disabled_fg'])],
               bordercolor=[('disabled', c['border']), ('focus', c['accent_dark'])])
-    style.configure('Secondary.TButton', background='white', foreground=c['accent'], bordercolor=c['accent'],
-                    focuscolor='white', **button)
+    style.configure('Secondary.TButton', background=c['bg'], foreground=c['accent'], bordercolor=c['border'],
+                    focuscolor=c['bg'], **button)
     style.map('Secondary.TButton',
-              background=[('disabled', c['disabled_soft_bg']), ('pressed', '#cfe0f5'), ('active', c['accent_soft'])],
+              background=[('disabled', c['bg']), ('pressed', '#cfe0f5'), ('active', c['accent_soft'])],
               foreground=[('disabled', c['muted'])],
-              bordercolor=[('disabled', c['border']), ('focus', c['accent_dark'])])
-    style.configure('Danger.TButton', background='white', foreground=c['error'], bordercolor=c['error'],
-                    focuscolor='white', **button)
+              bordercolor=[('disabled', c['border']), ('focus', c['accent']), ('active', c['accent_soft'])])
+    style.configure('Danger.TButton', background=c['bg'], foreground=c['error'], bordercolor=c['border'],
+                    focuscolor=c['bg'], **button)
     style.map('Danger.TButton',
-              background=[('disabled', c['disabled_soft_bg']), ('pressed', '#f8cfcc'), ('active', '#fdeceb')],
+              background=[('disabled', c['bg']), ('pressed', '#f8cfcc'), ('active', '#fdeceb')],
               foreground=[('disabled', c['muted'])],
-              bordercolor=[('disabled', c['border'])])
+              bordercolor=[('disabled', c['border']), ('active', '#fdeceb')])
     # versioni piccole per le finestre di dialogo: ereditano colori e stati dal nome ("Small.Primary" da "Primary")
     for kind in ('Primary', 'Secondary'):
         style.configure(f'Small.{kind}.TButton', padding=(pad(14)[0], pad(3)[0]), font=(FONT, 9, 'bold'))
+        style.configure(f'Icon.{kind}.TButton', padding=(0, 0, 0, pad(4)[0]), font=(FONT_SYMBOL, 13), width=-1)   # un solo simbolo, in mezzo (vedi icon_button)
+    style.configure('Icon.Secondary.TButton', bordercolor=c['bg'])              # le icone non hanno bordo: solo il riempimento al passaggio
+    style.map('Icon.Secondary.TButton', bordercolor=[('focus', c['accent']), ('active', c['accent_soft'])])

@@ -8,7 +8,8 @@ from PIL import Image, ImageDraw, ImageFont
 
 OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'Graphics')
 S = 8                                  # supersampling
-SIZES = (24, 30, 36, 48)               # 100%, 125%, 150%, 200%
+BASE = 18                             # la dimensione a scala 100% (senza suffisso)
+SIZES = (18, 22, 27, 36)               # 100%, 125%, 150%, 200%
 COLORS = {'current': '#0b5cab', 'done': '#14703a', 'todo': '#e3e8f0'}
 
 
@@ -36,6 +37,6 @@ for old in [f for f in os.listdir(OUT) if f.startswith('step_')]:
     os.remove(os.path.join(OUT, old))
 for number, state in ((1, 'current'), (1, 'done'), (2, 'todo'), (2, 'current')):      # solo quelli che compaiono
     for size in SIZES:
-        suffix = '' if size == 24 else f'_{size}'
+        suffix = '' if size == BASE else f'_{size}'
         badge(number, state, size).save(os.path.join(OUT, f'step_{number}_{state}{suffix}.png'))
 print(len([f for f in os.listdir(OUT) if f.startswith('step_')]), 'file')

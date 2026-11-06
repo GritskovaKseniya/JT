@@ -9,6 +9,7 @@ import glob
 import json
 import os
 import re
+import shutil
 import struct
 import sys
 import threading
@@ -28,6 +29,7 @@ from jt.layers import LEVEL_CHOICES  # noqa: E402
 
 L_ALL, L_STD, L_CW, L_CT, L_CC = LEVEL_CHOICES          # i nomi del campo Level, nell'ordine
 from helpers import FAKE_AZURE, FAKE_CONNECTION, FakeAzure, FakeDB, FakeDriver, JtCase, read_json, write_json  # noqa: E402
+from jt import environments  # noqa: E402
 from jt.azure import AzureTranslator  # noqa: E402
 from jt.config import APP_TITLE, VERSION, WINDOW_MIN_WIDTH  # noqa: E402
 from jt.db import Database  # noqa: E402
@@ -324,9 +326,173 @@ class ConnectionScreenTests(UiCase):
 
     def test_missing_settings_file_gives_empty_fields(self):
         os.remove(self.paths.connection)
+        shutil.rmtree(self.paths.connections)                           # senza nemmeno un profilo salvato
         self.app.show_connection()
         self.assertEqual({k: v.get() for k, v in self.screen.vars.items()},
                          dict.fromkeys(FAKE_CONNECTION, ''))
+
+    # ------------------------------------------------------------------------------ profili salvati
+
+    def test_the_last_connection_is_already_a_saved_connection_the_first_time(self):
+        self.assertEqual(self.screen.profiles.names(), ['FAKESID @ fake-host'])
+        self.assertEqual(self.screen.profile_var.get(), 'FAKESID @ fake-host')
+        self.assertEqual(self.screen.profile_label.cget('text'), 'FAKESID @ fake-host')
+
+    def test_without_a_remembered_connection_the_last_used_profile_is_proposed(self):
+        self.screen.profiles.save('Vecchio', {**FAKE_CONNECTION, 'host': 'h-old'}, last_used='2099-01-01T00:00:00')
+        self.screen.profiles.save('Nuovo', {**FAKE_CONNECTION, 'host': 'h-new'}, last_used='2099-03-01T00:00:00')
+        os.remove(self.paths.connection)
+        self.app.show_connection()
+        self.assertEqual(self.screen.profile_var.get(), 'Nuovo')
+        self.assertEqual(self.screen.vars['host'].get(), 'h-new')
+
+    def test_choosing_a_profile_fills_the_fields_and_the_environment(self):
+        self.screen.profiles.save('Produzione', {'host': 'h-prod', 'port': '1522', 'sid': 'PRD', 'username': 'pu',
+                                                 'password': 'pp', 'environment': 'prod'})
+        self.screen._profiles_changed()
+        self.screen.profile_var.set('Produzione')
+        self.screen.choose_profile()
+        self.assertEqual({k: v.get() for k, v in self.screen.vars.items()},
+                         {'host': 'h-prod', 'port': '1522', 'sid': 'PRD', 'username': 'pu', 'password': 'pp'})
+        self.assertEqual(self.screen.env_var.get(), environments.to_label('prod'))
+        self.assertEqual(self.screen.status.state, 'info')
+
+    def test_save_updates_the_chosen_profile_and_save_as_makes_a_new_one(self):
+        self.screen.vars['password'].set('nuova')                         # la password non e' un dato chiave: il nome resta
+        self.screen.env_var.set('test')
+        self.assertEqual(self.screen.profile_var.get(), 'FAKESID @ fake-host')
+        self.screen.save_profile()
+        self.assertEqual(self.screen.profiles.get('FAKESID @ fake-host')['password'], 'nuova')
+        self.assertEqual(self.screen.profiles.get('FAKESID @ fake-host')['environment'], 'test')
+        self.screen.vars['host'].set('nuovo-host')                        # un altro database: niente nome, e Save chiede come chiamarlo
+        self.assertEqual(self.screen.profile_var.get(), '')
+        with patch.object(self.screen, '_ask_name', return_value=' Secondo ') as ask:
+            self.screen.save_profile()
+        self.assertEqual(ask.call_args[0][0], 'FAKESID @ nuovo-host')      # propone SID @ host
+        self.assertEqual(self.screen.profile_var.get(), 'Secondo')
+        self.assertEqual(len(self.screen.profiles.list()), 2)
+        self.assertEqual(self.screen.status.state, 'ok')
+
+    def test_changing_a_key_field_takes_the_saved_name_away_and_going_back_restores_it(self):
+        self.assertEqual(self.screen.profile_label.cget('text'), 'FAKESID @ fake-host')
+        for key in ('host', 'port', 'sid', 'username'):
+            original = self.screen.vars[key].get()
+            self.screen.vars[key].set(original + 'x')
+            self.assertEqual(self.screen.profile_var.get(), '', key)
+            self.assertEqual(self.screen.profile_label.cget('text'), 'New connection', key)
+            self.screen.vars[key].set(original)
+            self.assertEqual(self.screen.profile_var.get(), 'FAKESID @ fake-host', key)
+
+    def test_a_successful_connection_to_a_new_database_is_saved_by_itself(self):
+        self.screen.vars['host'].set('altro-host')
+        self.assertEqual(self.screen.profile_var.get(), '')
+        self.screen.connect()
+        self.assertEqual(self.screen.profile_var.get(), 'FAKESID @ altro-host')
+        self.assertEqual(self.screen.profiles.names()[0], 'FAKESID @ altro-host')
+        self.assertEqual(len(self.screen.profiles.list()), 2)
+
+    def test_a_failed_connection_is_not_saved(self):
+        self.screen.vars['host'].set('rotto')
+        with patch.object(self.app, 'connect', side_effect=RuntimeError('ORA-12170 boom')):
+            self.screen.connect()
+        self.assertEqual(self.screen.profile_var.get(), '')
+        self.assertEqual(len(self.screen.profiles.list()), 1)
+
+    def test_the_same_database_with_another_user_gets_a_different_name(self):
+        self.screen.vars['username'].set('altro_utente')
+        self.screen.connect()
+        self.assertEqual(self.screen.profile_var.get(), 'FAKESID @ fake-host (altro_utente)')
+        self.assertEqual(len(self.screen.profiles.list()), 2)
+
+    def test_connecting_again_updates_the_saved_password_and_does_not_add_a_double(self):
+        self.screen.vars['password'].set('cambiata')
+        self.screen.connect()
+        self.assertEqual(len(self.screen.profiles.list()), 1)
+        self.assertEqual(self.screen.profiles.get('FAKESID @ fake-host')['password'], 'cambiata')
+
+    def test_the_list_shows_the_saved_connections_and_a_cross_removes_one(self):
+        self.screen.profiles.save('Altro', {**FAKE_CONNECTION, 'host': 'altro'}, last_used='2099-01-01T00:00:00')
+        self.screen._profile_list()
+        menu = self.screen.menu
+        self.root.update()
+        self.assertEqual([r.cget('text') for r in menu.rows], ['Altro', 'FAKESID @ fake-host', 'Clear all'])
+        self.assertEqual(len(menu.crosses), 2)
+        with patch.object(self.screen, '_confirm', return_value=True):
+            menu.crosses[0].event_generate('<ButtonRelease-1>')           # la crocetta di "Altro"
+        self.assertEqual(self.screen.profiles.names(), ['FAKESID @ fake-host'])
+        self.assertFalse(menu.winfo_exists())
+
+    def test_clear_all_deletes_every_connection_after_a_confirmation_and_empties_the_form(self):
+        for number in range(5):
+            self.screen.profiles.save(f'C{number}', {**FAKE_CONNECTION, 'host': f'h{number}'})
+        with patch.object(self.screen, '_confirm', return_value=False) as ask:
+            self.screen.clear_profiles()
+        self.assertIn('Delete all 6', ask.call_args[0][0])
+        self.assertEqual(len(self.screen.profiles.list()), 6)             # annullato: non si tocca niente
+        with patch.object(self.screen, '_confirm', return_value=True):
+            self.screen.clear_profiles()
+        self.assertEqual(self.screen.profiles.list(), [])
+        self.assertEqual({k: v.get() for k, v in self.screen.vars.items()}, dict.fromkeys(FAKE_CONNECTION, ''))
+        self.assertEqual(self.app.settings.connection(), dict.fromkeys(FAKE_CONNECTION, ''))
+        self.assertEqual(self.screen.status.state, 'info')
+
+    def test_clear_all_leaves_the_form_alone_when_it_shows_an_unsaved_connection(self):
+        self.screen.vars['host'].set('mai-salvato')
+        with patch.object(self.screen, '_confirm', return_value=True):
+            self.screen.clear_profiles()
+        self.assertEqual(self.screen.profiles.list(), [])
+        self.assertEqual(self.screen.vars['host'].get(), 'mai-salvato')
+
+    def test_picking_from_the_list_fills_the_fields(self):
+        self.screen.profiles.save('Altro', {**FAKE_CONNECTION, 'host': 'altro', 'password': 'pw2'})
+        self.screen._profile_list()
+        menu = self.screen.menu
+        self.root.update()
+        next(r for r in menu.rows if r.cget('text') == 'Altro').event_generate('<ButtonRelease-1>')
+        self.assertEqual(self.screen.vars['host'].get(), 'altro')
+        self.assertEqual(self.screen.vars['password'].get(), 'pw2')
+        self.assertEqual(self.screen.profile_var.get(), 'Altro')
+
+    def test_the_empty_list_says_so_and_deleting_the_chosen_one_empties_the_label(self):
+        with patch.object(self.screen, '_confirm', return_value=True):
+            self.screen.delete_profile('FAKESID @ fake-host')
+        self.assertEqual(self.screen.profile_label.cget('text'), 'New connection')
+        self.screen._profile_list()
+        self.assertEqual([r.cget('text') for r in self.screen.menu.rows], ['No saved connections yet'])
+        self.screen.menu.close()
+
+    def test_save_as_asks_before_replacing_and_a_cancel_changes_nothing(self):
+        self.screen.profiles.save('Altro', {**FAKE_CONNECTION, 'host': 'keep'})
+        with patch.object(self.screen, '_ask_name', return_value='altro'), patch.object(self.screen, '_confirm', return_value=False) as ask:
+            self.screen.save_profile_as()
+        ask.assert_called_once()
+        self.assertEqual(self.screen.profiles.get('Altro')['host'], 'keep')
+        with patch.object(self.screen, '_ask_name', return_value=None):
+            self.screen.save_profile_as()
+        self.assertEqual(len(self.screen.profiles.list()), 2)
+
+    def test_delete_asks_and_removes_the_chosen_profile(self):
+        with patch.object(self.screen, '_confirm', return_value=False):
+            self.screen.delete_profile()
+        self.assertEqual(len(self.screen.profiles.list()), 1)
+        with patch.object(self.screen, '_confirm', return_value=True):
+            self.screen.delete_profile()
+        self.assertEqual(self.screen.profiles.list(), [])
+        self.assertEqual(self.screen.profile_var.get(), '')
+        self.assertEqual(self.screen.profile_label.cget('text'), 'New connection')
+        self.app.show_connection()                                        # cancellati: non ricompaiono da soli
+        self.assertEqual(self.screen.profiles.list(), [])
+
+    def test_connecting_with_a_profile_puts_it_first(self):
+        self.screen.profiles.save('Altro', {**FAKE_CONNECTION, 'host': 'altro'}, last_used='2020-05-01T00:00:00')
+        self.screen.profiles.save('FAKESID @ fake-host', FAKE_CONNECTION, last_used='2019-01-01T00:00:00')
+        self.assertEqual(self.screen.profiles.names()[0], 'Altro')
+        self.screen.connect()                                             # il profilo scelto e' FAKESID @ fake-host
+        self.assertEqual(self.screen.profiles.names()[0], 'FAKESID @ fake-host')
+
+    def test_the_menu_button_is_one_narrow_button(self):
+        self.root.update_idletasks()
+        self.assertLessEqual(self.screen.winfo_reqwidth(), 500)
 
     def focus_calls(self, build):
         calls, original = [], tk.Misc.focus_set
@@ -729,7 +895,7 @@ class StepperTests(UiCase):
         return stepper
 
     def test_badge_images_follow_the_scale_factor(self):
-        for factor, size in ((1.0, 24), (1.25, 30), (1.5, 36), (2.0, 48)):
+        for factor, size in ((1.0, 18), (1.25, 22), (1.5, 27), (2.0, 36)):
             with self.subTest(factor=factor):
                 stepper = self.stepper_at(factor)
                 self.assertEqual(sorted(stepper._images), sorted(Stepper.IMAGES))      # solo i 4 pallini che compaiono
@@ -739,8 +905,8 @@ class StepperTests(UiCase):
                 self.assertEqual(str(badge.cget('image')), str(stepper._images[(1, 'current')]))
 
     def test_badge_size_thresholds(self):
-        for factor, size in ((1.0, 24), (1.09, 24), (1.1, 30), (1.34, 30), (1.35, 36), (1.74, 36), (1.75, 48),
-                             (3.0, 48)):
+        for factor, size in ((1.0, 18), (1.09, 18), (1.1, 22), (1.34, 22), (1.35, 27), (1.74, 27), (1.75, 36),
+                             (3.0, 36)):
             with self.subTest(factor=factor):
                 self.assertEqual(self.stepper_at(factor)._images[(1, 'done')].width(), size)
 
@@ -991,8 +1157,8 @@ class TranslationScreenBuildTests(UiCase):
         self.assertEqual(str(step1.connect_button.cget('style')), SECONDARY)
         self.assertEqual(str(step1.next_button.cget('style')), PRIMARY)
         screen = self.step2()
-        self.assertEqual(str(screen.load_button.cget('style')), SECONDARY)
-        self.assertEqual(str(screen.translate_button.cget('style')), PRIMARY)
+        self.assertEqual(screen.load_button.kind, SECONDARY)
+        self.assertEqual(screen.translate_button.kind, PRIMARY)
 
     def test_tooltips_are_wired_to_the_label_and_the_keys_field(self):
         screen = self.step2()
@@ -1292,7 +1458,7 @@ class ScrollAreaTests(UiCase):
     def test_scrollbar_appears_when_the_window_is_lower_than_the_step(self):
         screen = self.step2()
         self.root.deiconify()
-        self.fit_to(560)
+        self.fit_to(440)
         self.assertTrue(self.app.area.scrolling)
         self.assertGreater(screen.winfo_reqheight(), self.app.area.canvas.winfo_height())
         region = [int(v) for v in self.app.area.canvas.cget('scrollregion').split()]
@@ -1301,7 +1467,7 @@ class ScrollAreaTests(UiCase):
     def test_scrollbar_goes_away_when_there_is_room_again(self):
         self.step2()
         self.root.deiconify()
-        self.fit_to(560)
+        self.fit_to(440)
         self.assertTrue(self.app.area.scrolling)
         self.fit_to(2000)
         self.assertFalse(self.app.area.scrolling)
@@ -1309,7 +1475,7 @@ class ScrollAreaTests(UiCase):
     def test_the_wheel_scrolls_only_when_there_is_a_bar(self):
         screen = self.step2()
         self.root.deiconify()
-        self.fit_to(560)
+        self.fit_to(440)
         before = self.app.area.canvas.yview()[0]
         self.app.area._wheel(SimpleNamespace(widget=screen.entry_max, delta=-120))
         self.assertGreater(self.app.area.canvas.yview()[0], before)
@@ -1321,7 +1487,7 @@ class ScrollAreaTests(UiCase):
     def test_a_new_step_starts_at_the_top(self):
         self.step2()
         self.root.deiconify()
-        self.fit_to(560)
+        self.fit_to(440)
         self.app.area.canvas.yview_moveto(1.0)
         self.app.go_back()
         self.assertEqual(self.app.area.canvas.yview()[0], 0.0)
@@ -1568,9 +1734,7 @@ class ConnectionBannerTests(UiCase):
 
 
 class StaleLoadMessageTests(UiCase):
-    """Dopo un Load fallito il messaggio d'errore parla del valore di prima: se si cambia il campo, torna il messaggio normale."""
-
-    NEUTRAL = 'Load the data for the translation.'
+    """Dopo un Load fallito il messaggio d'errore parla del valore di prima: se si cambia il campo, il banner sparisce."""
 
     def test_a_bad_key_error_goes_away_when_the_keys_change(self):
         screen = self.step2()
@@ -1578,7 +1742,7 @@ class StaleLoadMessageTests(UiCase):
         screen.load()
         self.assertEqual((screen.status.state, screen.status.message.cget('text')), ('error', 'Not a valid key: ttt'))
         screen.var_keys.set('')
-        self.assertEqual((screen.status.state, screen.status.message.cget('text')), ('info', self.NEUTRAL))
+        self.assertEqual(screen.status.winfo_manager(), '')
 
     def test_a_wrong_max_rows_error_goes_away_when_it_is_fixed(self):
         screen = self.step2()
@@ -1586,7 +1750,7 @@ class StaleLoadMessageTests(UiCase):
         screen.load()
         self.assertEqual(screen.status.state, 'error')
         screen.var_max.set('5')
-        self.assertEqual((screen.status.state, screen.status.message.cget('text')), ('info', self.NEUTRAL))
+        self.assertEqual(screen.status.winfo_manager(), '')
 
     def test_no_rows_found_is_stale_too(self):
         self.fake_db.source['FW_STRINGS'] = []
@@ -1595,7 +1759,7 @@ class StaleLoadMessageTests(UiCase):
         screen.load()
         self.assertEqual(screen.status.state, 'error')
         screen.var_keys.set('998')
-        self.assertEqual(screen.status.message.cget('text'), self.NEUTRAL)
+        self.assertEqual(screen.status.winfo_manager(), '')
 
     def test_a_database_error_while_loading_is_stale_too(self):
         screen = self.step2()
@@ -1603,7 +1767,7 @@ class StaleLoadMessageTests(UiCase):
         screen.load()
         self.assertEqual(screen.status.state, 'error')
         screen.var_level.set(L_CT)
-        self.assertEqual(screen.status.message.cget('text'), self.NEUTRAL)
+        self.assertEqual(screen.status.winfo_manager(), '')
 
     def test_the_message_is_reset_only_once(self):
         screen = self.step2()
@@ -1849,7 +2013,7 @@ class PreviewFlowTests(UiCase):
         screen, _ = self.previewed(2)
         self.assertEqual(str(screen.entry_max.cget('state')), 'normal')
         self.assertEqual(state(screen.load_button), 'normal')
-        self.assertEqual(screen.translate_button.cget('text'), 'Translate')
+        self.assertEqual(screen.translate_button.label, 'Translate')
 
     def test_the_preview_shows_the_level_and_the_user_of_every_row(self):
         self.use_azure()
@@ -3096,10 +3260,10 @@ class TranslateTests(UiCase):
         screen = self.loaded_strings(2)
         seen = []
         self.hook_progress(screen, lambda p: seen.append((
-            str(screen.translate_button.cget('text')), str(screen.translate_button.cget('style')),
+            screen.translate_button.label, screen.translate_button.kind,
             state(screen.translate_button), screen.status.state, screen.status.message.cget('text'),
             float(str(screen.progress.cget('maximum'))))))
-        self.assertEqual(str(screen.translate_button.cget('text')), 'Translate')
+        self.assertEqual(screen.translate_button.label, 'Translate')
         screen.translate()
         self.assertEqual(len(seen), 2)
         for shot in seen:
@@ -3129,7 +3293,7 @@ class TranslateTests(UiCase):
         def press_stop(progress):
             if progress.done == 2:
                 screen.stop()
-                seen.append((state(screen.translate_button), str(screen.translate_button.cget('text')),
+                seen.append((state(screen.translate_button), screen.translate_button.label,
                              screen.status.state, screen.status.message.cget('text')))
                 screen.stop()                            # un secondo clic non cambia niente
 
@@ -3149,8 +3313,8 @@ class TranslateTests(UiCase):
         screen = self.loaded_strings(3)
         self.hook_progress(screen, lambda p: screen.stop())
         screen.translate()
-        self.assertEqual(str(screen.translate_button.cget('text')), 'Translate')
-        self.assertEqual(str(screen.translate_button.cget('style')), PRIMARY)
+        self.assertEqual(screen.translate_button.label, 'Translate')
+        self.assertEqual(screen.translate_button.kind, PRIMARY)
         self.assertEqual(state(screen.translate_button), 'disabled')
         self.assertIsNone(screen.selection)
         self.assertEqual(state(screen.load_button), 'normal')
@@ -3255,7 +3419,7 @@ class TranslateTests(UiCase):
         self.assertEqual(self.fake_db.writes(), [])
         self.assertFalse(self.app.translating or screen.running)
         self.assertEqual(state(screen.load_button), 'normal')
-        self.assertEqual(str(screen.translate_button.cget('text')), 'Translate')
+        self.assertEqual(screen.translate_button.label, 'Translate')
 
     def test_unexpected_error_during_the_run_unlocks_everything_and_reports_it(self):
         self.use_azure()
@@ -3268,7 +3432,7 @@ class TranslateTests(UiCase):
         self.assertEqual(state(screen.load_button), 'normal')
         self.assertTrue(self.app.stepper.link_enabled)
         self.assertEqual(self.logs('inserts') + self.logs('errors'), [])
-        self.assertEqual((str(screen.translate_button.cget('text')), str(screen.translate_button.cget('style'))),
+        self.assertEqual((screen.translate_button.label, screen.translate_button.kind),
                          ('Translate', PRIMARY))
         self.assertEqual(state(screen.translate_button), 'disabled')
 
@@ -3402,6 +3566,8 @@ class ToolsShellTests(UiCase):
         screen = self.shell(self.strings_tool(), self.fake_tool('names', 'Names'))
         screen.menu.tabs['names'].event_generate('<Button-1>')
         self.assertEqual(screen.selected, 'names')
+        self.assertFalse(screen.menu.expanded)                             # scelto uno strumento la riga si chiude (preferenza)
+        screen.menu.expand()
         self.press(screen.menu.tabs['strings'], '<Return>')
         self.assertEqual(screen.selected, 'strings')
 
@@ -3731,6 +3897,40 @@ class PreferencesFileTests(NamesToolsCase):
         from jt.jsonstore import write_json
         write_json(self.paths.preferences, data)
 
+    def test_a_click_on_a_tab_closes_the_tabs_bar_by_default(self):
+        self.open('names')
+        shell = self.app.screen
+        self.assertTrue(shell.menu.expanded)                               # all'apertura le schede si vedono
+        shell.menu.on_select('indexes')                                    # il clic su una scheda
+        self.assertEqual(shell.selected, 'indexes')
+        self.assertFalse(shell.menu.expanded)
+        self.assertEqual(shell.menu.summary.cget('text'), 'Indexes')
+        shell.menu.expand()
+        shell.menu.on_select('names')                                      # riaperta a mano, si richiude alla prossima scelta
+        self.assertFalse(shell.menu.expanded)
+
+    def test_the_tabs_bar_can_stay_open_from_the_preferences(self):
+        self.prefer(tools_bar={'collapse_on_select': False})
+        self.open('names')
+        shell = self.app.screen
+        shell.menu.on_select('indexes')
+        self.assertEqual(shell.selected, 'indexes')
+        self.assertTrue(shell.menu.expanded)
+
+    def test_selecting_a_tool_from_the_code_leaves_the_bar_alone(self):
+        self.open('names')
+        shell = self.app.screen
+        shell.select('indexes')
+        self.assertTrue(shell.menu.expanded)
+
+    def test_a_click_on_a_switched_off_tab_does_not_close_the_bar(self):
+        self.fake_db.invalid_tables = {'ALL_IND_COLUMNS'}
+        self.open('names')
+        shell = self.app.screen
+        shell.menu.on_select('indexes')
+        self.assertEqual(shell.selected, 'names')
+        self.assertTrue(shell.menu.expanded)
+
     def test_the_tool_opened_first_is_the_preferred_one(self):
         self.prefer(default_tool='indexes')
         self.assertEqual(self.open('indexes').__class__.__name__, 'IndexesScreen')
@@ -3855,8 +4055,49 @@ class NamesScreenTests(NamesToolsCase):
         screen = self.open()
         self.search(screen, 'Virtuale')
         self.assertEqual(screen.summary_text.split('  ·  ')[0], '(no physical table) → Virtuale')
-        self.assertEqual(self.app.settings.search_history(), [])
+        self.assertEqual(self.app.searches('names').entries(), [])
         self.assertEqual(self.app.current_table['physical'], '-')
+
+    def test_the_fields_start_in_the_order_of_the_db_position(self):
+        self.fake_db.dictionary_rows = [
+            ('GD_LIRIG', 'LIRIG_PREZO', 'RigaListino', 'Prezzo', 'N', '15', '4', 3),
+            ('GD_LIRIG', 'LIRIG_LICOD', 'RigaListino', 'CodListino', 'C', '10', '0', 1),
+            ('GD_LIRIG', 'LIRIG_CATLI', 'RigaListino', 'CatListino', 'C', '2', '0', 2),
+            ('GD_LIRIG', 'LIRIG_ZZZ', 'RigaListino', 'Senza', 'C', '2', '0', None)]
+        from jt import dictionary
+        dictionary.forget()
+        screen = self.open()
+        self.search(screen, 'GD_LIRIG')
+        self.assertEqual([r['CAMPO_FISICO'] for r in screen.grid.rows], ['LIRIG_LICOD', 'LIRIG_CATLI', 'LIRIG_PREZO', 'LIRIG_ZZZ'])
+        self.assertEqual(screen.grid.columns[0][0], 'POSIZ_DB')                 # la colonna "Pos." e' la prima
+        self.assertIsNone(screen.grid.sorted_by)                                  # e' l'ordine di partenza: nessuna freccia
+        screen.grid.sort_by('CAMPO_FISICO')
+        screen.grid.sort_by('CAMPO_FISICO')
+        screen.grid.sort_by('CAMPO_FISICO')                                       # il terzo clic torna all'ordine per posizione
+        self.assertEqual([r['CAMPO_FISICO'] for r in screen.grid.rows], ['LIRIG_LICOD', 'LIRIG_CATLI', 'LIRIG_PREZO', 'LIRIG_ZZZ'])
+
+    def test_fields_asked_for_by_name_keep_the_order_they_were_written_in(self):
+        screen = self.open()
+        self.search(screen, 'GD_LIRIG', 'Prezzo, CodListino')
+        self.assertEqual([r['CAMPO_FISICO'] for r in screen.grid.rows], ['LIRIG_PREZO', 'LIRIG_LICOD'])
+
+    def test_a_table_with_several_descriptors_is_ordered_by_descriptor_then_position(self):
+        self.fake_db.dictionary_rows = [
+            ('MD_ARTI', 'ARTI_B', 'Articolo', 'B', 'C', '2', '0', 2), ('MD_ARTI', 'ARTI_A', 'Articolo', 'A', 'C', '2', '0', 1),
+            ('MD_ARTI', 'ARTI_Y', 'ArticoloEsteso', 'Y', 'C', '2', '0', 2), ('MD_ARTI', 'ARTI_X', 'ArticoloEsteso', 'X', 'C', '2', '0', 1)]
+        from jt import dictionary
+        dictionary.forget()
+        screen = self.open()
+        self.search(screen, 'MD_ARTI')
+        self.assertEqual([r['CAMPO_FISICO'] for r in screen.grid.rows], ['ARTI_A', 'ARTI_B', 'ARTI_X', 'ARTI_Y'])
+
+    def test_without_positions_the_column_is_not_shown(self):
+        self.fake_db.dictionary_rows = [('GD_LIRIG', 'LIRIG_LICOD', 'RigaListino', 'CodListino', 'C', '10', '0')]
+        from jt import dictionary
+        dictionary.forget()
+        screen = self.open()
+        self.search(screen, 'GD_LIRIG')
+        self.assertNotIn('POSIZ_DB', [c[0] for c in screen.grid.columns])
 
     def test_a_click_on_a_column_heading_sorts_and_again_reverses(self):
         screen = self.open()
@@ -3869,6 +4110,29 @@ class NamesScreenTests(NamesToolsCase):
         self.assertIn('▼', screen.grid.tree.heading('CAMPO_LOGICO', 'text'))
         screen.grid.sort_by('AMPIEZZA')                                    # numeri come numeri: 20, 20, 50
         self.assertEqual([r['AMPIEZZA'] for r in screen.grid.rows], ['20', '20', '50'])
+
+    def test_a_third_click_on_a_column_removes_the_sort_and_restores_the_original_order(self):
+        screen = self.open()
+        self.search(screen, 'MD_ARTI')
+        original = [(r['TABELLA_LOGICA'], r['CAMPO_LOGICO']) for r in screen.grid.rows]
+        screen.grid.sort_by('CAMPO_LOGICO')
+        screen.grid.sort_by('CAMPO_LOGICO')
+        self.assertEqual(screen.grid.sorted_by, ('CAMPO_LOGICO', False))
+        screen.grid.sort_by('CAMPO_LOGICO')                                # terzo clic: niente ordinamento
+        self.assertIsNone(screen.grid.sorted_by)
+        self.assertEqual([(r['TABELLA_LOGICA'], r['CAMPO_LOGICO']) for r in screen.grid.rows], original)
+        self.assertNotIn('\u25b2', screen.grid.tree.heading('CAMPO_LOGICO', 'text'))
+        self.assertNotIn('\u25bc', screen.grid.tree.heading('CAMPO_LOGICO', 'text'))
+        screen.grid.sort_by('CAMPO_LOGICO')                                # e un nuovo clic ricomincia da crescente
+        self.assertEqual(screen.grid.sorted_by, ('CAMPO_LOGICO', True))
+
+    def test_sorting_another_column_after_a_descending_one_starts_ascending(self):
+        screen = self.open()
+        self.search(screen, 'MD_ARTI')
+        screen.grid.sort_by('CAMPO_LOGICO')
+        screen.grid.sort_by('CAMPO_LOGICO')
+        screen.grid.sort_by('AMPIEZZA')
+        self.assertEqual(screen.grid.sorted_by, ('AMPIEZZA', True))
 
     def test_a_cell_is_copied_with_a_click(self):
         screen = self.open()
@@ -3889,16 +4153,86 @@ class NamesScreenTests(NamesToolsCase):
         self.assertEqual(lines[1], 'GD_LIRIG\tLIRIG_LICOD\tRigaListino\tCodListino\tC\t10\t0')
         self.assertEqual(screen.status.message.cget('text'), 'All rows copied to the clipboard.')
 
-    def test_recent_searches_are_remembered_and_run_again(self):
+    def test_recent_searches_are_remembered_as_typed_most_recent_first(self):
+        screen = self.open()
+        self.search(screen, 'Articolo')
+        self.search(screen, 'FW_STRINGS')
+        self.search(screen, 'MD_ARTI')
+        self.assertEqual([e['text'] for e in self.app.searches('names').entries()], ['MD_ARTI', 'FW_STRINGS', 'Articolo'])
+        self.assertEqual(list(screen.picker.entry.cget('values')), ['MD_ARTI', 'FW_STRINGS', 'Articolo'])
+        screen.picker.set_value('Articolo')                                # si sceglie dal menu: la ricerca parte da sola
+        screen.picker.entry.event_generate('<<ComboboxSelected>>')
+        self.assertEqual(screen.summary_text.split('  ·  ')[0], 'MD_ARTI → Articolo')
+
+    def test_the_menu_is_filtered_while_typing(self):
+        screen = self.open()
+        for text in ('Articolo', 'GD_LIRIG', 'FW_STRINGS'):
+            self.search(screen, text)
+        screen.picker.set_value('lir')
+        screen.picker.refresh_history(screen.picker.value())
+        self.assertEqual(list(screen.picker.entry.cget('values')), ['GD_LIRIG'])
+
+    def test_a_search_can_be_removed_from_the_history_or_the_whole_history_cleared(self):
+        screen = self.open()
+        for text in ('Articolo', 'GD_LIRIG'):
+            self.search(screen, text)
+        screen.picker.set_value('articolo')
+        screen.picker.remove_current()
+        self.assertEqual([e['text'] for e in self.app.searches('names').entries()], ['GD_LIRIG'])
+        self.assertEqual(list(screen.picker.entry.cget('values')), ['GD_LIRIG'])
+        self.assertEqual(screen.status.message.cget('text'), '"articolo" removed from the history.')
+        screen.picker.clear_history()
+        self.assertEqual(self.app.searches('names').entries(), [])
+        self.assertEqual(list(screen.picker.entry.cget('values')), [])
+        self.assertEqual(screen.status.message.cget('text'), 'History cleared.')
+
+    def test_the_history_list_lets_you_pick_or_remove_any_search(self):
+        screen = self.open()
+        screen.picker._history_menu()                                      # storia vuota: nessuna lista, solo un avviso
+        self.assertIsNone(getattr(screen.picker, 'menu', None))
+        self.assertEqual(screen.status.message.cget('text'), 'The history is empty.')
+        for text in ('Articolo', 'GD_LIRIG', 'FW_STRINGS'):
+            self.search(screen, text)
+        screen.picker._history_menu()
+        menu = screen.picker.menu
+        self.root.update()
+        self.assertEqual([r.cget('text') for r in menu.rows], ['FW_STRINGS', 'GD_LIRIG', 'Articolo', 'Clear history'])
+        self.assertEqual(len(menu.crosses), 3)                              # una crocetta per ogni ricerca, non solo l'ultima
+        menu.crosses[1].event_generate('<ButtonRelease-1>')                 # toglie "GD_LIRIG" (non l'ultima)
+        self.root.update()
+        self.assertEqual([e['text'] for e in self.app.searches('names').entries()], ['FW_STRINGS', 'Articolo'])
+        self.assertTrue(screen.picker.menu.winfo_exists())                  # la lista si riapre per toglierne altre
+        self.assertEqual([r.cget('text') for r in screen.picker.menu.rows], ['FW_STRINGS', 'Articolo', 'Clear history'])
+        screen.picker.menu.close()
+
+    def test_picking_from_the_history_list_redoes_the_search_with_its_fields(self):
+        screen = self.open()
+        self.search(screen, 'GD_LIRIG', 'Prezzo')
+        self.search(screen, 'FW_STRINGS')
+        screen.picker._history_menu()
+        self.root.update()
+        next(r for r in screen.picker.menu.rows if r.cget('text').startswith('GD_LIRIG')).event_generate('<ButtonRelease-1>')
+        self.assertEqual(screen.picker.value(), 'GD_LIRIG')
+        self.assertEqual(screen.fields_text(), 'Prezzo')
+        self.assertEqual([r['CAMPO_FISICO'] for r in screen.grid.rows], ['LIRIG_PREZO'])
+
+    def test_a_search_with_other_fields_is_another_entry_and_the_menu_shows_all_of_them(self):
         screen = self.open()
         self.search(screen, 'GD_LIRIG')
+        self.search(screen, 'GD_LIRIG', 'Prezzo')
+        labels = [self.app.searches('names').label(e) for e in self.app.searches('names').entries()]
+        self.assertEqual(labels, ['GD_LIRIG \u00b7 Prezzo', 'GD_LIRIG'])
+        screen.picker._open_list()                                         # si apre la casella con la stessa ricerca scritta: si vede tutto
+        self.assertEqual(list(screen.picker.entry.cget('values')), labels)
+
+    def test_names_and_indexes_have_their_own_history(self):
+        screen = self.open()
         self.search(screen, 'FW_STRINGS')
-        self.assertEqual(self.app.settings.search_history(), [{'fisico': 'FW_STRINGS', 'logico': 'FwStrings'},
-                                                               {'fisico': 'GD_LIRIG', 'logico': 'RigaListino'}])
-        self.assertEqual(list(screen.picker.entry.cget('values')), ['FW_STRINGS', 'GD_LIRIG'])
-        screen.picker.set_value('GD_LIRIG')                                # si sceglie dal menu: la ricerca parte da sola
-        screen.picker.entry.event_generate('<<ComboboxSelected>>')
-        self.assertEqual(screen.summary_text.split('  ·  ')[0], 'GD_LIRIG → RigaListino')
+        indexes = self.open('indexes')
+        self.search(indexes, 'GD_LIRIG')
+        self.assertEqual([e['text'] for e in self.app.searches('names').entries()], ['FW_STRINGS'])
+        self.assertEqual([e['text'] for e in self.app.searches('indexes').entries()], ['GD_LIRIG'])
+        self.assertEqual(list(indexes.picker.entry.cget('values')), ['GD_LIRIG'])
 
     def test_it_reads_and_writes_nothing_in_the_database_and_needs_no_key(self):
         self.key_reason = 'the key file was not found'
@@ -3993,6 +4327,28 @@ class IndexesScreenTests(NamesToolsCase):
         before = len(self.fake_db.index_queries)
         shell.select('indexes')
         self.assertEqual(len(self.fake_db.index_queries), before)
+
+    def test_the_table_from_names_is_shown_but_not_put_in_the_history_of_indexes(self):
+        names_screen = self.open('names')
+        self.search(names_screen, 'FW_STRINGS')
+        shell = self.app.screen
+        shell.select('indexes')
+        screen = shell.current
+        self.assertEqual([screen.tree.item(i, 'text') for i in screen.tree.get_children()], ['IDX_STR'])
+        self.assertEqual(self.app.searches('indexes').entries(), [])             # non l'hai cercata in Indexes
+        self.assertEqual(list(screen.picker.entry.cget('values')), [])
+        self.search(screen, 'GD_LIRIG')                                         # questa si': e' una ricerca di Indexes
+        self.assertEqual([e['text'] for e in self.app.searches('indexes').entries()], ['GD_LIRIG'])
+
+    def test_following_names_can_be_turned_off_from_the_preferences(self):
+        from jt.jsonstore import write_json
+        write_json(self.paths.preferences, {'indexes': {'follow_names': False}})
+        names_screen = self.open('names')
+        self.search(names_screen, 'FW_STRINGS')
+        shell = self.app.screen
+        shell.select('indexes')
+        self.assertEqual(shell.current.tree.get_children(), ())
+        self.assertEqual(shell.current.picker.value(), '')
 
     def test_a_new_connection_forgets_the_last_table(self):
         shell_screen = self.open('names')
@@ -4105,6 +4461,128 @@ class TreeBoxTests(UiCase):
         self.settle()
         self.assertEqual(box.hbar.winfo_manager(), '')
         self.assertEqual(box.vbar.winfo_manager(), '')
+
+
+class InputDialogTests(UiCase):
+    def ask(self, typed):
+        """Apre la finestra, scrive `typed` (o annulla se e' None) e ritorna cosa ha risposto."""
+        def act():
+            dialog = self.app.last_dialog
+            if typed is None:
+                dialog._cancel()                                          # la X della finestra
+            else:
+                dialog.text.set(typed)
+                dialog.ok_button.invoke()
+        self.root.after(50, act)
+        return self.app.ask_text('Name of the connection', 'SIM @ host', 'Save')
+
+    def test_it_returns_the_text_without_the_spaces_at_the_edges(self):
+        self.assertEqual(self.ask('  Mia connessione  '), 'Mia connessione')
+
+    def test_cancelling_returns_none(self):
+        self.assertIsNone(self.ask(None))
+
+    def test_the_save_icon_is_off_without_a_text_and_the_field_starts_with_the_suggestion(self):
+        seen = {}
+
+        def look():
+            dialog = self.app.last_dialog
+            seen['start'] = dialog.text.get()
+            dialog.text.set('   ')
+            seen['empty'] = str(dialog.ok_button.cget('state'))
+            dialog._cancel()
+        self.root.after(50, look)
+        self.app.ask_text('Name', 'SIM @ host', 'Save')
+        self.assertEqual(seen, {'start': 'SIM @ host', 'empty': 'disabled'})
+
+
+class IconButtonTests(UiCase):
+    def make(self, **kw):
+        from jt.ui.widgets import icon_button
+        calls = []
+        button = icon_button(self.root, 'send', lambda: calls.append(1), **kw)
+        button.box.pack()
+        self.root.update()
+        button.calls = calls
+        return button
+
+    def test_a_button_is_square_and_invoke_calls_the_command(self):
+        button = self.make()
+        self.assertEqual(button.box.winfo_width(), button.box.winfo_height())
+        button.invoke()
+        self.assertEqual(button.calls, [1])
+
+    def test_a_disabled_button_does_nothing_and_comes_back(self):
+        button = self.make(state='disabled')
+        button.invoke()
+        self.assertEqual(button.calls, [])
+        self.assertEqual(state(button), 'disabled')
+        button.config(state='normal')
+        button.invoke()
+        self.assertEqual(button.calls, [1])
+
+    def test_config_changes_the_icon_the_label_and_the_kind(self):
+        button = self.make(label='Translate', kind='Primary.TButton')
+        button.config(icon='stop', label='Stop', kind='Danger.TButton')
+        self.assertEqual((button.label, button.kind, button.icon_name), ('Stop', 'Danger.TButton', 'stop'))
+        self.assertEqual(str(button.cget('fg')), PALETTE['error'])
+
+    def test_a_toggle_is_flat_when_off_and_filled_when_on(self):
+        from jt.ui.widgets import icon_toggle
+        var = tk.BooleanVar(self.root, value=False)
+        seen = []
+        toggle = icon_toggle(self.root, 'filter', var, command=lambda: seen.append(var.get()))
+        toggle.box.pack()
+        self.root.update()
+        self.assertEqual((str(toggle.cget('bg')), str(toggle.cget('fg'))), (PALETTE['bg'], PALETTE['accent']))
+        toggle.invoke()
+        self.assertTrue(var.get())
+        self.assertEqual((str(toggle.cget('bg')), str(toggle.cget('fg'))), (PALETTE['accent'], 'white'))
+        var.set(False)                                                    # cambiata da fuori: l'aspetto la segue
+        self.assertEqual((str(toggle.cget('bg')), str(toggle.cget('fg'))), (PALETTE['bg'], PALETTE['accent']))
+        toggle.invoke()
+        self.assertEqual(seen, [True, True])
+
+    def test_a_real_click_on_a_toggle_turns_it_on_and_off(self):
+        from jt.ui.widgets import icon_toggle
+        var = tk.BooleanVar(self.root, value=False)
+        toggle = icon_toggle(self.root, 'filter', var)
+        toggle.box.pack()
+        self.root.deiconify()                                             # senza finestra visibile il pulsante non ha ancora una misura
+        for _ in range(5):
+            self.root.update()
+        for expected in (True, False):
+            toggle.event_generate('<ButtonPress-1>', x=5, y=5)
+            toggle.event_generate('<ButtonRelease-1>', x=5, y=5)
+            self.assertEqual(var.get(), expected)
+
+
+class PopupMenuTests(UiCase):
+    def anchor(self):
+        button = ttk.Button(self.root, text='x')
+        button.pack()
+        self.root.update()
+        return button
+
+    def test_a_choice_closes_the_menu_and_runs_the_command(self):
+        from jt.ui.widgets import PopupMenu
+        called = []
+        menu = PopupMenu(self.anchor(), [('One', lambda: called.append('one'), True), ('Two', lambda: called.append('two'), False)])
+        self.root.update()
+        menu.rows[1].event_generate('<ButtonRelease-1>')                   # disattivata: niente
+        self.assertEqual(called, [])
+        self.assertTrue(menu.winfo_exists())
+        menu.rows[0].event_generate('<ButtonRelease-1>')
+        self.assertEqual(called, ['one'])
+        self.assertFalse(menu.winfo_exists())
+
+    def test_escape_closes_it_and_the_text_of_a_disabled_item_is_muted(self):
+        from jt.ui.widgets import PopupMenu
+        menu = PopupMenu(self.anchor(), [('One', lambda: None, False)])
+        self.assertEqual(str(menu.rows[0].cget('fg')), PALETTE['muted'])
+        menu.close()
+        self.assertFalse(menu.winfo_exists())
+        menu.close()                                                      # chiuderlo due volte non da' errore
 
 
 class ScrolledTextTests(UiCase):
@@ -4726,11 +5204,11 @@ class WindowTests(UiCase):
         self.app.fit_window()
         self.assertFalse(int(self.root.attributes('-topmost')))
 
-    def test_step_two_is_taller_than_step_one(self):
+    def test_each_step_has_its_own_height(self):
         with patch.object(self.root, 'winfo_screenheight', return_value=2000):
             h1 = self.geometry_for(self.app.show_connection)[1]
             h2 = self.geometry_for(self.app.show_translation)[1]
-        self.assertGreater(h2, h1)
+        self.assertNotEqual(h2, h1)         # ogni passo ha la sua altezza
 
     def test_window_is_centered_the_first_time_and_keeps_its_position_after(self):
         with patch.object(self.root, 'winfo_screenheight', return_value=2000), \
@@ -5126,11 +5604,12 @@ class WidgetTests(UiCase):
         style = ttk.Style(self.root)
         self.assertEqual(style.lookup('Primary.TButton', 'background'), PALETTE['accent'])
         self.assertEqual(style.lookup('Primary.TButton', 'foreground'), 'white')
-        self.assertEqual(style.lookup('Secondary.TButton', 'background'), 'white')
+        self.assertEqual(style.lookup('Secondary.TButton', 'background'), PALETTE['bg'])
         self.assertEqual(style.lookup('Secondary.TButton', 'foreground'), PALETTE['accent'])
         for kind in ('Primary', 'Secondary'):
             small = f'Small.{kind}.TButton'
-            self.assertEqual(str(style.lookup(small, 'padding')), '14 3', small)
+            padding = style.lookup(small, 'padding')                           # a volte Tk ritorna la lista invece del testo
+            self.assertEqual(padding if isinstance(padding, str) else ' '.join(str(p) for p in padding), '14 3', small)
             self.assertEqual(style.lookup(small, 'background'), style.lookup(f'{kind}.TButton', 'background'))
             self.assertEqual(style.lookup(small, 'foreground'), style.lookup(f'{kind}.TButton', 'foreground'))
         for name in ('Card.TLabelframe', 'Muted.TLabel', 'Dialog.TLabel'):
@@ -5139,10 +5618,10 @@ class WidgetTests(UiCase):
 
     def test_disabled_buttons_are_visibly_different(self):
         style = ttk.Style(self.root)
-        for name in ('Primary.TButton', 'Secondary.TButton'):
-            normal = style.lookup(name, 'background')
-            disabled = style.lookup(name, 'background', ['disabled'])
-            self.assertNotEqual(normal, disabled, name)
+        normal, disabled = style.lookup('Primary.TButton', 'background'), style.lookup('Primary.TButton', 'background', ['disabled'])
+        self.assertNotEqual(normal, disabled)
+        normal, disabled = style.lookup('Secondary.TButton', 'foreground'), style.lookup('Secondary.TButton', 'foreground', ['disabled'])
+        self.assertNotEqual(normal, disabled)                                     # i pulsanti di testo sono piatti: cambia il testo
 
     def test_window_background_follows_the_palette(self):
         self.assertEqual(str(self.root.cget('bg')), PALETTE['bg'])
@@ -5241,7 +5720,7 @@ class BackgroundTranslateTests(UiCase):
         self.pump(0.3)
         self.assertGreater(len(ticks), 5)                 # il ciclo degli eventi non si e' fermato
         self.assertEqual(screen.label_bar.cget('text'), 'Waiting to start')    # ancora nessun avanzamento
-        self.assertEqual(str(screen.translate_button.cget('text')), 'Stop')
+        self.assertEqual(screen.translate_button.label, 'Stop')
 
         self.translator.release()                          # prima riga finita: l'avanzamento arriva col polling
         self.assertTrue(self.wait_for(lambda: screen.label_bar.cget('text').startswith('Processed 1/3'), timeout=5))
@@ -5259,7 +5738,7 @@ class BackgroundTranslateTests(UiCase):
         self.assertEqual(screen.status.state, 'ok')
         self.assertTrue(text.startswith('Done: 3 inserted. Log: Logs\\JT_inserts_log_'), text)
         self.assertEqual(screen.label_bar.cget('text'), f'Processed 3/3 {SEP} Inserted 3 {SEP} Errors 0')
-        self.assertEqual((str(screen.translate_button.cget('text')), state(screen.translate_button)),
+        self.assertEqual((screen.translate_button.label, state(screen.translate_button)),
                          ('Translate', 'disabled'))
         self.assertEqual(state(screen.load_button), 'normal')
         self.assertTrue(self.app.stepper.link_enabled)
@@ -5280,7 +5759,7 @@ class BackgroundTranslateTests(UiCase):
         text = screen.status.message.cget('text')
         self.assertEqual(screen.status.state, 'warn')
         self.assertTrue(text.startswith('Stopped: 1 inserted. Log: Logs\\JT_inserts_log_'), text)
-        self.assertEqual((str(screen.translate_button.cget('text')), str(screen.translate_button.cget('style')),
+        self.assertEqual((screen.translate_button.label, screen.translate_button.kind,
                           state(screen.translate_button)), ('Translate', PRIMARY, 'disabled'))
         self.assertIsNone(screen.selection)
         self.assertEqual(state(screen.load_button), 'normal')
@@ -5304,7 +5783,7 @@ class BackgroundTranslateTests(UiCase):
         self.assertEqual(screen.status.state, 'error')
         self.assertEqual(screen.status.message.cget('text'), 'The run stopped because of an error: boom')
         self.assertEqual(state(screen.load_button), 'normal')
-        self.assertEqual(str(screen.translate_button.cget('text')), 'Translate')
+        self.assertEqual(screen.translate_button.label, 'Translate')
 
     def test_closing_during_the_run_stops_after_the_row_and_closes_once_the_thread_is_done(self):
         screen = self.loaded_strings(5)
@@ -5731,13 +6210,13 @@ class ThemeTests(UiCase):
         combo.config(state='disabled')                       # come fa _lock(): lo stato e' solo "disabled"
         self.assertEqual(style.lookup('TCombobox', 'fieldbackground', combo.state()), PALETTE['disabled_soft_bg'])
 
-    def test_the_danger_button_style_is_red_on_white(self):
+    def test_the_danger_button_style_is_red_and_flat(self):
         style = ttk.Style(self.root)
         self.assertEqual(style.lookup('Danger.TButton', 'foreground'), PALETTE['error'])
-        self.assertEqual(style.lookup('Danger.TButton', 'background'), 'white')
-        self.assertEqual(style.lookup('Danger.TButton', 'bordercolor'), PALETTE['error'])
-        self.assertNotEqual(style.lookup('Danger.TButton', 'background', ['disabled']),
-                            style.lookup('Danger.TButton', 'background'))
+        self.assertEqual(style.lookup('Danger.TButton', 'background'), PALETTE['bg'])
+        self.assertEqual(style.lookup('Danger.TButton', 'bordercolor'), PALETTE['border'])
+        self.assertNotEqual(style.lookup('Danger.TButton', 'foreground', ['disabled']),          # piatto: cambia il colore del testo
+                            style.lookup('Danger.TButton', 'foreground'))
 
     def test_the_palette_has_the_documented_values(self):
         self.assertEqual(PALETTE['ok'], '#14703a')
@@ -5789,7 +6268,7 @@ class AssetTests(unittest.TestCase):
     def test_graphics_folder_holds_only_what_the_app_uses(self):
         needed = {'icons'}
         for number, state in Stepper.IMAGES:
-            for suffix in ('', '_30', '_36', '_48'):
+            for suffix in ('', '_22', '_27', '_36'):
                 needed.add(f'step_{number}_{state}{suffix}.png')
         self.assertEqual(set(os.listdir(self.GRAPHICS)), needed)
 
@@ -6125,15 +6604,22 @@ class WindowIconTests(unittest.TestCase):
         from jt.ui.winicon import set_window_icons
         self.assertFalse(set_window_icons(self.root, os.path.join(helpers.ROOT, 'Graphics', 'icons', 'non_esiste.ico')))
 
+    def paths_with_user_folder(self):
+        """I file veri del programma (icone) ma i dati dell'utente in una cartella di prova: il test non scrive nel progetto."""
+        import tempfile
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder, True)
+        return helpers.Paths(helpers.ROOT, folder)
+
     def test_the_application_window_gets_both_icons(self):
-        app = JTApp(self.root, helpers.Paths(helpers.ROOT), Database(driver=FakeDriver(FakeDB())),
+        app = JTApp(self.root, self.paths_with_user_folder(), Database(driver=FakeDriver(FakeDB())),
                     runner=InlineRunner(), scale_factor=1.0)
         self.assertEqual(self.icon_width(self.root, 0), self.user32.GetSystemMetrics(49))
         self.assertEqual(self.icon_width(self.root, 1), self.user32.GetSystemMetrics(11))
         self.assertIsNotNone(app)
 
     def test_the_confirm_dialog_gets_both_icons_too(self):
-        app = JTApp(self.root, helpers.Paths(helpers.ROOT), Database(driver=FakeDriver(FakeDB())),
+        app = JTApp(self.root, self.paths_with_user_folder(), Database(driver=FakeDriver(FakeDB())),
                     runner=InlineRunner(), scale_factor=1.0)
         sizes = {}
 

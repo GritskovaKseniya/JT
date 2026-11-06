@@ -293,6 +293,276 @@ def coming_soon(parent, text, wrap):
     return row
 
 
+class PopupMenu(tk.Toplevel):
+    """Menu a comparsa nello stile dell'app (come i suggerimenti): un riquadro bianco con un bordo sottile, voci che si colorano di
+    azzurro al passaggio del mouse. Si chiude con un clic fuori, con Esc o scegliendo una voce. `items` = [(testo, comando, attiva[, togli])]
+    (con `togli` la voce ha una crocetta a destra che chiama quel comando);
+    compare sotto `anchor`, con il bordo destro allineato al suo (cosi' non esce dalla finestra)."""
+
+    def __init__(self, anchor, items):
+        super().__init__(anchor)
+        self.wm_overrideredirect(True)
+        c = PALETTE
+        outer = tk.Frame(self, bg=c['border'], padx=1, pady=1)
+        outer.pack()
+        body = tk.Frame(outer, bg='white', pady=px(4))
+        body.pack()
+        self.rows = []
+        for item in items:
+            text, command, enabled = item[:3]
+            if text == '-':                                       # un separatore
+                tk.Frame(body, bg=c['border'], height=1).pack(fill='x', pady=px(3))
+                continue
+            remove = item[3] if len(item) > 3 else None          # una voce puo' avere la crocetta per toglierla dalla lista
+            line = tk.Frame(body, bg='white')
+            line.pack(fill='x')
+            row = tk.Label(line, text=text, bg='white', fg=c['text'] if enabled else c['muted'], font=(FONT, 9), anchor='w',
+                           padx=px(14), pady=px(5), cursor='hand2' if enabled else 'arrow')
+            row.pack(side='left', fill='x', expand=True)
+            if enabled:
+                row.bind('<Enter>', lambda _e, r=row: r.configure(bg=c['accent_soft'], fg=c['accent']))
+                row.bind('<Leave>', lambda _e, r=row: r.configure(bg='white', fg=c['text']))
+                row.bind('<ButtonRelease-1>', lambda _e, cmd=command: self._choose(cmd))
+            if remove:
+                cross = tk.Label(line, text='\u2715', bg='white', fg=c['muted'], font=(FONT_SYMBOL, 9), padx=px(10), pady=px(5),
+                                 cursor='hand2')
+                cross.pack(side='right')
+                cross.bind('<Enter>', lambda _e, w=cross: w.configure(bg='#fdeceb', fg=c['error']))
+                cross.bind('<Leave>', lambda _e, w=cross: w.configure(bg='white', fg=c['muted']))
+                cross.bind('<ButtonRelease-1>', lambda _e, cmd=remove: self._choose(cmd))
+                self.crosses = getattr(self, 'crosses', []) + [cross]
+            self.rows.append(row)
+        self.update_idletasks()
+        w, h = self.winfo_reqwidth(), self.winfo_reqheight()
+        x = max(anchor.winfo_rootx() + anchor.winfo_width() - w, 0)
+        y = anchor.winfo_rooty() + anchor.winfo_height() + px(2)
+        self.wm_geometry(f'+{x}+{y}')
+        self.bind('<Escape>', lambda _e: self.close())
+        self.bind('<ButtonPress>', self._pressed)
+        self.focus_force()
+        try:
+            self.grab_set()                  # i clic fuori arrivano qui: cosi' si sa quando chiudere
+        except tk.TclError:
+            pass
+
+    def _pressed(self, event):
+        inside = (self.winfo_rootx() <= event.x_root < self.winfo_rootx() + self.winfo_width()
+                  and self.winfo_rooty() <= event.y_root < self.winfo_rooty() + self.winfo_height())
+        if not inside:
+            self.close()
+
+    def _choose(self, command):
+        self.close()
+        command()
+
+    def close(self):
+        if self.winfo_exists():
+            try:
+                self.grab_release()
+            except tk.TclError:
+                pass
+            self.destroy()
+
+
+class IconButton(tk.Label):
+    """Un pulsante quadrato con un solo simbolo, minimalista (come in Teams): nessun bordo, si colora di azzurro al passaggio del
+    mouse. E' un `Label` dentro a un quadrato di misura fissa (`.box`: quello da mettere con pack/grid). Ha `invoke()` e `state`
+    ('normal' o 'disabled') come un pulsante. Il simbolo si da' per nome (`ICONS`): sono i simboli del font di Windows
+    "Segoe MDL2 Assets", gli stessi di Teams e di Edge; se il font manca si usa un simbolo di ripiego. `LIFT` alza il simbolo di un
+    paio di pixel perche' stia in mezzo (il font ha piu' spazio sotto)."""
+    SIZE = 28
+    FONT_ICONS = 'Segoe MDL2 Assets'
+    #          nome: (codice nel font di Windows, simbolo di ripiego)
+    ICONS = {'search': (0xE721, '\u2315'), 'history': (0xE81C, '\u2630'), 'reload': (0xE72C, '\u27f3'),
+             'send': (0xE724, '\u25b7'), 'clear': (0xE711, '\u2715'), 'copy': (0xE8C8, '\u2750'),
+             'to_query': (0xE7A7, '\u21b0'), 'load': (0xE896, '\u2193'), 'preview': (0xE890, '\u25c9'),
+             'stop': (0xE71A, '\u25a0'), 'write': (0xE74E, '\u2713'), 'discard': (0xE74D, '\u2715'),
+             'filter': (0xE71C, '\u25bd')}
+    LIFT = 1
+    _has_font = None
+
+    def __init__(self, parent, icon, command=None, state='normal', label='', kind='Secondary.TButton'):
+        if IconButton._has_font is None:
+            from tkinter import font as tkfont
+            IconButton._has_font = self.FONT_ICONS in tkfont.families(parent)
+        self.icon_name, self.label, self.kind = icon, label, kind       # kind: lo stile del pulsante di testo che sostituisce
+        glyph, family, size = self._glyph(icon)
+        self.box = tk.Frame(parent, width=px(self.SIZE), height=px(self.SIZE), bg=PALETTE['bg'])
+        super().__init__(self.box, text=glyph, font=(family, size), fg=self._color(),
+                         bg=PALETTE['bg'], disabledforeground=PALETTE['muted'], takefocus=True, highlightthickness=1,
+                         highlightbackground=PALETTE['bg'], highlightcolor=PALETTE['accent'])
+        self.command = command
+        self.on_blocked = None          # chiamata se si preme il pulsante da spento (per dire perche' non si puo')
+        self.place(x=0, y=-px(self.LIFT), relwidth=1, relheight=1, height=px(self.LIFT))
+        self.configure(state=state, cursor='hand2' if state == 'normal' else 'arrow')
+        self.bind('<Enter>', lambda _e: self._paint(self._hover_color()))
+        self.bind('<Leave>', lambda _e: self._paint(self._rest_color()))
+        self.bind('<ButtonPress-1>', lambda _e: self._paint('#cfe0f5'))
+        self.bind('<ButtonRelease-1>', self._released)
+        for key in ('<Return>', '<space>'):
+            self.bind(key, lambda _e: self.invoke())
+
+    @classmethod
+    def _glyph(cls, icon):
+        code, fallback = cls.ICONS[icon]
+        return (chr(code), cls.FONT_ICONS, 11) if cls._has_font else (fallback, FONT_SYMBOL, 13)
+
+    def _color(self):
+        return PALETTE['error'] if self.kind == 'Danger.TButton' else PALETTE['accent']
+
+    def _rest_color(self):
+        return PALETTE['bg']
+
+    def _hover_color(self):
+        return PALETTE['accent_soft']
+
+    def _paint(self, color):
+        if str(self.cget('state')) == 'disabled':
+            color = self._rest_color()
+        self.configure(bg=color)
+        self.box.configure(bg=color)
+
+    def _released(self, event):
+        inside = 0 <= event.x < self.winfo_width() and 0 <= event.y < self.winfo_height()
+        self._paint(self._hover_color() if inside else self._rest_color())
+        if inside:
+            self.invoke()
+
+    def configure(self, cnf=None, **kw):
+        """Oltre alle opzioni del Label: `icon` (un altro simbolo), `label` e `kind` (che pulsante e': Stop e' rosso), `command`."""
+        if hasattr(self, 'icon_name'):
+            self.label = kw.pop('label', self.label)
+            self.kind = kw.pop('kind', self.kind)
+            self.command = kw.pop('command', self.command)
+            if 'icon' in kw:
+                self.icon_name = kw.pop('icon')
+                glyph, family, size = self._glyph(self.icon_name)
+                kw.update(text=glyph, font=(family, size))
+            kw.setdefault('fg', self._color())
+        result = super().configure(cnf, **kw)
+        if 'state' in kw:
+            self.config_cursor = 'hand2' if str(kw['state']) == 'normal' else 'arrow'
+            super().configure(cursor=self.config_cursor)
+            self._paint(self._rest_color())
+        return result
+
+    config = configure
+
+    def invoke(self):
+        if str(self.cget('state')) == 'disabled':
+            if self.on_blocked:
+                self.on_blocked()
+        elif self.command:
+            self.command()
+
+
+class ToggleButton(tk.Label):
+    """Un'opzione sì/no fatta come un pulsante (al posto della casella): spenta è bianca con un bordo sottile colorato, accesa si
+    riempie di colore. Legge e scrive una `BooleanVar`; un clic, Invio o Spazio la girano. `command` si chiama dopo ogni cambio."""
+
+    def __init__(self, parent, text, variable, command=None):
+        super().__init__(parent, text=text, font=(FONT, 9), padx=px(10), pady=px(3), bd=0, cursor='hand2', takefocus=True,
+                         highlightthickness=1, highlightbackground=PALETTE['accent'], highlightcolor=PALETTE['accent_dark'])
+        self.variable, self.command, self._inside = variable, command, False
+        self._trace = variable.trace_add('write', self._paint)
+        self.bind('<Button-1>', lambda _e: self.invoke())
+        for key in ('<Return>', '<space>'):
+            self.bind(key, lambda _e: self.invoke())
+        self.bind('<Enter>', lambda _e: self._hover(True))
+        self.bind('<Leave>', lambda _e: self._hover(False))
+        self.bind('<Destroy>', self._forget, add='+')
+        self._paint()
+
+    def _hover(self, inside):
+        self._inside = inside
+        self._paint()
+
+    def _paint(self, *_):
+        on = bool(self.variable.get())
+        if on:
+            bg, fg = (PALETTE['accent_dark'] if self._inside else PALETTE['accent']), 'white'
+        else:
+            bg, fg = (PALETTE['accent_soft'] if self._inside else 'white'), PALETTE['accent']
+        try:
+            self.configure(bg=bg, fg=fg)
+        except tk.TclError:
+            pass                                # il pulsante non c'e' piu'
+
+    def _forget(self, event):
+        if event.widget is self:
+            try:
+                self.variable.trace_remove('write', self._trace)
+            except tk.TclError:
+                pass
+
+    def invoke(self):
+        self.variable.set(not self.variable.get())
+        if self.command:
+            self.command()
+
+
+class IconToggle(IconButton):
+    """Un'opzione si'/no fatta come un pulsante-icona: spenta e' piatta come le altre icone, accesa si riempie di azzurro con l'icona
+    bianca. Legge e scrive una `BooleanVar`; un clic, Invio o Spazio la girano.
+    `command` si chiama dopo ogni cambio."""
+
+    def __init__(self, parent, icon, variable, command=None, label=''):
+        self.variable, self.user_command = variable, command
+        super().__init__(parent, icon, self._toggle, label=label)
+        self._trace = variable.trace_add('write', lambda *_: self._repaint())
+        self.bind('<Destroy>', self._forget, add='+')
+        self._repaint()
+
+    def _on(self):
+        return bool(self.variable.get())
+
+    def _rest_color(self):
+        return PALETTE['accent'] if self._on() else PALETTE['bg']
+
+    def _hover_color(self):
+        return PALETTE['accent_dark'] if self._on() else PALETTE['accent_soft']
+
+    def _paint(self, color):
+        super()._paint(color)
+        if str(self.cget('state')) != 'disabled':
+            self.configure(fg='white' if self._on() else PALETTE['accent'])
+
+    def _repaint(self):
+        try:
+            self._paint(self._hover_color() if self._inside() else self._rest_color())
+        except tk.TclError:
+            pass                                # il pulsante non c'e' piu'
+
+    def _inside(self):
+        try:
+            x, y = self.winfo_pointerxy()
+            return self.winfo_containing(x, y) is self
+        except (tk.TclError, KeyError):
+            return False
+
+    def _toggle(self):
+        self.variable.set(not self.variable.get())
+        if self.user_command:
+            self.user_command()
+
+    def _forget(self, event):
+        if event.widget is self:
+            try:
+                self.variable.trace_remove('write', self._trace)
+            except tk.TclError:
+                pass
+
+
+def icon_toggle(parent, icon, variable, command=None, label=''):
+    """Un interruttore-icona (vedi IconToggle): si mette con `.box.pack(...)`."""
+    return IconToggle(parent, icon, variable, command, label)
+
+
+def icon_button(parent, icon, command=None, state='normal', label='', kind='Secondary.TButton'):
+    """Un pulsante-icona (vedi IconButton): si mette con `.box.pack(...)`."""
+    return IconButton(parent, icon, command, state, label, kind)
+
+
 class Stepper(tk.Frame):
     """Pannello dei passi: (1) Connection ── (2) Translation, con il link "New connection" a destra.
 
@@ -304,7 +574,7 @@ class Stepper(tk.Frame):
     IMAGES = ((1, 'current'), (1, 'done'), (2, 'todo'), (2, 'current'))   # gli unici pallini che compaiono
 
     def __init__(self, parent, on_new_connection, graphics_dir=None):
-        super().__init__(parent, bg=PALETTE['bg'], padx=px(20), pady=px(12))
+        super().__init__(parent, bg=PALETTE['bg'], padx=px(20), pady=px(3))      # bassa: lo spazio serve agli strumenti
         self.step = 1
         self.states = ['current', 'todo']
         self.columnconfigure(2, weight=1)
@@ -313,13 +583,13 @@ class Stepper(tk.Frame):
         for index, (name, column) in enumerate(zip(self.NAMES, (0, 3))):
             badge = tk.Label(self, bg=PALETTE['bg'], font=(FONT, 9, 'bold'), width=2)
             badge.grid(row=0, column=column)
-            label = tk.Label(self, text=name, bg=PALETTE['bg'], font=(FONT, 10))
+            label = tk.Label(self, text=name, bg=PALETTE['bg'], font=(FONT, 9))
             label.grid(row=0, column=column + 1, padx=(px(6), 0))
             self._badges.append(badge)
             self._names.append(label)
         tk.Frame(self, height=2, bg=PALETTE['border']).grid(row=0, column=2, sticky='ew', padx=px(8))
         self.link = tk.Label(self, text='New connection', bg=PALETTE['bg'], fg=PALETTE['accent'],
-                             cursor='hand2', font=(FONT, 9, 'underline'))
+                             cursor='hand2', font=(FONT, 8, 'underline'))
         self.link.grid(row=0, column=5, padx=(px(14), 0))
         self.link.bind('<Button-1>', lambda _e: self._click(on_new_connection))
         self.link_enabled = True
@@ -331,10 +601,10 @@ class Stepper(tk.Frame):
 
     @staticmethod
     def _load_images(graphics_dir):
-        """Pallini della dimensione adatta alla scala dello schermo (24, 30, 36 o 48 px)."""
+        """Pallini della dimensione adatta alla scala dello schermo (18, 22, 27 o 36 px)."""
         factor = scale.factor()
-        size = 24 if factor < 1.1 else 30 if factor < 1.35 else 36 if factor < 1.75 else 48
-        suffix = '' if size == 24 else f'_{size}'
+        size = 18 if factor < 1.1 else 22 if factor < 1.35 else 27 if factor < 1.75 else 36
+        suffix = '' if size == 18 else f'_{size}'
         images = {}
         for number, state in Stepper.IMAGES:
             try:
@@ -368,7 +638,7 @@ class Stepper(tk.Frame):
         for i, (badge, label, state) in enumerate(zip(self._badges, self._names, self.states), start=1):
             self._style_badge(badge, i, state)
             label.configure(fg=PALETTE['text'] if state == 'current' else PALETTE['muted'],
-                            font=(FONT, 10, 'bold') if state == 'current' else (FONT, 10))
+                            font=(FONT, 9, 'bold') if state == 'current' else (FONT, 9))
         if step == 2:
             self.link.grid()
         else:
@@ -524,8 +794,8 @@ class Collapsible(tk.Frame):
         self.extra = tk.Frame(self.header, bg=PALETTE['bg'])
         self.arrow.pack(side='left')
         self.title.pack(side='left', padx=(px(4), 0))
+        self.extra.pack(side='right')           # prima del riassunto: se manca spazio si accorcia il riassunto, non `extra`
         self.summary.pack(side='left', padx=(px(10), 0))
-        self.extra.pack(side='right')
         for widget in (self.header, self.arrow, self.title, self.summary):
             widget.bind('<Button-1>', self.toggle, add='+')
         for key in ('<Return>', '<space>'):

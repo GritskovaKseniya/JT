@@ -9,9 +9,11 @@ DEFAULTS = {
     'default_tool': '',                                     # strings | tecsql | names | indexes ('' = il primo)
     'tecsql': {'strip_parameters': False},                  # "Remove ?parameters" acceso all'apertura
     'names': {'sort': '', 'descending': False, 'hide_columns': []},      # colonna per ordinare, verso, colonne da nascondere
-    'indexes': {'expand_all': False},                       # gli indici si aprono mostrando le colonne
+    'indexes': {'expand_all': False, 'follow_names': True},   # aprendo Indexes si mostra la tabella cercata in Names
+    'tools_bar': {'collapse_on_select': True},              # scelto uno strumento, la riga delle schede si chiude (resta il nome)
+    'history': {'max': 50},                                 # quante ricerche di tabelle si ricordano (per database)                       # gli indici si aprono mostrando le colonne
 }
-NAMES_COLUMNS = ('CAMPO_FISICO', 'CAMPO_LOGICO', 'TIPO', 'AMPIEZZA', 'DECIMALI', 'TABELLA_LOGICA')
+NAMES_COLUMNS = ('POSIZ_DB', 'CAMPO_FISICO', 'CAMPO_LOGICO', 'TIPO', 'AMPIEZZA', 'DECIMALI', 'TABELLA_LOGICA')
 
 
 def strip_comments(text):

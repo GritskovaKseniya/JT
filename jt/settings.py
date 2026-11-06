@@ -1,7 +1,9 @@
 """Impostazioni salvate: ultima connessione, ultima scelta, credenziali Azure."""
 from . import environments
 from .jsonstore import read_json, write_json
+from .connections import ConnectionProfiles
 from .preferences import Preferences
+from .search_history import SearchHistory
 
 
 class Settings:
@@ -58,27 +60,16 @@ class Settings:
             data['level'] = level
         write_json(self._paths.query, data)
 
-    MAX_SEARCHES = 50
+    def profiles(self):
+        """I profili di connessione salvati."""
+        return ConnectionProfiles(self._paths.connections)
 
-    def search_history(self):
-        """Le tabelle cercate di recente, ordinate per nome fisico: [{'fisico': ..., 'logico': ...}]."""
-        try:
-            data = read_json(self._paths.searches)
-        except (OSError, ValueError):
-            return []
-        if not isinstance(data, list):
-            return []
-        return [item for item in data if isinstance(item, dict) and item.get('fisico')]
-
-    def add_search(self, physical, logical):
-        """Ricorda una tabella cercata (una volta sola, al massimo MAX_SEARCHES)."""
-        history = self.search_history()
-        entry = {'fisico': physical, 'logico': logical}
-        if entry in history:
-            return
-        history.append(entry)
-        history.sort(key=lambda item: item['fisico'].lower())
-        write_json(self._paths.searches, history[-self.MAX_SEARCHES:])
+    def searches(self, database, tool=''):
+        """La storia delle ricerche di tabelle di questo database e di questo strumento (`database` = environments.key); il massimo si sceglie in
+        preferences.json ("history": {"max": 50})."""
+        limit = self.preferences().get('history', 'max')
+        key = f'{database}|{tool}' if tool else database          # una storia per strumento (Names e Indexes non la dividono)
+        return SearchHistory(self._paths.searches, key, limit if limit > 0 else 1, inherit=(database if tool == 'names' else None) if tool else '')
 
     def azure_credentials(self):
         return read_json(self._paths.azure)

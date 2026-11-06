@@ -62,7 +62,7 @@ def check_zip(path, with_azure=True):
             if name.endswith('/'):
                 continue
             base = name.rsplit('/', 1)[-1]
-            if name in FORBIDDEN_FILES or base in PERSONAL_NAMES or name.startswith('JTools/Logs/') or name.endswith('.csv'):
+            if name in FORBIDDEN_FILES or base in PERSONAL_NAMES or name.startswith('JTools/Logs/') or '/connections/' in name or name.endswith('.csv'):
                 problems.append(f'file che non deve esserci: {name}')
         if not any(n.startswith('JTools/Graphics/icons/') and n.endswith('.ico') for n in names):
             problems.append("manca l'icona (Graphics/icons)")

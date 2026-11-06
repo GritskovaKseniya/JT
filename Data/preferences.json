@@ -11,6 +11,13 @@
         "hide_columns": []
     },
     "indexes": {
-        "expand_all": false
+        "expand_all": false,
+        "follow_names": true
+    },
+    "tools_bar": {
+        "collapse_on_select": true
+    },
+    "history": {
+        "max": 50
     }
 }

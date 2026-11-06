@@ -7,7 +7,7 @@ from ..tecsql_translator import normalize_query_text
 from .dictionary_bar import DictionaryBar
 from .scale import pad, px
 from .theme import FONT, PALETTE
-from .widgets import ScrolledText, StatusBar, ToolTip, WrapTracker
+from .widgets import ScrolledText, StatusBar, ToolTip, WrapTracker, icon_button, icon_toggle
 
 MONO = ('Consolas', 10)
 EMPTY_HINT = 'Paste a query: with a $ it is TecSQL (to SQL), without it is SQL (to TecSQL).'
@@ -29,24 +29,25 @@ class TecsqlScreen(ttk.Frame):
         self.panes = ttk.PanedWindow(self, orient='vertical')
         self.panes.pack(fill='both', expand=True)
         query_pane, card, header = self._pane('QUERY')
+        # sulla riga del titolo, da destra a sinistra: Clear, Translate e il dizionario (con la sua icona di Reload)
+        self.clear_button = icon_button(header, 'clear', self.clear)
+        self.clear_button.box.pack(side='right', padx=(px(4), 0))
+        ToolTip(self.clear_button, {'title': 'Clear', 'intro': 'Empties the query and the result.'})
+        self.translate_button = icon_button(header, 'send', self.translate)
+        self.translate_button.box.pack(side='right', padx=(0, px(2)))
+        ToolTip(self.translate_button, {'title': 'Translate', 'intro': 'Translates the query (Ctrl+Enter).'})
+        self.check_strip = icon_toggle(header, 'filter', self.var_strip, label='Remove ?parameters')
+        self.check_strip.box.pack(side='right', padx=(0, px(2)))
+        ToolTip(self.check_strip, {'title': 'Remove ?parameters',
+                                   'intro': 'TecSQL to SQL only: drops the WHERE/HAVING conditions that use a ?parameter, '
+                                            'so the query can be run as it is. On when highlighted.'})
         self.bar = DictionaryBar(header, app, self._say, on_reload=self._reloaded)          # "Names dictionary: N fields  Reload"
-        self.bar.pack(side='right')
+        self.bar.pack(side='right', padx=(0, px(2)))
         self.label_dictionary, self.reload_button = self.bar.label, self.bar.button
         self.input_box = ScrolledText(card, height=4)
         self.input = self.input_box.text
         self.input_box.pack(fill='both', expand=True)
         self.input.bind('<Control-Return>', lambda _e: (self.translate(), 'break')[1])
-        buttons = tk.Frame(card, bg=PALETTE['bg'])
-        buttons.pack(fill='x', pady=(px(6), 0))
-        self.translate_button = ttk.Button(buttons, text='Translate', style='Small.Primary.TButton', command=self.translate)
-        self.translate_button.pack(side='left', padx=(0, px(6)))
-        self.clear_button = ttk.Button(buttons, text='Clear', style='Small.Secondary.TButton', command=self.clear)
-        self.clear_button.pack(side='left')
-        self.check_strip = ttk.Checkbutton(buttons, text='Remove ?parameters', variable=self.var_strip)
-        self.check_strip.pack(side='right')
-        ToolTip(self.check_strip, {'title': 'Remove ?parameters',
-                                   'intro': 'TecSQL to SQL only: drops the WHERE/HAVING conditions that use a ?parameter, '
-                                            'so the query can be run as it is.'})
 
         # se la tabella ha piu' nomi logici: quale (sotto la query)
         self.choice_row = tk.Frame(query_pane, bg=PALETTE['bg'])
@@ -61,11 +62,11 @@ class TecsqlScreen(ttk.Frame):
         result_pane, card, header = self._pane('RESULT', top=px(6))
         self.label_direction = tk.Label(header, text='', bg=PALETTE['bg'], fg=PALETTE['muted'], font=(FONT, 9))
         self.label_direction.pack(side='left', padx=(px(8), 0))
-        self.copy_button = ttk.Button(header, text='Copy', style='Small.Secondary.TButton', command=self.copy, state='disabled')
-        self.copy_button.pack(side='right')
-        self.swap_button = ttk.Button(header, text='Use as query', style='Small.Secondary.TButton', command=self.swap,
-                                      state='disabled')
-        self.swap_button.pack(side='right', padx=(0, px(6)))
+        self.copy_button = icon_button(header, 'copy', self.copy, state='disabled')
+        self.copy_button.box.pack(side='right')
+        ToolTip(self.copy_button, {'title': 'Copy', 'intro': 'Copies the result to the clipboard.'})
+        self.swap_button = icon_button(header, 'to_query', self.swap, state='disabled')
+        self.swap_button.box.pack(side='right', padx=(0, px(2)))
         ToolTip(self.swap_button, {'title': 'Use as query',
                                    'intro': 'Puts the result in the query box, to translate it back to the other form.'})
         self.output_box = ScrolledText(card, height=4, readonly=True)

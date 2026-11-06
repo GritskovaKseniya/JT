@@ -14,7 +14,7 @@ from .scale import pad, px
 from .secret import open_secret_panel
 from .texts import describe_duration, fmt_count, reason, rows, shorten
 from .theme import FONT, PALETTE
-from .widgets import Collapsible, StatusBar, ToolTip, WrapTracker, widen_dropdown
+from .widgets import Collapsible, StatusBar, ToolTip, WrapTracker, widen_dropdown, icon_button
 
 POLL_MS = 100            # ogni quanto l'interfaccia legge gli avanzamenti del thread di traduzione
 
@@ -141,7 +141,7 @@ class TranslationScreen(ttk.Frame):
         else:
             self.load_button.config(state='disabled')
             self.label_missing.config(text='No table available.')
-            self.status.show('error', 'None of the configured tables exist in this database. Check Data/tables.json.')
+            self._banner('error', 'None of the configured tables exist in this database. Check Data/tables.json.')
 
     def destroy(self):
         for job in (self._counting_job, self._poll_job):
@@ -310,24 +310,43 @@ class TranslationScreen(ttk.Frame):
             self.advanced.set_summary(f"Max rows {self.var_max.get().strip() or '-'}")
 
     def _build_actions(self):
-        buttons = ttk.Frame(self)
-        buttons.pack(fill='x', pady=px(8))
-        self.load_button = ttk.Button(buttons, text='Load', style='Secondary.TButton', command=self.load)
-        self.load_button.pack(side='left', expand=True, fill='x', padx=(0, px(6)))
-        self.preview_button = ttk.Button(buttons, text='Preview', style='Secondary.TButton', state='disabled',
-                                         command=self.run_preview)
-        self.preview_button.pack(side='left', expand=True, fill='x', padx=px(6))
+        buttons = self.selection_section.extra       # i pulsanti stanno sulla riga del titolo "WHAT TO TRANSLATE", a destra
+        self.load_button = icon_button(buttons, 'load', self.load, label='Load')
+        self.load_button.box.pack(side='left', padx=(0, px(4)))
+        ToolTip(self.load_button, {'title': 'Load', 'intro': 'Reads the strings to translate.'})
+        self.preview_button = icon_button(buttons, 'preview', self.run_preview, state='disabled', label='Preview')
+        self.preview_button.box.pack(side='left', padx=(0, px(4)))
         ToolTip(self.preview_button, PREVIEW_HINT)
-        self.translate_button = ttk.Button(buttons, text='Translate', style='Primary.TButton', state='disabled',
-                                           command=self.translate)
-        self.translate_button.pack(side='left', expand=True, fill='x', padx=(px(6), 0))
+        self.translate_button = icon_button(buttons, 'send', self.translate, state='disabled', label='Translate',
+                                            kind='Primary.TButton')
+        self.translate_button.box.pack(side='left')
+        for button in (self.preview_button, self.translate_button):
+            button.on_blocked = self._need_load           # premuto prima del Load: il banner dice cosa fare
+        ToolTip(self.translate_button, lambda: {'title': self.translate_button.label,
+                                                'intro': 'Stops the translation.' if self.translate_button.label == 'Stop'
+                                                else 'Translates the loaded strings and writes them to the database.'})
         self.label_key = tk.Label(self, text='', bg=PALETTE['bg'], fg=PALETTE['error'], font=(FONT, 9, 'bold'),
                                   wraplength=px(420), justify='left', anchor='w')       # solo senza chiave Azure
         self.wrap.add(self.label_key, 95)
         self.key_problem = ''
-        self.status = StatusBar(self, 'Load the data for the translation.', on_change=self.app.fit_window)
-        self.status.pack(fill='x')
+        # il banner non c'e' finche' non succede qualcosa; si chiude con la crocetta (vedi _banner)
+        self.status = StatusBar(self, '', on_change=self.app.fit_window, closable=True)
         self.wrap.add(self.status, 95)
+
+    def _below_status(self):
+        """Il blocco davanti al quale stanno avviso della chiave e banner: l'anteprima se c'e', altrimenti PROGRESS."""
+        return self.preview_section if self.preview_section.winfo_manager() else self.progress_section
+
+    def _banner(self, state, text):
+        """Mostra il banner (rimettendolo al suo posto se era chiuso o non c'era ancora)."""
+        if not self.status.winfo_manager():
+            self.status.pack(fill='x', pady=(px(8), 0), before=self._below_status())
+        self.status.show(state, text)
+
+    def _need_load(self):
+        """Preview o Translate premuti da spenti: se manca solo il Load, il banner lo dice."""
+        if self.selection is None and not self.running and not self.key_problem and self.preview is None:
+            self._banner('info', 'Load the data for the translation.')
 
     def _build_preview(self):
         """La tabella dell'anteprima: nascosta finche' non c'e' un'anteprima (vedi _show_preview_section)."""
@@ -354,13 +373,14 @@ class TranslationScreen(ttk.Frame):
                                        font=(FONT, 9), wraplength=px(340), justify='left', anchor='nw')
         self.preview_detail.pack(fill='x', pady=(px(2), 0))
         self.wrap.add(self.preview_detail, 80)
-        row = ttk.Frame(card)
-        row.pack(fill='x', pady=(px(8), 0))
-        self.write_button = ttk.Button(row, text='Write', style='Primary.TButton', state='disabled', command=self.write)
-        self.write_button.pack(side='left', expand=True, fill='x', padx=(0, px(6)))
-        self.discard_button = ttk.Button(row, text='Discard', style='Secondary.TButton', state='disabled',
-                                         command=self.discard)
-        self.discard_button.pack(side='left', expand=True, fill='x', padx=(px(6), 0))
+        # Write e Discard stanno sulla riga del titolo "PREVIEW", a destra (come gli altri pulsanti: icone, niente righe in piu')
+        row = self.preview_section.extra
+        self.write_button = icon_button(row, 'write', self.write, state='disabled', label='Write', kind='Primary.TButton')
+        self.write_button.box.pack(side='left', padx=(0, px(4)))
+        ToolTip(self.write_button, {'title': 'Write', 'intro': 'Writes the previewed rows to the database.'})
+        self.discard_button = icon_button(row, 'discard', self.discard, state='disabled', label='Discard')
+        self.discard_button.box.pack(side='left')
+        ToolTip(self.discard_button, {'title': 'Discard', 'intro': 'Throws the preview away without writing anything.'})
         self.preview_section.pack_forget()
 
     def _build_progress(self):
@@ -391,7 +411,7 @@ class TranslationScreen(ttk.Frame):
             os.makedirs(self.app.paths.logs, exist_ok=True)
             os.startfile(self.app.paths.logs)
         except OSError as e:
-            self.status.show('error', f'Could not open {self.app.paths.logs}: {reason(e)}')
+            self._banner('error', f'Could not open {self.app.paths.logs}: {reason(e)}')
 
     def _undo_hint(self):
         return {'title': 'Undo script', 'intro': 'Undoes the last run: a DELETE for every inserted row and an UPDATE that puts '
@@ -409,7 +429,7 @@ class TranslationScreen(ttk.Frame):
             except OSError:
                 os.startfile(os.path.dirname(path))
         except OSError as e:
-            self.status.show('error', f'Could not open {path}: {reason(e)}')
+            self._banner('error', f'Could not open {path}: {reason(e)}')
 
     def _set_undo(self, path):
         self._undo_path = path
@@ -499,13 +519,13 @@ class TranslationScreen(ttk.Frame):
         if self.selection is None:
             if self._stale_message:        # il messaggio d'errore del Load riguardava il valore di prima: non vale piu'
                 self._stale_message = False
-                self.status.show('info', 'Load the data for the translation.')
+                self.status.dismiss()
             return
         self.selection = None
         self._clear_preview()
         self.translate_button.config(state='disabled')
         self.preview_button.config(state='disabled')
-        self.status.show('info', 'Selection changed. Press Load to prepare it again.')
+        self._banner('info', 'Selection changed. Press Load to prepare it again.')
 
     def _reset_progress(self):
         self.progress_section.set_summary('')
@@ -531,17 +551,17 @@ class TranslationScreen(ttk.Frame):
         try:
             spec, lan_in, lan_out = self._current()
         except KeyError:
-            self.status.show('error', 'Choose a table and two languages.')
+            self._banner('error', 'Choose a table and two languages.')
             return
         if lan_in == lan_out:
-            self.status.show('error', 'Choose two different languages.')
+            self._banner('error', 'Choose two different languages.')
             return
         keys_text = self.var_keys.get().strip()
         if not keys_text and not self._max_rows_ok():
             self.advanced.expand()                           # il campo da correggere si vede
-            self.status.show('error', 'Max rows must be a whole number of at least 1.')
+            self._banner('error', 'Max rows must be a whole number of at least 1.')
             return
-        self.status.show('info', 'Loading...')
+        self._banner('info', 'Loading...')
         self.app.set_busy(True)
         level = self._level()
         try:
@@ -551,7 +571,7 @@ class TranslationScreen(ttk.Frame):
                 self._load_missing(spec, lan_in, lan_out, level)
         except Exception as e:
             print(e)
-            self.status.show('error', f'Could not load the rows: {reason(e)}')
+            self._banner('error', f'Could not load the rows: {reason(e)}')
         finally:
             self.app.set_busy(False)
 
@@ -562,7 +582,7 @@ class TranslationScreen(ttk.Frame):
     def _load_missing(self, spec, lan_in, lan_out, level):
         selection = self.app.service.load_missing(spec, lan_in, lan_out, int(self.var_max.get()), level)
         if not selection.total:
-            self.status.show('info', 'Nothing to translate: no missing rows for this selection.')
+            self._banner('info', 'Nothing to translate: no missing rows for this selection.')
             return
         self._accept(selection, 'ok', f'{rows(selection.total)} to translate{self._level_note(spec, level)}: '
                                       f'{describe_duration(selection.estimated_seconds)}, '
@@ -572,17 +592,17 @@ class TranslationScreen(ttk.Frame):
         try:
             keys = spec.parse_keys(keys_text)
         except TooManyKeys:
-            self.status.show('error', 'Too many keys: the limit is 1000.')
+            self._banner('error', 'Too many keys: the limit is 1000.')
             return
         except ValueError as e:
-            self.status.show('error', f'Not a valid key: {e}')
+            self._banner('error', f'Not a valid key: {e}')
             return
         selection = self.app.service.load_keys(spec, lan_in, lan_out, keys, level)
         if not selection.total:
             if selection.other_level:
-                self.status.show('warn', f'Nothing to translate: {self._other_level_text(selection)}')
+                self._banner('warn', f'Nothing to translate: {self._other_level_text(selection)}')
             else:
-                self.status.show('error', f'No {self.var_in.get()} rows found for these keys.')
+                self._banner('error', f'No {self.var_in.get()} rows found for these keys.')
             return
         text = (f'Update mode{self._level_note(spec, level)}: {rows(selection.total)}, '
                 f'{describe_duration(selection.estimated_seconds)} '
@@ -610,7 +630,7 @@ class TranslationScreen(ttk.Frame):
         self.selection = selection
         self.app.settings.save_last_query(self.var_in.get(), self.var_out.get(), self.var_table.get(),
                                           self.var_level.get())
-        self.status.show(state, text)
+        self._banner(state, text)
         keyed = 'disabled' if self.key_problem else 'normal'
         self.translate_button.config(state=keyed)
         self.preview_button.config(state=keyed)
@@ -626,7 +646,7 @@ class TranslationScreen(ttk.Frame):
             folder = os.path.dirname(self.app.paths.azure)
             self.label_key.config(text=azure_key.message(self.key_problem, folder))
             if not shown:
-                self.label_key.pack(fill='x', before=self.status)
+                self.label_key.pack(fill='x', before=self.status if self.status.winfo_manager() else self._below_status())
             for button in (self.preview_button, self.translate_button, self.write_button):
                 button.config(state='disabled')
         elif shown:
@@ -638,13 +658,13 @@ class TranslationScreen(ttk.Frame):
     def _make_translator(self):
         """Il traduttore Azure, oppure None (con il messaggio) se la chiave non c'e' o non vale."""
         if not self._check_key():
-            self.status.show('error', azure_key.message(self.key_problem, os.path.dirname(self.app.paths.azure)))
+            self._banner('error', azure_key.message(self.key_problem, os.path.dirname(self.app.paths.azure)))
             return None
         try:
             return self.app.make_translator()
         except Exception as e:
             print(e)
-            self.status.show('error', f'Azure settings not found or not valid ({self.app.paths.azure}).')
+            self._banner('error', f'Azure settings not found or not valid ({self.app.paths.azure}).')
             return None
 
     def translate(self):
@@ -656,7 +676,7 @@ class TranslationScreen(ttk.Frame):
         if translator is None:
             return
         if not self._confirm_write(selection):
-            self.status.show('info', 'Cancelled. Nothing was translated or written.')
+            self._banner('info', 'Cancelled. Nothing was translated or written.')
             return
         self._begin_run(selection)
         service, app = self.app.service, self.app
@@ -684,10 +704,10 @@ class TranslationScreen(ttk.Frame):
         if selection is None or preview is None or self.running or not preview.writable:
             return
         if not self._check_key():                # senza chiave non si scrive, nemmeno un'anteprima gia' pronta
-            self.status.show('error', azure_key.message(self.key_problem, os.path.dirname(self.app.paths.azure)))
+            self._banner('error', azure_key.message(self.key_problem, os.path.dirname(self.app.paths.azure)))
             return
         if not self._confirm_write(selection, preview):
-            self.status.show('info', 'Cancelled. Nothing was written: the preview is still here.')
+            self._banner('info', 'Cancelled. Nothing was written: the preview is still here.')
             return
         self._begin_run(selection, 'write', total=len(preview.rows))
         service, app = self.app.service, self.app
@@ -735,7 +755,7 @@ class TranslationScreen(ttk.Frame):
         self.selection = None
         self.translate_button.config(state='disabled')
         self.preview_button.config(state='disabled')
-        self.status.show('info', 'Preview discarded. Nothing was written. Press Load to prepare the selection again.')
+        self._banner('info', 'Preview discarded. Nothing was written. Press Load to prepare the selection again.')
 
     def _begin_run(self, selection, job='translate', total=None):
         self._job = job
@@ -749,14 +769,14 @@ class TranslationScreen(ttk.Frame):
             self._counting_job = None
         self._update_run = selection.update_mode
         self._lock(True)
-        self.translate_button.config(text='Stop', style='Danger.TButton', command=self.stop, state='normal')
+        self.translate_button.config(icon='stop', label='Stop', kind='Danger.TButton', command=self.stop, state='normal')
         self.progress.config(maximum=max(total if total is not None else selection.total, 1), value=0)
         if self.progress_section in self._folded:        # scrivendo si vuole vedere l'avanzamento
             self._folded.remove(self.progress_section)
             self.progress_section.expand(notify=False)
             self.app.fit_window()
         what = {'translate': 'Translating', 'preview': 'Previewing (nothing is written)', 'write': 'Writing'}[job]
-        self.status.show('info', f'{what}... you can press Stop at any time.')
+        self._banner('info', f'{what}... you can press Stop at any time.')
 
     def stop(self):
         """Ferma la traduzione dopo la riga in corso (le righe gia' scritte restano nel database)."""
@@ -765,12 +785,12 @@ class TranslationScreen(ttk.Frame):
         self._stopping = True
         self.app.runner.stop()
         self.translate_button.config(state='disabled')
-        self.status.show('warn', 'Stopping after the current row...')
+        self._banner('warn', 'Stopping after the current row...')
 
     def on_close_requested(self):
         self._stopping = True
         self.translate_button.config(state='disabled')
-        self.status.show('warn', 'Closing: finishing the current row first...')
+        self._banner('warn', 'Closing: finishing the current row first...')
 
     def _poll(self):
         """Legge gli avanzamenti arrivati dal thread di traduzione; si ripete finche' non e' finita."""
@@ -811,7 +831,7 @@ class TranslationScreen(ttk.Frame):
         self._stale_message = False
         if error is not None:
             print(error)
-        self.translate_button.config(text='Translate', style='Primary.TButton', command=self.translate, state='disabled')
+        self.translate_button.config(icon='send', label='Translate', kind='Primary.TButton', command=self.translate, state='disabled')
         if self.app.closing:
             self.app.finish_close()
             return
@@ -820,10 +840,10 @@ class TranslationScreen(ttk.Frame):
         if failure is not None or preview is None or preview.stopped:
             self.selection = None                    # le righe si leggono una volta sola: si ricarica
             if failure is not None:
-                self.status.show('error', f'The preview stopped because of an error: {reason(failure)}. '
+                self._banner('error', f'The preview stopped because of an error: {reason(failure)}. '
                                           'Nothing was written. Press Load to prepare it again.')
             else:
-                self.status.show('warn', 'Preview stopped. Nothing was written. Press Load to prepare it again.')
+                self._banner('warn', 'Preview stopped. Nothing was written. Press Load to prepare it again.')
             return
         self.preview = preview
         self._fill_preview(preview)
@@ -831,10 +851,10 @@ class TranslationScreen(ttk.Frame):
         self._lock(False)
         counts = f'{preview.inserts} insert, {preview.updates} update, {preview.skipped} skipped'
         if preview.writable:
-            self.status.show('warn' if preview.skipped else 'ok',
+            self._banner('warn' if preview.skipped else 'ok',
                              f'Preview ready: {counts}. Check the translations, then press Write.')
         else:
-            self.status.show('warn', f'Nothing to write: {counts}. See the table for the reasons.')
+            self._banner('warn', f'Nothing to write: {counts}. See the table for the reasons.')
 
     def _fill_preview(self, preview):
         tree = self.preview_tree
@@ -918,7 +938,7 @@ class TranslationScreen(ttk.Frame):
         except Exception as e:                   # non solo il disco: anche un valore che lo script non sa scrivere
             print(f'Could not write the undo script: {e}')
             undo_problem = reason(e)
-        self.translate_button.config(text='Translate', style='Primary.TButton', command=self.translate, state='disabled')
+        self.translate_button.config(icon='send', label='Translate', kind='Primary.TButton', command=self.translate, state='disabled')
         if self.app.closing:
             self.app.finish_close()
             return
@@ -940,7 +960,7 @@ class TranslationScreen(ttk.Frame):
                 text += f' Undo script: Logs\\{os.path.basename(undo_path)}'
             if undo_problem:
                 text += f' The undo script could not be created: {undo_problem}'
-            self.status.show('error', text)
+            self._banner('error', text)
             return
         written = f'{result.inserts} inserted' + (f', {result.updates} updated' if self._update_run else '')
         text = f"{'Stopped' if result.stopped else 'Done'}: {written}."
@@ -954,7 +974,7 @@ class TranslationScreen(ttk.Frame):
             text += f' The undo script could not be created: {undo_problem}'
         if result.errors:
             text += f"\nFirst error (code {result.errors[0]['code']}): {shorten(result.errors[0]['reason'], 160)}"
-        self.status.show('warn' if (result.errors or result.skipped or result.stopped) else 'ok', text)
+        self._banner('warn' if (result.errors or result.skipped or result.stopped) else 'ok', text)
 
     def _lock(self, locked):
         """Durante la traduzione i campi non si possono cambiare."""

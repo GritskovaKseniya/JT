@@ -123,7 +123,7 @@ class ToolsScreen(ttk.Frame):
         self.problems = {tool.name: app.tool_problem(tool) for tool in self.tools}      # nome -> perche' e' spento
         self.selected = None               # il nome dello strumento mostrato
         self.wrap = _WrapAll(self)
-        self.menu = ToolBar(self, self.tools, self.problems, self.select, lambda: app.fit_window())
+        self.menu = ToolBar(self, self.tools, self.problems, self._clicked, lambda: app.fit_window())
         self.menu.pack(fill='x', padx=px(20), pady=(0, px(3)))          # lo stesso margine ai lati delle schermate
         self.content = ttk.Frame(self)
         self.content.pack(fill='both', expand=True)
@@ -137,6 +137,13 @@ class ToolsScreen(ttk.Frame):
 
     def tool(self, name):
         return next(tool for tool in self.tools if tool.name == name)
+
+    def _clicked(self, name):
+        """Clic su una scheda: si apre lo strumento e, se cosi' e' scelto nelle preferenze, la riga delle schede si chiude (lo spazio serve
+        allo strumento; si riapre con la freccia)."""
+        self.select(name)
+        if self.selected == name and self.app.settings.preferences().get('tools_bar', 'collapse_on_select'):
+            self.menu.collapse()
 
     def select(self, name, notify=True):
         """Mostra lo strumento `name` (costruito al primo uso e poi tenuto). Spento o durante una traduzione: niente."""

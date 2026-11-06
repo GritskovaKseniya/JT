@@ -48,7 +48,7 @@ def write_text(path, text):
 def make_paths(tmp):
     """Copia la cartella Data reale in `tmp` e ne sostituisce le credenziali con valori finti.
     L'ultima scelta salvata (query_data.json) e' sempre la stessa: quella vera dipende da come si e' usata l'app."""
-    shutil.copytree(os.path.join(ROOT, 'Data'), os.path.join(tmp, 'Data'))
+    shutil.copytree(os.path.join(ROOT, 'Data'), os.path.join(tmp, 'Data'), ignore=shutil.ignore_patterns('connections'))
     paths = Paths(tmp)
     write_json(paths.azure, FAKE_AZURE)
     write_json(paths.connection, FAKE_CONNECTION)

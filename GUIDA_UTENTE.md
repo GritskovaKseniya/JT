@@ -41,6 +41,13 @@ una volta e JT lo ricorda **per quel database** (se ne scrivi un altro, torna `N
 ricorda sempre: `DEV` blu, `TEST` verde, `PROD` rosso, `NOT SET` arancione. **`Not set` vale come `prod`**: la scelta prudente.
 Puoi cambiarlo anche dopo esserti collegata, senza ricollegarti.
 
+**Connessioni salvate.** Ogni database a cui ti colleghi con successo si **salva da solo** (con il nome `SID @ host`, e `SID @ host (utente)` se cambia solo l'utente). In cima alla scheda
+c'e' l'icona della **storia** con accanto il nome della connessione scelta: un clic apre la lista (la piu' recente per prima), un clic su una voce riempie i campi e l'**Environment**,
+e la **crocetta** a destra di una voce la cancella. Se cambi un dato che dice il database (**Host name**, **Port**, **SID** o **Username**) il nome sparisce: non e' piu' quella
+connessione (si salvera' da sola dopo il prossimo Connect; se rimetti i dati di una salvata, il nome ricompare). L'icona **Save** accanto al nome salva i campi nella connessione scelta,
+o chiede un nome se non ce n'e' una. Anche la **password** viene salvata, in chiaro, nel profilo: e' un file sul tuo PC. Ogni connessione e' un file `.json` nella cartella `connections` dentro
+`%LOCALAPPDATA%\JTools`: lo puoi copiare a un collega o modificare a mano. La prima volta, l'ultima connessione che usavi diventa la prima connessione salvata.
+
 In basso a sinistra una riga mostra sempre lo stato: `Not connected - try the connection to continue` oppure
 `Connected to <database> - <host> - user <utente>`. Passa il mouse per vedere i dettagli.
 
@@ -184,6 +191,17 @@ si chiama in Oracle (nome **fisico**, per esempio `MD_ARTI.ARTI_ARTCO`) e come s
 tabella, aprendo Indexes la trovi gia' li'. Gli indici si leggono da Oracle (`ALL_INDEXES` e `ALL_IND_COLUMNS`) solo per la tabella chiesta; se la stessa
 tabella esiste in piu' schemi si tiene quello con piu' indici. Se il database non lascia leggere quelle viste, la scheda e' grigia.
 
+**Ordine dei campi.** Di partenza i campi stanno come nei descrittori: per **posizione nel database** (la colonna **Pos.**, la "Posiz. DB" dei descrittori; se la tabella ha piu'
+descrittori, prima un descrittore e poi l'altro). Se ne chiedi alcuni con **Fields**, restano nell'ordine in cui li hai scritti. Un clic sull'intestazione di una colonna li ordina in modo
+crescente (▲), un secondo in modo decrescente (▼), un terzo **toglie l'ordinamento** e torna all'ordine di partenza. Per un ordinamento fisso, `preferences.json`. Se il database non
+permette di leggere la posizione (versioni vecchie), la colonna **Pos.** non compare e i campi restano nell'ordine del dizionario.
+
+### La storia delle ricerche
+
+Il menu della casella **Table** (Names e Indexes) ricorda quello che hai cercato, **come l'hai scritto**: se cerchi `Articolo` resta `Articolo`, se cerchi `MD_ARTI` resta
+`MD_ARTI`. Le ricerche piu' recenti stanno in cima, e mentre scrivi il menu si restringe a quelle che contengono il testo (anche nel nome fisico o logico della tabella).
+Ogni database ha la sua storia, e **Names** e **Indexes** hanno ciascuno la propria. L'icona della storia, accanto alla lente, toglie dalla storia la ricerca scritta (**Remove from history**) o la svuota (**Clear history**).
+
 ### Finestra grande e barre di scorrimento
 
 La finestra si puo' **ridimensionare** (trascinando il bordo) o **mettere a schermo intero**: il contenuto cresce con lei. In SQL <> TecSQL i riquadri
@@ -203,6 +221,9 @@ Se vuoi cambiare quali strumenti si vedono, in che ordine e qualche predefinito,
 | `"tecsql": {"strip_parameters": true}` | "Remove ?parameters" gia' acceso. |
 | `"names": {"sort": "CAMPO_LOGICO", "descending": false, "hide_columns": ["DECIMALI"]}` | Ordine dei campi e colonne nascoste (Copy all copia comunque tutto). |
 | `"indexes": {"expand_all": true}` | Gli indici si aprono mostrando le colonne. |
+| `"indexes": {"follow_names": false}` | Aprendo Indexes non si mostra da solo la tabella cercata in Names (di partenza si mostra, senza metterla nella storia di Indexes). |
+| `"tools_bar": {"collapse_on_select": true}` | Scelto uno strumento, la riga delle schede si chiude e resta solo il suo nome (si riapre con la freccia a sinistra). `false` la lascia sempre aperta. |
+| `"history": {"max": 50}` | Quante ricerche di tabelle si ricordano (per database). |
 
 Le modifiche valgono dalla volta dopo che passi da **New connection**.
 

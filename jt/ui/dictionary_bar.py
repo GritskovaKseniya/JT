@@ -6,7 +6,7 @@ from tkinter import ttk
 from .. import dictionary as dictionary_reader
 from .scale import px
 from .theme import FONT, PALETTE
-from .widgets import ToolTip
+from .widgets import ToolTip, icon_button
 
 
 class DictionaryBar(tk.Frame):
@@ -16,8 +16,8 @@ class DictionaryBar(tk.Frame):
         self.dictionary = None
         self.label = tk.Label(self, text='', bg=PALETTE['bg'], fg=PALETTE['muted'], font=(FONT, 8))
         self.label.pack(side='left')
-        self.button = ttk.Button(self, text='Reload', style='Small.Secondary.TButton', command=self.reload)
-        self.button.pack(side='left', padx=(px(6), 0))
+        self.button = icon_button(self, 'reload', self.reload)
+        self.button.box.pack(side='left', padx=(px(6), 0))
         self.tip = ToolTip(self.label, self._hint, self.button)
 
     def _hint(self):

@@ -97,6 +97,11 @@ class Paths:
         return self._user_file('search_history.json')
 
     @property
+    def connections(self):
+        """La cartella dei profili di connessione (un file .json per database, vedi jt/connections.py)."""
+        return self._user_file('connections')
+
+    @property
     def preferences(self):
         """Le preferenze di visualizzazione, scritte a mano (vedi jt/preferences.py)."""
         return self._user_file('preferences.json')

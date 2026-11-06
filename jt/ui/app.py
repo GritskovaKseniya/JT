@@ -12,7 +12,7 @@ from ..service import TranslationService
 from ..settings import Settings
 from . import scale
 from .connection_screen import ConnectionScreen
-from .dialogs import ConfirmDialog
+from .dialogs import ConfirmDialog, InputDialog
 from .scale import px
 from .theme import setup_style
 from .indexes_screen import IndexesScreen
@@ -146,6 +146,11 @@ class JTApp:
         except OSError as e:                     # la connessione e' riuscita: un file non scrivibile non la annulla
             print(f'Could not save the connection data: {e}')
 
+    def searches(self, tool=''):
+        """La storia delle ricerche di tabelle del database collegato (una per database e per strumento: 'names', 'indexes')."""
+        info = self.db.info or {}
+        return self.settings.searches(environments.key(info.get('host', ''), info.get('port', ''), info.get('sid', '')), tool)
+
     def set_environment(self, env):
         """Cambia l'etichetta del database collegato (subito, senza ricollegarsi) e la ricorda per quel database."""
         self.environment = environments.normalize(env)
@@ -243,6 +248,17 @@ class JTApp:
             return False
         self._dialog = self.last_dialog = ConfirmDialog(self.root, question, detail, ok_text, cancel_text,
                                                         icon=self.paths.icon, **options)
+        try:
+            return self._dialog.show()
+        finally:
+            self._dialog = None
+
+    def ask_text(self, question, initial='', ok_text='OK'):
+        """Chiede un testo con la finestra dell'app (None se si annulla). Come `confirm`: una finestra alla volta."""
+        if self._dialog is not None:
+            self._dialog.top.lift()
+            return None
+        self._dialog = self.last_dialog = InputDialog(self.root, question, initial, ok_text, icon=self.paths.icon)
         try:
             return self._dialog.show()
         finally:

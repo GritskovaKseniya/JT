@@ -83,7 +83,7 @@ JT tiene **separati il programma e i dati dell'utente**:
 | Dove | Cosa |
 |---|---|
 | `%LOCALAPPDATA%\Programs\JTools` | programma, `Data` (tabelle, lingue, glossario), `Graphics`: sola lettura, si sostituisce a ogni aggiornamento |
-| `%LOCALAPPDATA%\JTools` | `Logs\`, `azure_services.json`, `connection_data.json`, `query_data.json`: restano dopo aggiornamenti e disinstallazione |
+| `%LOCALAPPDATA%\JTools` | `Logs\`, `connections\` (un file per database salvato), `azure_services.json`, `connection_data.json`, `query_data.json`: restano dopo aggiornamenti e disinstallazione |
 
 Alla prima partenza JT copia il modello della chiave Azure in `%LOCALAPPDATA%\JTools`. Da sorgente (`JT.py`) non cambia nulla:
 tutto resta nella cartella del progetto (`Data\`, `Logs\`). La scelta e' in `Paths` (`jt\config.py`).
