@@ -28,8 +28,9 @@ class ToolBar(tk.Frame):
 
     OPEN, CLOSED = '▾', '▸'
 
-    def __init__(self, parent, tools, problems, on_select, on_toggle):
+    def __init__(self, parent, tools, problems, on_select, on_toggle, collapsible=True):
         super().__init__(parent, bg=PALETTE['bg'])
+        self.collapsible = collapsible               # False: niente freccia, la riga delle schede resta sempre aperta
         self.on_select, self.on_toggle = on_select, on_toggle
         self.expanded = True
         self.tabs, self.lines, self.tips = {}, {}, []
@@ -42,6 +43,8 @@ class ToolBar(tk.Frame):
                               cursor='hand2', takefocus=True, highlightthickness=1, highlightbackground=PALETTE['bg'],
                               highlightcolor=PALETTE['accent'])
         self.arrow.pack(side='left', padx=(0, px(6)))
+        if not collapsible:
+            self.arrow.pack_forget()
         self.arrow.config(pady=0)
         self.arrow.bind('<Button-1>', self.toggle)
         for key in ('<Return>', '<space>'):
@@ -93,7 +96,7 @@ class ToolBar(tk.Frame):
     # ------------------------------------------------------------------ nascondere
 
     def collapse(self, _event=None):
-        if not self.expanded:
+        if not self.expanded or not self.collapsible:
             return
         self.expanded = False
         self.arrow.config(text=self.CLOSED)
@@ -123,7 +126,8 @@ class ToolsScreen(ttk.Frame):
         self.problems = {tool.name: app.tool_problem(tool) for tool in self.tools}      # nome -> perche' e' spento
         self.selected = None               # il nome dello strumento mostrato
         self.wrap = _WrapAll(self)
-        self.menu = ToolBar(self, self.tools, self.problems, self._clicked, lambda: app.fit_window())
+        self.menu = ToolBar(self, self.tools, self.problems, self._clicked, lambda: app.fit_window(),
+                            collapsible=app.settings.preferences().get('tools_bar', 'collapsible'))
         self.menu.pack(fill='x', padx=px(20), pady=(0, px(3)))          # lo stesso margine ai lati delle schermate
         self.content = ttk.Frame(self)
         self.content.pack(fill='both', expand=True)

@@ -51,6 +51,7 @@ def make_paths(tmp):
     shutil.copytree(os.path.join(ROOT, 'Data'), os.path.join(tmp, 'Data'), ignore=shutil.ignore_patterns('connections'))
     paths = Paths(tmp)
     write_json(paths.azure, FAKE_AZURE)
+    write_json(paths.preferences, {})                  # le preferenze di prova sono quelle predefinite, non il modello del pacchetto
     write_json(paths.connection, FAKE_CONNECTION)
     write_json(paths.query, {'linput': 'Italian', 'loutput': 'German', 'table': 'JFX: Strings'})
     return paths

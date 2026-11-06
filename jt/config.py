@@ -5,7 +5,7 @@ import sys
 from dataclasses import dataclass
 
 APP_TITLE = 'JTools'
-VERSION = '3.3'
+VERSION = '3.4'
 
 KEY_CONTACT = 'Kseniia Hrytskova'   # a chi chiedere il file della chiave Azure (si dice nel messaggio senza chiave)
 USER_FOLDER = 'JTools'          # la cartella dei dati dell'utente in %LOCALAPPDATA% (fino alla 3.3 si chiamava 'JT')

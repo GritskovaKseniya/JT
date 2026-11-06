@@ -222,6 +222,7 @@ Se vuoi cambiare quali strumenti si vedono, in che ordine e qualche predefinito,
 | `"names": {"sort": "CAMPO_LOGICO", "descending": false, "hide_columns": ["DECIMALI"]}` | Ordine dei campi e colonne nascoste (Copy all copia comunque tutto). |
 | `"indexes": {"expand_all": true}` | Gli indici si aprono mostrando le colonne. |
 | `"indexes": {"follow_names": false}` | Aprendo Indexes non si mostra da solo la tabella cercata in Names (di partenza si mostra, senza metterla nella storia di Indexes). |
+| `"tools_bar": {"collapsible": false}` | Toglie la freccia: la riga delle schede non si puo' chiudere e resta sempre aperta (di partenza si puo' chiudere). |
 | `"tools_bar": {"collapse_on_select": true}` | Scelto uno strumento, la riga delle schede si chiude e resta solo il suo nome (si riapre con la freccia a sinistra). `false` la lascia sempre aperta. |
 | `"history": {"max": 50}` | Quante ricerche di tabelle si ricordano (per database). |
 

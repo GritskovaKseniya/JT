@@ -1,7 +1,8 @@
 {
     "_help": "Preferenze di visualizzazione, da modificare a mano; valori mancanti o sbagliati = predefinito. Si possono commentare righe con // : togliere uno strumento da order tools lo nasconde (si rilegge a ogni uso: dopo aver cambiato order tools basta ripassare da New connection).",
-    "order tools": ["strings", "tecsql", "names", "indexes"],
-    "default_tool": "strings",
+    "order tools": ["tecsql", "names", "indexes"],
+    //"strings"
+    "default_tool": "tecsql",
     "tecsql": {
         "strip_parameters": false
     },
@@ -12,12 +13,9 @@
     },
     "indexes": {
         "expand_all": false,
-        "follow_names": true
+        "follow_names": false
     },
     "tools_bar": {
-        "collapse_on_select": true
-    },
-    "history": {
-        "max": 50
+        "collapsible": false
     }
 }

@@ -3909,6 +3909,23 @@ class PreferencesFileTests(NamesToolsCase):
         shell.menu.on_select('names')                                      # riaperta a mano, si richiude alla prossima scelta
         self.assertFalse(shell.menu.expanded)
 
+    def test_the_tabs_bar_can_be_made_not_collapsible_from_the_preferences(self):
+        self.prefer(tools_bar={'collapsible': False})
+        self.open('names')
+        shell = self.app.screen
+        self.assertEqual(shell.menu.arrow.winfo_manager(), '')                 # niente freccia
+        shell.menu.collapse()
+        shell.menu.arrow.event_generate('<Button-1>')
+        shell.menu.on_select('indexes')                                        # nemmeno scegliendo uno strumento
+        self.assertEqual(shell.selected, 'indexes')
+        self.assertTrue(shell.menu.expanded)
+
+    def test_the_tabs_bar_is_collapsible_by_default_with_an_arrow(self):
+        self.open('names')
+        shell = self.app.screen
+        self.assertTrue(shell.menu.collapsible)
+        self.assertEqual(shell.menu.arrow.winfo_manager(), 'pack')
+
     def test_the_tabs_bar_can_stay_open_from_the_preferences(self):
         self.prefer(tools_bar={'collapse_on_select': False})
         self.open('names')
