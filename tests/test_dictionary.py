@@ -43,9 +43,36 @@ class DictionaryLoadTests(unittest.TestCase):
         rows = dictionary.read_rows(FakeDb())
         self.assertEqual(rows[0], {'TABELLA_FISICA': 'GD_LIRIG', 'CAMPO_FISICO': 'LIRIG_LICOD',
                                    'TABELLA_LOGICA': 'RigaListino', 'CAMPO_LOGICO': 'CodListino', 'TIPO': 'C',
-                                   'AMPIEZZA': 10, 'DECIMALI': 0})
+                                   'AMPIEZZA': 10, 'DECIMALI': 0, 'POSIZ_DB': ''})
         self.assertEqual(rows[2]['CAMPO_FISICO'], '')
         self.assertEqual((rows[2]['TIPO'], rows[2]['AMPIEZZA'], rows[2]['DECIMALI']), ('', '', ''))
+
+    def test_the_position_of_the_field_in_the_database_is_read(self):
+        rows = dictionary.read_rows(FakeDb(rows=[('GD_LIRIG', 'LIRIG_LICOD', 'RigaListino', 'CodListino', 'C', 10, 0, 7),
+                                                 ('GD_LIRIG', 'LIRIG_PREZO', 'RigaListino', 'Prezzo', 'N', 15, 4, None)]))
+        self.assertEqual([r['POSIZ_DB'] for r in rows], [7, ''])
+        self.assertIn('DBPOSITION', dictionary.FIELDS_SQL)
+
+    def test_without_the_position_column_the_dictionary_still_loads(self):
+        class OldDb(FakeDb):
+            def fetch_all(self, sql, binds=None):
+                self.queries.append(sql)
+                if 'DBPOSITION' in sql:
+                    raise RuntimeError('ORA-00904: invalid identifier')
+                return list(self.rows)
+        db = OldDb()
+        rows = dictionary.read_rows(db)
+        self.assertEqual(len(rows), 3)
+        self.assertEqual({r['POSIZ_DB'] for r in rows}, {''})
+        self.assertEqual(len(db.queries), 2)                                  # prima con la posizione, poi senza
+
+    def test_a_real_error_is_still_an_error(self):
+        class BrokenDb(FakeDb):
+            def fetch_all(self, sql, binds=None):
+                raise RuntimeError('ORA-00942: table or view does not exist')
+        with self.assertRaises(RuntimeError) as caught:
+            dictionary.read_rows(BrokenDb())
+        self.assertIn('ORA-00942', str(caught.exception))
 
     def test_load_returns_a_dictionary_with_the_maps_the_rows_and_the_translators(self):
         d = dictionary.load(FakeDb())

@@ -177,13 +177,19 @@ def best_field_matches(rows, text, max_results=MAX_SUGGESTIONS):
 
 
 def sort_key(column, value):
-    """Per ordinare le colonne dei risultati: AMPIEZZA e DECIMALI come numeri (i '-' in fondo), il resto come testo."""
-    if column in ('AMPIEZZA', 'DECIMALI'):
+    """Per ordinare le colonne dei risultati: AMPIEZZA, DECIMALI e POSIZ_DB come numeri (i '-' e i vuoti in fondo), il resto come testo."""
+    if column in ('AMPIEZZA', 'DECIMALI', 'POSIZ_DB'):
         try:
             return (0, float(value))
         except (TypeError, ValueError):
             return (1, 0.0)
     return (0, str(value if value is not None else '').lower())
+
+
+def default_order(rows):
+    """L'ordine di partenza dei campi di una tabella, come nei descrittori: per descrittore (nome logico della tabella) e, dentro
+    ognuno, per posizione nel database ("Posiz. DB"); chi non ha la posizione in fondo, nell'ordine di prima."""
+    return sorted(rows, key=lambda row: (str(row.get('TABELLA_LOGICA') or '').lower(), sort_key('POSIZ_DB', row.get('POSIZ_DB'))))
 
 
 def tsv(rows, columns=FIELD_COLUMNS):

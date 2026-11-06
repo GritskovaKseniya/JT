@@ -41,7 +41,7 @@ SCHEMA = {
     # TYPE, WIDTH e DECIMALS sono testo.
     'FW_TABLES': 'tablename VARCHAR2(30) NOT NULL, tabledbname VARCHAR2(30)',
     'FW_TABLE_FIELDS': 'tablename VARCHAR2(30) NOT NULL, tablefieldname VARCHAR2(30) NOT NULL, dbfieldname VARCHAR2(30), '
-                       'type VARCHAR2(10), width VARCHAR2(5), decimals VARCHAR2(2)',
+                       'type VARCHAR2(10), width VARCHAR2(5), decimals VARCHAR2(2), dbposition NUMBER(5)',
 }
 DICTIONARY_TABLES = ('FW_TABLES', 'FW_TABLE_FIELDS')      # non si traducono: sono il dizionario dei nomi
 # le varianti delle opzioni differiscono solo per il codice: CHAR(1), VARCHAR2(2), VARCHAR2(3), NUMBER(5) (letto da un Oracle vero)
@@ -134,13 +134,13 @@ def _data():
     data['FW_TABLES'] = [('RigaListino', 'GD_LIRIG'), ('TestataListino', 'GD_LITES'), ('Articolo', 'MD_ARTI'),
                          ('ArticoloEsteso', 'MD_ARTI')]
     data['FW_TABLE_FIELDS'] = [
-        ('RigaListino', 'CodListino', 'LIRIG_LICOD', 'C', '10', '0'), ('RigaListino', 'CatListino', 'LIRIG_CATLI', 'C', '2', '0'),
-        ('RigaListino', 'CodArticolo', 'LIRIG_ARTCO', 'C', '20', '0'), ('RigaListino', 'Prezzo', 'LIRIG_PREZO', 'N', '15', '4'),
-        ('TestataListino', 'Codice', 'LITES_LICOD', 'C', '10', '0'), ('TestataListino', 'CodCategoria', 'LITES_CATLI', 'C', '2', '0'),
-        ('TestataListino', 'Descrizione', 'LITES_DESCR', 'C', '50', '0'),
-        ('Articolo', 'Codice', 'ARTI_ARTCO', 'C', '20', '0'), ('Articolo', 'Descrizione', 'ARTI_DESCR', 'C', '50', '0'),
-        ('ArticoloEsteso', 'Codice', 'ARTI_ARTCO', 'C', '20', '0'), ('ArticoloEsteso', 'Descrizione', 'ARTI_DESCR', 'C', '50', '0'),
-        ('ArticoloEsteso', 'Prezzo', 'ARTI_PREZO', 'N', '15', '4'),
+        ('RigaListino', 'CodListino', 'LIRIG_LICOD', 'C', '10', '0', 1), ('RigaListino', 'CatListino', 'LIRIG_CATLI', 'C', '2', '0', 2),
+        ('RigaListino', 'CodArticolo', 'LIRIG_ARTCO', 'C', '20', '0', 3), ('RigaListino', 'Prezzo', 'LIRIG_PREZO', 'N', '15', '4', 4),
+        ('TestataListino', 'Codice', 'LITES_LICOD', 'C', '10', '0', 1), ('TestataListino', 'CodCategoria', 'LITES_CATLI', 'C', '2', '0', 2),
+        ('TestataListino', 'Descrizione', 'LITES_DESCR', 'C', '50', '0', 3),
+        ('Articolo', 'Codice', 'ARTI_ARTCO', 'C', '20', '0', 1), ('Articolo', 'Descrizione', 'ARTI_DESCR', 'C', '50', '0', 2),
+        ('ArticoloEsteso', 'Codice', 'ARTI_ARTCO', 'C', '20', '0', 1), ('ArticoloEsteso', 'Descrizione', 'ARTI_DESCR', 'C', '50', '0', 2),
+        ('ArticoloEsteso', 'Prezzo', 'ARTI_PREZO', 'N', '15', '4', 3),
     ]
     return data
 

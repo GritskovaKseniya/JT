@@ -7,22 +7,28 @@ from tkinter import ttk
 from .. import names
 from .scale import px
 from .theme import FONT, PALETTE
-from .widgets import TreeBox
+from .widgets import PopupMenu, ToolTip, TreeBox, icon_button
 
 BADGES = {names.STARTS_WITH: 'starts with', names.CONTAINS: 'contains', names.FUZZY: 'similar'}
 SUGGESTION_ROWS = 5
+HISTORY_ROWS = 15                          # le voci della storia nella lista (le piu' recenti)
 
 
 class TablePicker(ttk.Frame):
     """`dictionary()` ritorna il Dictionary corrente (o None); `on_pick(TableMatch)` si chiama con la tabella scelta;
-    `on_message(stato, testo)` per dire cosa e' successo (non trovata, suggerimenti...); `history()` i nomi fisici delle ultime
-    tabelle cercate (per il menu); `on_suggest()` quando compaiono i suggerimenti (la sezione che li contiene si apre)."""
+    `on_message(stato, testo)` per dire cosa e' successo (non trovata, suggerimenti...); `history()` ritorna la SearchHistory del
+    database (il menu mostra quello che hai cercato: tutto, oppure solo quello che contiene il testo se hai scritto qualcosa di nuovo);
+    `fields()` i campi scritti accanto (Names: fanno parte della ricerca ricordata) e `on_restore(voce)` per rimetterli quando si
+    sceglie una voce; `on_suggest()` quando compaiono i suggerimenti (la sezione che li contiene si apre)."""
 
     def __init__(self, parent, dictionary, on_pick, on_message, history=None, button_text='Search', on_layout=None,
-                 on_suggest=None, label='Table'):
+                 on_suggest=None, label='Table', icon='search', fields=None, on_restore=None):
         super().__init__(parent)
         self.dictionary, self.on_pick, self.on_message = dictionary, on_pick, on_message
-        self.history = history or (lambda: [])
+        self.history = history
+        self.fields = fields or (lambda: '')
+        self.on_restore = on_restore or (lambda entry: None)
+        self._shown = []                            # le voci della storia nel menu, nell'ordine mostrato
         self.on_layout = on_layout or (lambda: None)
         self.on_suggest = on_suggest or (lambda: None)
         self.suggestions = []                       # i TableMatch mostrati
@@ -31,12 +37,16 @@ class TablePicker(ttk.Frame):
         row = tk.Frame(self, bg=PALETTE['bg'])
         row.pack(fill='x')
         tk.Label(row, text=label, bg=PALETTE['bg'], fg=PALETTE['text'], font=(FONT, 9), width=7, anchor='w').pack(side='left')
-        self.entry = ttk.Combobox(row, textvariable=self.var, width=1)      # si scrive; il menu ha le ultime cercate
+        self.entry = ttk.Combobox(row, textvariable=self.var, width=1, postcommand=self._open_list)   # si scrive; il menu ha le ultime cercate
         self.entry.pack(side='left', fill='x', expand=True)
-        self.button = ttk.Button(row, text=button_text, style='Small.Primary.TButton', command=self.search)
-        self.button.pack(side='left', padx=(px(6), 0))
+        self.button = icon_button(row, icon, self.search)
+        self.button.box.pack(side='left', padx=(px(6), 0))
+        ToolTip(self.button, {'title': button_text, 'intro': 'Or press Enter.'})
         self.entry.bind('<Return>', lambda _e: self.search())
-        self.entry.bind('<<ComboboxSelected>>', lambda _e: self.search())
+        self.entry.bind('<<ComboboxSelected>>', self._chosen)
+        self.menu_button = icon_button(row, 'history', self._history_menu)
+        self.menu_button.box.pack(side='left', padx=(px(2), 0))
+        ToolTip(self.menu_button, {'title': 'History', 'intro': 'Remove the search you typed from the history, or clear it.'})
         self.refresh_history()
 
         self.box = tk.Frame(self, bg=PALETTE['bg'], highlightthickness=1, highlightbackground=PALETTE['border'])
@@ -61,8 +71,64 @@ class TablePicker(ttk.Frame):
         self.list.bind('<Double-Button-1>', self._choose)
         self.list.bind('<Return>', self._choose)
 
-    def refresh_history(self):
-        self.entry.config(values=list(self.history()))
+    # ----------------------------------------------------------------------------------------------- storia
+
+    def refresh_history(self, typed=''):
+        """Il menu della casella: le ricerche passate (le piu' recenti per prime) che contengono `typed` (tutte se e' vuoto)."""
+        self._shown = self.history().matching(typed) if self.history else []
+        self.entry.config(values=[self.history().label(e) for e in self._shown])
+
+    def _open_list(self):
+        """Si apre il menu: tutta la storia, a meno che nella casella ci sia un testo nuovo (allora solo quello che lo contiene)."""
+        typed = self.value()
+        known = self.history and any(e['text'].casefold() == typed.casefold() for e in self.history().entries())
+        self.refresh_history('' if known else typed)
+
+    def _chosen(self, _event=None):
+        """Scelta una voce del menu: si rimettono il testo e i campi di allora e si cerca."""
+        index = self.entry.current()
+        if 0 <= index < len(self._shown):
+            self._restore(self._shown[index])
+        else:
+            self.search()
+
+    def _history_menu(self):
+        """La lista della storia (le ricerche recenti per prime): un clic ne rifa' una, la crocetta la toglie (e la lista si riapre per
+        toglierne altre), "Clear history" svuota tutto. Con la storia vuota non c'e' niente da scegliere: solo un avviso."""
+        entries = self.history().entries()
+        if not entries:
+            self.on_message('info', 'The history is empty.')
+            return
+        items = [(self.history().label(e), lambda e=e: self._restore(e), True, lambda e=e: self._forget(e))
+                 for e in entries[:HISTORY_ROWS]]
+        if len(entries) > HISTORY_ROWS:
+            items.append((f'... and {len(entries) - HISTORY_ROWS} older', lambda: None, False))
+        items += [('-', None, False), ('Clear history', self.clear_history, True)]
+        self.menu = PopupMenu(self.menu_button.box, items)
+
+    def _restore(self, entry):
+        """Si rifa' una ricerca della storia: il testo, i campi di allora e la ricerca."""
+        self.var.set(entry['text'])
+        self.on_restore(entry)
+        self.search()
+
+    def _forget(self, entry):
+        self.history().remove(entry['text'], entry['fields'])
+        self.refresh_history()
+        self.on_message('info', f'"{self.history().label(entry)}" removed from the history.')
+        if self.history().entries():
+            self.after(1, self._history_menu)
+
+    def remove_current(self):
+        text, fields = self.value(), self.fields()
+        self.history().remove(text, fields)
+        self.refresh_history()
+        self.on_message('info', f'"{text} \u00b7 {fields}" removed from the history.' if fields else f'"{text}" removed from the history.')
+
+    def clear_history(self):
+        self.history().clear()
+        self.refresh_history()
+        self.on_message('info', 'History cleared.')
 
     # ------------------------------------------------------------------------------------------------------ ricerca
 

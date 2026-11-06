@@ -9,10 +9,12 @@ from .tecsql_translator import Dictionary
 TABLES = ('FW_TABLES', 'FW_TABLE_FIELDS')              # le tabelle che il dizionario richiede
 
 FIELDS_SQL = """
-    SELECT TAB.TABLEDBNAME, FIE.DBFIELDNAME, TAB.TABLENAME, FIE.TABLEFIELDNAME, FIE.TYPE, FIE.WIDTH, FIE.DECIMALS
+    SELECT TAB.TABLEDBNAME, FIE.DBFIELDNAME, TAB.TABLENAME, FIE.TABLEFIELDNAME, FIE.TYPE, FIE.WIDTH, FIE.DECIMALS, FIE.DBPOSITION
     FROM FW_TABLES TAB
     JOIN FW_TABLE_FIELDS FIE ON (FIE.TABLENAME = TAB.TABLENAME)
 """
+# senza la posizione del campo nel database (se quella colonna non si legge): il dizionario funziona uguale, solo senza "Pos."
+FIELDS_SQL_NO_POSITION = FIELDS_SQL.replace(', FIE.DBPOSITION', '')
 
 _cache = {'key': None, 'dictionary': None}
 
@@ -24,9 +26,19 @@ def connection_key(db):
 
 
 def read_rows(db):
-    """Le righe del dizionario come le vuole `Dictionary.update` (un dict per campo)."""
+    """Le righe del dizionario come le vuole `Dictionary.update` (un dict per campo). `POSIZ_DB` e' la posizione del campo nella
+    tabella del database (DBPOSITION, la "Posiz. DB" dei descrittori); se non si legge resta vuota."""
+    try:
+        fetched = db.fetch_all(FIELDS_SQL)
+    except Exception as first:
+        try:
+            fetched = db.fetch_all(FIELDS_SQL_NO_POSITION)
+        except Exception:
+            raise first
     rows = []
-    for physical_table, physical_field, logical_table, logical_field, kind, width, decimals in db.fetch_all(FIELDS_SQL):
+    for record in fetched:
+        physical_table, physical_field, logical_table, logical_field, kind, width, decimals = record[:7]
+        position = record[7] if len(record) > 7 else None
         rows.append({
             'TABELLA_FISICA': physical_table or '',
             'CAMPO_FISICO': physical_field or '',
@@ -35,6 +47,7 @@ def read_rows(db):
             'TIPO': kind or '',
             'AMPIEZZA': width if width is not None else '',
             'DECIMALI': decimals if decimals is not None else '',
+            'POSIZ_DB': position if position is not None else '',
         })
     return rows
 

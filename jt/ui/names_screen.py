@@ -12,7 +12,7 @@ from .texts import shorten
 from .theme import FONT, PALETTE
 from .widgets import Collapsible, StatusBar, ToolTip, WrapTracker
 
-FIELD_TABLE_COLUMNS = (('CAMPO_FISICO', 'Physical field', 130, False), ('CAMPO_LOGICO', 'Logical field', 130, False),
+FIELD_TABLE_COLUMNS = (('POSIZ_DB', 'Pos.', 40, True), ('CAMPO_FISICO', 'Physical field', 130, False), ('CAMPO_LOGICO', 'Logical field', 130, False),
                        ('TIPO', 'Type', 45, False), ('AMPIEZZA', 'Width', 55, True), ('DECIMALI', 'Dec.', 45, True))
 LOGICAL_TABLE_COLUMN = ('TABELLA_LOGICA', 'Logical table', 110, False)
 HINT = 'Type a table name (physical like MD_ARTI or logical like Articolo) and press Search.'
@@ -31,7 +31,8 @@ class NamesScreen(ttk.Frame):
         self.search_section, card = self._section('SEARCH', first=True)
         self.bar = DictionaryBar(self.search_section.extra, app, self.message)
         self.bar.pack()
-        self.picker = TablePicker(card, self.bar.get, self.show_table, self.message, history=self._history,
+        self.picker = TablePicker(card, self.bar.get, self.show_table, self.message, history=lambda: app.searches('names'),
+                                  fields=lambda: self.fields_text(), on_restore=self._restore_fields,
                                   on_layout=lambda: app.fit_window(),
                                   on_suggest=lambda: self.search_section.expand(notify=False))
         self.picker.pack(fill='x')
@@ -70,10 +71,12 @@ class NamesScreen(ttk.Frame):
     def message(self, state, text):
         self.status.show(state, text)
 
-    def _history(self):
-        return [h['fisico'] for h in self.app.settings.search_history()]
-
     # ---------------------------------------------------------------------------------------------------- ricerca
+
+    def _restore_fields(self, entry):
+        """Scelta una ricerca della storia: i campi chiesti allora tornano nella casella."""
+        self.fields.delete(0, 'end')
+        self.fields.insert(0, entry.get('fields', ''))
 
     def fields_text(self):
         return self.fields.get().strip()
@@ -86,11 +89,15 @@ class NamesScreen(ttk.Frame):
         dictionary = self.bar.get()
         rows = names.table_rows(dictionary, table)
         results = names.search_fields(rows, self.fields_text())
+        if not self.fields_text():                           # tutti i campi: nell'ordine dei descrittori (Posiz. DB); se ne chiedi alcuni, come scritti
+            results = names.default_order(results)
         self.table = table
         logicals = {r.get('TABELLA_LOGICA') for r in results}
         preferences = self.app.settings.preferences()
         hidden = preferences.names_hidden()
         columns = [c for c in FIELD_TABLE_COLUMNS if c[0] not in hidden]
+        if not any(r.get('POSIZ_DB') not in (None, '') for r in results):            # senza posizioni (database vecchio) niente colonna
+            columns = [c for c in columns if c[0] != 'POSIZ_DB']
         if len(logicals) > 1:                               # piu' descrittori della stessa tabella: si dice di quale e' ogni campo
             columns.insert(0, LOGICAL_TABLE_COLUMN)
         self.grid.set_columns(columns)
@@ -109,7 +116,7 @@ class NamesScreen(ttk.Frame):
         self.result_section.expand(notify=False)
         self.app.current_table = {'physical': table.physical, 'logical': table.logical}
         if table.physical != names.VIRTUAL:
-            self.app.settings.add_search(table.physical, table.logical)
+            self.app.searches('names').add(self.picker.value(), table.physical, table.logical, self.fields_text())
             self.picker.refresh_history()
         if missing:
             self.message('warn', f'{missing} of the requested fields were not found (red).')

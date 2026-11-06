@@ -18,7 +18,7 @@ CACHE = os.path.join(ROOT, 'tools', 'fw_dictionary.json')
 # le colonne che JT legge, nell'ordine dello schema di prova (vedi create_test_db.py)
 SELECTS = {
     'FW_TABLES': 'SELECT tablename, tabledbname FROM FW_TABLES ORDER BY tablename',
-    'FW_TABLE_FIELDS': ('SELECT tablename, tablefieldname, dbfieldname, type, width, decimals FROM FW_TABLE_FIELDS '
+    'FW_TABLE_FIELDS': ('SELECT tablename, tablefieldname, dbfieldname, type, width, decimals, dbposition FROM FW_TABLE_FIELDS '
                         'ORDER BY tablename, tablefieldname'),
 }
 # gli indici (viste di Oracle) delle tabelle fisiche del dizionario: per lo strumento Indexes. Se non si leggono si salta.

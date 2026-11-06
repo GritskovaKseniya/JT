@@ -21,14 +21,15 @@ class IndexesScreen(ttk.Frame):
         self.wrap = WrapTracker()
         self.table = None                            # il nome fisico mostrato
         self.indexes, self.columns = [], []
+        self._from_names = False                     # True mentre si mostra la tabella arrivata da Names (non e' una ricerca di Indexes)
         self.summary_text = ''
         self.status = StatusBar(self, HINT, on_change=lambda: app.fit_window(), compact=True)
 
         self.table_section, card = self._section('TABLE', first=True)
         self.bar = DictionaryBar(self.table_section.extra, app, self.message)
         self.bar.pack()
-        self.picker = TablePicker(card, self.bar.get, self.show_table, self.message, button_text='Show',
-                                  history=lambda: [h['fisico'] for h in app.settings.search_history()],
+        self.picker = TablePicker(card, self.bar.get, self.show_table, self.message, button_text='Show', icon='send',
+                                  history=lambda: app.searches('indexes'),
                                   on_layout=lambda: app.fit_window(),
                                   on_suggest=lambda: self.table_section.expand(notify=False))
         self.picker.pack(fill='x')
@@ -70,11 +71,18 @@ class IndexesScreen(ttk.Frame):
         self.status.show(state, text)
 
     def on_show(self):
-        """Si e' aperta la scheda: se in Names si e' cercata un'altra tabella, si mostrano i suoi indici."""
+        """Si e' aperta la scheda: se in Names si e' cercata un'altra tabella, si mostrano i suoi indici (si puo' spegnere in
+        preferences.json: "indexes": {"follow_names": false}). Non e' una ricerca fatta qui: non entra nella storia di Indexes."""
         current = getattr(self.app, 'current_table', None)
+        if not self.app.settings.preferences().get('indexes', 'follow_names'):
+            return
         if current and current['physical'] != names.VIRTUAL and current['physical'] != self.table:
             self.picker.set_value(current['physical'])
-            self.picker.search()
+            self._from_names = True
+            try:
+                self.picker.search()
+            finally:
+                self._from_names = False
 
     def show_table(self, table):
         """Legge e mostra gli indici di una tabella trovata."""
@@ -91,6 +99,9 @@ class IndexesScreen(ttk.Frame):
         finally:
             self.app.set_busy(False)
         self.table = table.physical
+        if not self._from_names:                            # solo quello che si cerca qui resta nella storia
+            self.app.searches('indexes').add(self.picker.value(), table.physical, table.logical)
+            self.picker.refresh_history()
         self._render()
         if self.app.settings.preferences().get('indexes', 'expand_all'):
             self.expand_all()

@@ -33,13 +33,15 @@ class DataTable(ttk.Frame):
         self.columns = list(columns)
         self.tree.config(columns=[c[0] for c in self.columns])
         for key, title, width, right in self.columns:
-            self.tree.heading(key, text=title, anchor='w', command=lambda k=key: self.sort_by(k))
-            self.tree.column(key, width=px(width), minwidth=px(40), stretch=False, anchor='e' if right else 'w')
+            self.tree.heading(key, text=title, anchor='e' if right else 'w', command=lambda k=key: self.sort_by(k))   # sopra le cifre
+            # l'ultima colonna riempie lo spazio che resta: anche a tabella vuota l'intestazione arriva fino in fondo
+            self.tree.column(key, width=px(width), minwidth=px(40), stretch=key == self.columns[-1][0], anchor='e' if right else 'w')
 
     def set_rows(self, rows):
         """Mostra queste righe (e toglie l'ordinamento). Le colonne si allargano a quello che contengono, fino a un massimo: il
         resto si vede scorrendo (la tabella non allarga mai la finestra)."""
         self.rows = list(rows)
+        self.unsorted = list(self.rows)               # l'ordine di partenza: ci si torna col terzo clic sulla colonna
         self.sorted_by = None
         self.box.fit_columns([(key, title) for key, title, *_ in self.columns], self.rows)
         self._render()
@@ -59,8 +61,13 @@ class DataTable(ttk.Frame):
             self.tree.heading(key, text=title + mark)
 
     def sort_by(self, key, ascending=None):
-        """Ordina per questa colonna; un secondo clic sulla stessa inverte l'ordine (o il verso e' dato)."""
+        """Ordina per questa colonna: il primo clic in ordine crescente, il secondo decrescente, il terzo toglie l'ordinamento e torna
+        all'ordine di partenza (o il verso e' dato)."""
         if ascending is None:
+            if self.sorted_by and self.sorted_by[0] == key and not self.sorted_by[1]:
+                self.rows, self.sorted_by = list(self.unsorted), None
+                self._render()
+                return
             ascending = not (self.sorted_by and self.sorted_by[0] == key and self.sorted_by[1])
         self.rows.sort(key=lambda row: names.sort_key(key, row.get(key)), reverse=not ascending)
         self.sorted_by = (key, ascending)
